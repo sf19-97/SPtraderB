@@ -1,0 +1,277 @@
+// src/components/AdaptiveChart.tsx
+import React, { useEffect, useRef, useState } from 'react';
+import { createChart, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { invoke } from '@tauri-apps/api/core';
+
+interface ChartData {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+const TIMEFRAMES = ['5m', '15m', '1h', '4h', '12h'];
+const MIN_CANDLE_WIDTH = 5;
+const MAX_CANDLE_WIDTH = 30;
+
+export const AdaptiveChart: React.FC = () => {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  
+  const [currentTimeframe, setCurrentTimeframe] = useState('1h');
+  const [isLoading, setIsLoading] = useState(false);
+  const [crosshairPosition, setCrosshairPosition] = useState<any>(null);
+
+  useEffect(() => {
+    if (chartContainerRef.current && !chartRef.current) {
+      initializeChart();
+    }
+    
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.remove();
+      }
+    };
+  }, []);
+
+  const initializeChart = () => {
+    const chart = createChart(chartContainerRef.current!, {
+      layout: {
+        background: { color: '#1a1a1a' },
+        textColor: '#ffffff',
+      },
+      grid: {
+        vertLines: { color: '#2B2B43' },
+        horzLines: { color: '#2B2B43' },
+      },
+      crosshair: {
+        mode: 0,
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        barSpacing: 15,
+        rightOffset: 12,
+      },
+    });
+
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: '#00ff88',
+      downColor: '#ff4976',
+      borderUpColor: '#00ff88',
+      borderDownColor: '#ff4976',
+      wickUpColor: '#00ff88',
+      wickDownColor: '#ff4976',
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = candlestickSeries;
+
+    // Set up adaptive zoom
+    setupAdaptiveZoom(chart);
+    
+    // Load initial data
+    loadChartData(currentTimeframe);
+  };
+
+  const setupAdaptiveZoom = (chart: IChartApi) => {
+    let zoomTimeout: number | null = null;
+    
+    // Track crosshair for anchored zooming
+    chart.subscribeCrosshairMove((param) => {
+      if (param.time) {
+        setCrosshairPosition({
+          time: param.time,
+          logical: param.logical,
+        });
+      }
+    });
+
+    // Handle visible range changes
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range) return;
+
+      if (zoomTimeout) clearTimeout(zoomTimeout);
+      
+      zoomTimeout = setTimeout(() => {
+        handleAdaptiveTimeframeSwitch(range);
+      }, 200);
+    });
+
+    // Handle wheel events for smooth zooming
+    const chartElement = chart.chartElement();
+    chartElement.addEventListener('wheel', (event) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        handlePixelBasedZoom(event, chart);
+      }
+    });
+  };
+
+  const handleAdaptiveTimeframeSwitch = async (visibleRange: any) => {
+    const chartWidth = chartContainerRef.current!.clientWidth;
+    const visibleBars = visibleRange.to - visibleRange.from;
+    const candleWidth = chartWidth / visibleBars;
+
+    // Determine optimal timeframe based on candle width
+    let targetTimeframe = currentTimeframe;
+    
+    if (candleWidth < MIN_CANDLE_WIDTH) {
+      // Too zoomed out - switch to higher timeframe
+      const currentIndex = TIMEFRAMES.indexOf(currentTimeframe);
+      if (currentIndex < TIMEFRAMES.length - 1) {
+        targetTimeframe = TIMEFRAMES[currentIndex + 1];
+      }
+    } else if (candleWidth > MAX_CANDLE_WIDTH) {
+      // Too zoomed in - switch to lower timeframe
+      const currentIndex = TIMEFRAMES.indexOf(currentTimeframe);
+      if (currentIndex > 0) {
+        targetTimeframe = TIMEFRAMES[currentIndex - 1];
+      }
+    }
+
+    if (targetTimeframe !== currentTimeframe) {
+      setCurrentTimeframe(targetTimeframe);
+      await transitionToTimeframe(targetTimeframe, visibleRange);
+    }
+  };
+
+  const transitionToTimeframe = async (newTimeframe: string, visibleRange: any) => {
+    // Calculate time range from visible logical range
+    const data = seriesRef.current!.data();
+    if (!data || data.length === 0) return;
+
+    const fromIndex = Math.max(0, Math.floor(visibleRange.from));
+    const toIndex = Math.min(data.length - 1, Math.ceil(visibleRange.to));
+    
+    const fromTime = data[fromIndex].time;
+    const toTime = data[toIndex].time;
+
+    // Load new timeframe data
+    await loadChartData(newTimeframe, { from: fromTime, to: toTime });
+
+    // Animate the transition
+    animateTimeframeChange();
+  };
+
+  const animateTimeframeChange = () => {
+    if (!chartRef.current) return;
+
+    // Add a fade effect during transition
+    const chartElement = chartRef.current.chartElement();
+    chartElement.style.transition = 'opacity 150ms ease-in-out';
+    chartElement.style.opacity = '0.7';
+
+    setTimeout(() => {
+      chartElement.style.opacity = '1';
+    }, 150);
+  };
+
+  const handlePixelBasedZoom = (event: WheelEvent, chart: IChartApi) => {
+    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+    const timeScale = chart.timeScale();
+    const currentRange = timeScale.getVisibleLogicalRange();
+    
+    if (!currentRange || !crosshairPosition) return;
+
+    // Calculate new range anchored to crosshair
+    const rangeDiff = currentRange.to - currentRange.from;
+    const newRangeDiff = rangeDiff * zoomFactor;
+    
+    const leftRatio = (crosshairPosition.logical - currentRange.from) / rangeDiff;
+    const rightRatio = (currentRange.to - crosshairPosition.logical) / rangeDiff;
+    
+    const newRange = {
+      from: crosshairPosition.logical - (newRangeDiff * leftRatio),
+      to: crosshairPosition.logical + (newRangeDiff * rightRatio),
+    };
+
+    timeScale.setVisibleLogicalRange(newRange);
+  };
+
+  const loadChartData = async (timeframe: string, timeRange?: any) => {
+    setIsLoading(true);
+    
+    try {
+      const now = Date.now() / 1000;
+      const from = timeRange?.from || now - 86400 * 30; // Default 30 days
+      const to = timeRange?.to || now;
+
+      const data = await invoke<ChartData[]>('fetch_candles', {
+        request: {
+          symbol: 'EURUSD',
+          timeframe,
+          from,
+          to,
+        },
+      });
+
+      const formattedData = data.map(candle => ({
+        time: candle.time as any,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }));
+
+      seriesRef.current!.setData(formattedData);
+      
+      // Preload adjacent timeframes
+      preloadAdjacentTimeframes(timeframe, { from, to });
+      
+    } catch (error) {
+      console.error('Failed to load chart data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const preloadAdjacentTimeframes = async (currentTf: string, timeRange: any) => {
+    const currentIndex = TIMEFRAMES.indexOf(currentTf);
+    const adjacent = [
+      TIMEFRAMES[currentIndex - 1],
+      TIMEFRAMES[currentIndex + 1],
+    ].filter(Boolean);
+
+    // Preload in background
+    adjacent.forEach(tf => {
+      invoke('fetch_candles', {
+        request: {
+          symbol: 'EURUSD',
+          timeframe: tf,
+          ...timeRange,
+        },
+      }).catch(() => {}); // Ignore errors for preloading
+    });
+  };
+
+  return (
+    <div className="chart-container" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="chart-controls" style={{ padding: '10px', background: '#1a1a1a' }}>
+        <select 
+          value={currentTimeframe} 
+          onChange={(e) => {
+            setCurrentTimeframe(e.target.value);
+            loadChartData(e.target.value);
+          }}
+          style={{ marginRight: '10px' }}
+        >
+          {TIMEFRAMES.map(tf => (
+            <option key={tf} value={tf}>{tf}</option>
+          ))}
+        </select>
+        {isLoading && <span className="loading" style={{ color: '#fff' }}>Loading...</span>}
+        <span style={{ color: '#fff', marginLeft: '20px' }}>
+          Zoom with Ctrl+Scroll | Current: {currentTimeframe}
+        </span>
+      </div>
+      <div 
+        ref={chartContainerRef} 
+        className="chart-canvas" 
+        style={{ flex: 1, background: '#1a1a1a' }}
+      />
+    </div>
+  );
+};
