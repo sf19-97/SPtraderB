@@ -1,6 +1,6 @@
 // src/components/AdaptiveChart.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
 
 interface ChartData {
@@ -57,11 +57,11 @@ export const AdaptiveChart: React.FC = () => {
       },
     });
 
-    const candlestickSeries = chart.addCandlestickSeries({
+    // Use the new v5 API with addSeries
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#00ff88',
       downColor: '#ff4976',
-      borderUpColor: '#00ff88',
-      borderDownColor: '#ff4976',
+      borderVisible: false,
       wickUpColor: '#00ff88',
       wickDownColor: '#ff4976',
     });
@@ -196,17 +196,25 @@ export const AdaptiveChart: React.FC = () => {
     
     try {
       const now = Date.now() / 1000;
-      const from = timeRange?.from || now - 86400 * 30; // Default 30 days
-      const to = timeRange?.to || now;
+      // Use January 2024 data range since that's what we have
+      const from = timeRange?.from || 1704153600; // Jan 2, 2024
+      const to = timeRange?.to || 1704672000; // Jan 7, 2024
 
       const data = await invoke<ChartData[]>('fetch_candles', {
         request: {
           symbol: 'EURUSD',
           timeframe,
-          from,
-          to,
+          from: Math.floor(from),
+          to: Math.floor(to),
         },
       });
+
+      console.log('Received data:', data);
+
+      if (!data || data.length === 0) {
+        console.error('No data received');
+        return;
+      }
 
       const formattedData = data.map(candle => ({
         time: candle.time as any,
@@ -215,6 +223,8 @@ export const AdaptiveChart: React.FC = () => {
         low: candle.low,
         close: candle.close,
       }));
+
+      console.log('Formatted data:', formattedData);
 
       seriesRef.current!.setData(formattedData);
       
@@ -241,7 +251,8 @@ export const AdaptiveChart: React.FC = () => {
         request: {
           symbol: 'EURUSD',
           timeframe: tf,
-          ...timeRange,
+          from: Math.floor(timeRange.from),
+          to: Math.floor(timeRange.to),
         },
       }).catch(() => {}); // Ignore errors for preloading
     });
