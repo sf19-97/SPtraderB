@@ -1,4 +1,4 @@
-import { AdaptiveChart } from './components/AdaptiveChart';
+import { AdaptiveChart } from './components/AdaptiveChart.tsx';
 import './App.css';
 
 function App() {

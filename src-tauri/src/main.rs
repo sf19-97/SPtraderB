@@ -33,21 +33,37 @@ async fn fetch_candles(
     request: DataRequest,
     state: State<'_, AppState>,
 ) -> Result<Vec<Candle>, String> {
+    // Validate timeframe
     let table_name = match request.timeframe.as_str() {
         "5m" => "forex_candles_5m",
         "15m" => "forex_candles_15m",
         "1h" => "forex_candles_1h",
         "4h" => "forex_candles_4h",
         "12h" => "forex_candles_12h",
-        _ => return Err("Invalid timeframe".to_string()),
+        _ => return Err(format!("Invalid timeframe: {}", request.timeframe)),
     };
 
+    // CRITICAL FIX: Cast ALL NUMERIC columns to proper Rust types
     let query = format!(
-        "SELECT time, open, high, low, close, tick_count as volume FROM {} 
-         WHERE symbol = $1 AND time >= to_timestamp($2) AND time <= to_timestamp($3)
+        "SELECT 
+            time, 
+            open::FLOAT8 as open, 
+            high::FLOAT8 as high, 
+            low::FLOAT8 as low, 
+            close::FLOAT8 as close, 
+            tick_count::INT8 as volume 
+         FROM {} 
+         WHERE symbol = $1 
+           AND time >= to_timestamp($2) 
+           AND time <= to_timestamp($3)
          ORDER BY time",
         table_name
     );
+
+    // Log query for debugging
+    println!("[FETCH_CANDLES] Query: {}", query);
+    println!("[FETCH_CANDLES] Params: symbol={}, from={}, to={}", 
+             request.symbol, request.from, request.to);
 
     let pool = state.db_pool.lock().await;
     
@@ -57,7 +73,12 @@ async fn fetch_candles(
         .bind(request.to)
         .fetch_all(&*pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            eprintln!("[FETCH_CANDLES ERROR] Database error: {:?}", e);
+            format!("Database error: {}", e)
+        })?;
+
+    println!("[FETCH_CANDLES] Found {} candles", candles.len());
 
     Ok(candles
         .into_iter()
@@ -74,14 +95,21 @@ async fn fetch_candles(
 
 #[tokio::main]
 async fn main() {
+    // Enable logging for debugging
+    env_logger::init();
+    
     // Use the same connection string as your Python scripts
     let database_url = "postgresql://postgres@localhost:5432/forex_trading";
+    
+    println!("[MAIN] Connecting to database: {}", database_url);
     
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(database_url)
         .await
         .expect("Failed to connect to database");
+
+    println!("[MAIN] Database connected successfully");
 
     let app_state = AppState {
         db_pool: Arc::new(Mutex::new(pool)),
