@@ -86,22 +86,6 @@
   box-shadow: 0 0 5px #00FF00;
 }
 
-/* Glitch animation for characters */
-@keyframes glitchChar {
-  0% { 
-    transform: translateY(-2px); 
-    opacity: 0.8; 
-  }
-  50% { 
-    transform: translateY(2px); 
-    opacity: 0.6; 
-  }
-  100% { 
-    transform: translateY(0); 
-    opacity: 1; 
-  }
-}
-
 /* Remove any unwanted glitch effects from original */
 .glitch {
   display: inline-block;

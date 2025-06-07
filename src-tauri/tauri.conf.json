@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "sptraderb",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "SPTrader",
+        "width": 1200,
+        "height": 800,
+        "visible": true,
+        "fullscreen": true
       }
     ],
     "security": {

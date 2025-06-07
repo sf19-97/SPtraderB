@@ -18,11 +18,21 @@ interface ChartData {
   close: number;
 }
 
+interface AdaptiveChartProps {
+  symbol?: string;
+  timeframe?: string;
+  onTimeframeChange?: (timeframe: string) => void;
+}
+
 const TIMEFRAMES = ['5m', '15m', '1h', '4h', '12h'];
 const MIN_CANDLE_WIDTH = 5;
 const MAX_CANDLE_WIDTH = 30;
 
-export const AdaptiveChart: React.FC = () => {
+export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({ 
+  symbol = 'EURUSD',
+  timeframe = '1h',
+  onTimeframeChange 
+}) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -30,7 +40,7 @@ export const AdaptiveChart: React.FC = () => {
   
   // STATE MACHINE: Comprehensive chart state management
   const [chartState, setChartState] = useState({
-    currentTimeframe: '1h',
+    currentTimeframe: timeframe,
     isTransitioning: false,
     lastTransitionTime: 0,
     visibleRange: null as any,
@@ -65,20 +75,29 @@ export const AdaptiveChart: React.FC = () => {
     };
   }, []);
 
+  // Update timeframe when prop changes
+  useEffect(() => {
+    if (timeframe !== chartState.currentTimeframe && !chartState.isTransitioning) {
+      loadChartData(timeframe);
+    }
+  }, [timeframe]);
+
   const initializeChart = () => {
+    if (!chartContainerRef.current) return;
+
     console.log('Container dimensions:', {
-      width: chartContainerRef.current!.clientWidth,
-      height: chartContainerRef.current!.clientHeight
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight
     });
 
-    const chart = createChart(chartContainerRef.current!, {
+    const chart = createChart(chartContainerRef.current, {
       layout: {
-        background: { color: '#1a1a1a' },
+        background: { color: '#0a0a0a' },
         textColor: '#ffffff',
       },
       grid: {
-        vertLines: { color: '#2B2B43' },
-        horzLines: { color: '#2B2B43' },
+        vertLines: { color: '#1a2a3a' },
+        horzLines: { color: '#1a2a3a' },
       },
       crosshair: {
         mode: 0,
@@ -258,6 +277,11 @@ export const AdaptiveChart: React.FC = () => {
     if (targetTimeframe !== chartState.currentTimeframe) {
       console.log(`[STATE] Requesting transition: ${chartState.currentTimeframe} -> ${targetTimeframe}`);
       
+      // Notify parent component if handler provided
+      if (onTimeframeChange) {
+        onTimeframeChange(targetTimeframe);
+      }
+      
       // STATE MACHINE: Update state to indicate pending transition
       setChartState(prev => ({
         ...prev,
@@ -348,7 +372,7 @@ export const AdaptiveChart: React.FC = () => {
     timeScale.setVisibleLogicalRange(newRange);
   };
 
-  const loadChartData = async (timeframe: string, timeRange?: any) => {
+  const loadChartData = async (newTimeframe: string, timeRange?: any) => {
     // STATE MACHINE: Set transitioning flag
     setChartState(prev => ({
       ...prev,
@@ -363,19 +387,19 @@ export const AdaptiveChart: React.FC = () => {
       let to = timeRange?.to || 1717200000; // May 31, 2024 23:59:59
       
       // For 5m timeframe without specific range, limit to last 7 days
-      if (timeframe === '5m' && !timeRange) {
+      if (newTimeframe === '5m' && !timeRange) {
         console.log('[DEBUG] Limiting initial 5m load to last 7 days');
         to = 1717200000; // May 31, 2024
         from = to - (7 * 86400); // 7 days before
       }
       
-      console.log(`[STATE] Loading data for timeframe: ${timeframe}`);
+      console.log(`[STATE] Loading data for timeframe: ${newTimeframe}`);
       console.log(`[DEBUG] Full data range available: 2024-01-02 to 2024-05-31 (~5 months)`);
 
       const data = await invoke<ChartData[]>('fetch_candles', {
         request: {
-          symbol: 'EURUSD',
-          timeframe,
+          symbol: symbol,
+          timeframe: newTimeframe,
           from: Math.floor(from),
           to: Math.floor(to),
         },
@@ -383,31 +407,6 @@ export const AdaptiveChart: React.FC = () => {
 
       console.log('Received data:', data);
       
-      // DEBUG: Request vs Response analysis
-      console.log(`[DEBUG] Requested: ${new Date(from * 1000).toISOString()} to ${new Date(to * 1000).toISOString()}`);
-      console.log(`[DEBUG] Requested range: ${((to - from) / 86400).toFixed(1)} days`);
-      if (data && data.length > 0) {
-        const firstDataTime = data[0].time as number;
-        const lastDataTime = data[data.length-1].time as number;
-        console.log(`[DEBUG] Received: ${data.length} candles from ${new Date(firstDataTime * 1000).toISOString()} to ${new Date(lastDataTime * 1000).toISOString()}`);
-        
-        // WARNING: Check for excessive data
-        if (data.length > 1000) {
-          console.warn(`[DEBUG] WARNING: Very large dataset (${data.length} candles) - chart performance may be impacted`);
-          console.warn(`[DEBUG] Consider limiting the time range or using a higher timeframe`);
-        } else if (data.length > 500) {
-          console.warn(`[DEBUG] WARNING: Large dataset (${data.length} candles) may cause minor performance issues`);
-        }
-        
-        // Expected candle counts for 5 months:
-        // 5m: ~43,200 candles
-        // 15m: ~14,400 candles  
-        // 1h: ~3,600 candles
-        // 4h: ~900 candles
-        // 12h: ~300 candles
-        console.log(`[DEBUG] Candle density: ${timeframe} timeframe with ${data.length} candles`);
-      }
-
       if (!data || data.length === 0) {
         console.error('No data received');
         // STATE MACHINE: Clear transition state on error
@@ -434,35 +433,14 @@ export const AdaptiveChart: React.FC = () => {
       seriesRef.current!.setData(formattedData);
       console.log('Series data count:', seriesRef.current!.data().length);
       
-      // DEBUG: Data range analysis
-      console.log(`[DEBUG] Chart data range: ${formattedData.length} candles`);
-      if (formattedData.length > 0) {
-        const firstTime = formattedData[0].time as number;
-        const lastTime = formattedData[formattedData.length-1].time as number;
-        console.log(`[DEBUG] Time range: ${new Date(firstTime * 1000).toISOString()} to ${new Date(lastTime * 1000).toISOString()}`);
-      }
-      
-      // DEBUG: Visible vs total data
-      const visibleRange = chartRef.current!.timeScale().getVisibleLogicalRange();
-      if (visibleRange) {
-        console.log(`[DEBUG] Visible bars: ${Math.round(visibleRange.to - visibleRange.from)} of ${formattedData.length} total`);
-        console.log(`[DEBUG] Visible range indices: ${visibleRange.from.toFixed(2)} to ${visibleRange.to.toFixed(2)}`);
-      }
-
       // Fit content to view
-      const beforeRange = chartRef.current!.timeScale().getVisibleLogicalRange();
-      console.log('[DEBUG] Before fitContent - visible range:', beforeRange ? `${beforeRange.from.toFixed(2)} to ${beforeRange.to.toFixed(2)}` : 'null');
-      
       chartRef.current!.timeScale().fitContent();
-      
-      const afterRange = chartRef.current!.timeScale().getVisibleLogicalRange();
-      console.log('[DEBUG] After fitContent - visible range:', afterRange ? `${afterRange.from.toFixed(2)} to ${afterRange.to.toFixed(2)}` : 'null');
       
       // For initial load, zoom to show a reasonable range based on timeframe
       if (!timeRange && formattedData.length > 100) {
         let visibleCandles = 100; // Default
         
-        switch(timeframe) {
+        switch(newTimeframe) {
           case '5m':
             visibleCandles = 288; // 1 day
             break;
@@ -486,31 +464,23 @@ export const AdaptiveChart: React.FC = () => {
           from: formattedData[startIndex].time,
           to: formattedData[endIndex].time
         });
-        console.log(`[DEBUG] Initial view: showing last ${visibleCandles} candles for ${timeframe} timeframe`);
+        console.log(`[DEBUG] Initial view: showing last ${visibleCandles} candles for ${newTimeframe} timeframe`);
       }
-      
-      // DEBUG: Check time scale boundaries
-      const timeScale = chartRef.current!.timeScale();
-      const timeVisibleRange = timeScale.getVisibleRange();
-      if (timeVisibleRange) {
-        console.log(`[DEBUG] Time scale visible range: ${new Date((timeVisibleRange.from as number) * 1000).toISOString()} to ${new Date((timeVisibleRange.to as number) * 1000).toISOString()}`);
-      }
-      console.log(`[DEBUG] Time scale scrollable: from=${timeScale.getVisibleLogicalRange()?.from.toFixed(2)} to=${timeScale.getVisibleLogicalRange()?.to.toFixed(2)}`);
       
       // STATE MACHINE: Update state with successful transition
       // Delay to prevent fitContent from triggering another transition
       setTimeout(() => {
         setChartState(prev => ({
           ...prev,
-          currentTimeframe: timeframe,
+          currentTimeframe: newTimeframe,
           isTransitioning: false,
           pendingTimeframe: null
         }));
-        console.log(`[STATE] Transition complete: now on ${timeframe}`);
+        console.log(`[STATE] Transition complete: now on ${newTimeframe}`);
       }, 300);
       
       // Preload adjacent timeframes
-      preloadAdjacentTimeframes(timeframe, { from, to });
+      preloadAdjacentTimeframes(newTimeframe, { from, to });
       
     } catch (error) {
       console.error('Failed to load chart data:', error);
@@ -546,7 +516,7 @@ export const AdaptiveChart: React.FC = () => {
     adjacent.forEach(tf => {
       invoke('fetch_candles', {
         request: {
-          symbol: 'EURUSD',
+          symbol: symbol,
           timeframe: tf,
           from: Math.floor(timeRange.from),
           to: Math.floor(timeRange.to),
@@ -556,51 +526,29 @@ export const AdaptiveChart: React.FC = () => {
   };
 
   return (
-    <div className="chart-container" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <div className="chart-controls" style={{ padding: '10px', background: '#1a1a1a' }}>
-        <select 
-          value={chartState.currentTimeframe} 
-          onChange={(e) => {
-            // STATE MACHINE: Block manual changes during transitions
-            if (chartState.isTransitioning) {
-              console.log('[STATE] Manual timeframe change blocked - transition in progress');
-              e.preventDefault();
-              return;
-            }
-            const newTimeframe = e.target.value;
-            console.log(`[STATE] Manual timeframe change: ${chartState.currentTimeframe} -> ${newTimeframe}`);
-            
-            // DEBUG: Special logging for 5m
-            if (newTimeframe === '5m') {
-              console.log('[DEBUG] === 5M SELECTION DEBUG ===');
-              console.log('[DEBUG] 5-minute data can be very large (~43k candles for 5 months)');
-              console.log('[DEBUG] Loading full range initially, but zoom will be limited...');
-            }
-            
-            loadChartData(newTimeframe);
-          }}
-          style={{ marginRight: '10px' }}
-          disabled={chartState.isTransitioning}
-        >
-          {TIMEFRAMES.map(tf => (
-            <option key={tf} value={tf}>{tf}</option>
-          ))}
-        </select>
-        {isLoading && <span className="loading" style={{ color: '#fff' }}>Loading...</span>}
-        <span style={{ color: '#fff', marginLeft: '20px' }}>
-          Zoom with Ctrl+Scroll | Current: {chartState.currentTimeframe}
-          {chartState.isTransitioning && ' (Transitioning...)'}
-        </span>
-      </div>
-      <div 
-        ref={chartContainerRef} 
-        className="chart-canvas" 
-        style={{ 
-          flex: 1, 
-          background: '#1a1a1a',
-          minHeight: 'calc(100vh - 50px)' 
-        }}
-      />
+    <div 
+      ref={chartContainerRef} 
+      style={{ 
+        width: '100%',
+        height: '100%',
+        background: '#0a0a0a',
+        position: 'relative'
+      }}
+    >
+      {isLoading && (
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          right: '10px',
+          color: '#fff',
+          background: 'rgba(0,0,0,0.5)',
+          padding: '5px 10px',
+          borderRadius: '4px',
+          zIndex: 10
+        }}>
+          Loading...
+        </div>
+      )}
     </div>
   );
 };
