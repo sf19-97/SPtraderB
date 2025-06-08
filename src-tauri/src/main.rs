@@ -34,7 +34,6 @@ async fn fetch_candles(
     state: State<'_, AppState>,
 ) -> Result<Vec<Candle>, String> {
     let table_name = match request.timeframe.as_str() {
-        "5m" => "forex_candles_5m",
         "15m" => "forex_candles_15m",
         "1h" => "forex_candles_1h",
         "4h" => "forex_candles_4h",

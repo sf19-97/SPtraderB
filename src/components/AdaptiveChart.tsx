@@ -24,7 +24,7 @@ interface AdaptiveChartProps {
   onTimeframeChange?: (timeframe: string) => void;
 }
 
-const TIMEFRAMES = ['5m', '15m', '1h', '4h', '12h'];
+const TIMEFRAMES = ['15m', '1h', '4h', '12h'];
 const MIN_CANDLE_WIDTH = 5;
 const MAX_CANDLE_WIDTH = 30;
 
@@ -58,18 +58,29 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const [crosshairPosition, setCrosshairPosition] = useState<any>(null);
 
   useEffect(() => {
+    console.log('🟢 Chart effect starting');
     // Give flexbox time to calculate layout
     const timer = setTimeout(() => {
       if (chartContainerRef.current && !chartRef.current) {
+        console.log('🟡 Initializing chart');
         initializeChart();
       }
     }, 100);
     
     return () => {
+      console.log('🔴 Chart effect cleanup - destroying chart');
       clearTimeout(timer);
-      if (chartRef.current) {
-        chartRef.current.remove();
+      if (rangeSubscriptionRef.current && typeof rangeSubscriptionRef.current === 'function') {
+        console.log('🔴 Unsubscribing from range changes');
+        rangeSubscriptionRef.current();
+        rangeSubscriptionRef.current = null;
       }
+      if (chartRef.current) {
+        console.log('🔴 Removing chart instance');
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+      seriesRef.current = null;
       // Clean up debug function
       window.debugChart = undefined;
     };
@@ -136,7 +147,7 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     // DEBUG: Expose debug function to window
     window.debugChart = () => {
       if (!chartRef.current || !seriesRef.current) {
-        console.log('[DEBUG] Chart not initialized');
+        console.log('[DEBUG] Chart not initialized or disposed');
         return;
       }
       
@@ -191,24 +202,35 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     // Create the range change handler
     const handleRangeChange = (range: any) => {
       if (!range) return;
+      
+      // GUARD: Check if chart is disposed
+      if (!chartRef.current || !seriesRef.current) {
+        console.log('[ERROR] Chart disposed during range change - ignoring');
+        return;
+      }
 
-      // DEBUG: Track all range changes
-      if (lastVisibleRange) {
-        const barsDiff = Math.abs((range.to - range.from) - (lastVisibleRange.to - lastVisibleRange.from));
-        const isPanning = barsDiff < 1; // Less than 1 bar difference means panning
-        console.log(`[DEBUG] Range change: ${isPanning ? 'PANNING' : 'ZOOMING'} - bars: ${(range.to - range.from).toFixed(1)}`);
+      // DEBUG: Track all range changes with actual candle count
+      const timeScale = chartRef.current.timeScale();
+      const visibleTimeRange = timeScale.getVisibleRange();
+      
+      if (visibleTimeRange && seriesRef.current) {
+        const visibleData = seriesRef.current.data();
+        let actualVisibleCandles = 0;
         
-        // Check if we're at data boundaries
-        const data = seriesRef.current?.data();
-        if (data && data.length > 0 && isPanning) {
-          if (range.from < 0) {
-            console.log('[DEBUG] Hit LEFT boundary - no earlier data');
-          }
-          if (range.to > data.length) {
-            console.log('[DEBUG] Hit RIGHT boundary - no later data');
+        for (const candle of visibleData) {
+          const time = candle.time as number;
+          if (time >= (visibleTimeRange.from as number) && time <= (visibleTimeRange.to as number)) {
+            actualVisibleCandles++;
           }
         }
+        
+        if (lastVisibleRange) {
+          const barsDiff = Math.abs((range.to - range.from) - (lastVisibleRange.to - lastVisibleRange.from));
+          const isPanning = barsDiff < 1; // Less than 1 bar difference means panning
+          console.log(`[DEBUG] Range change: ${isPanning ? 'PANNING' : 'ZOOMING'} - Logical bars: ${(range.to - range.from).toFixed(1)}, Actual candles: ${actualVisibleCandles}`);
+        }
       }
+      
       lastVisibleRange = { ...range };
 
       if (zoomTimeout) clearTimeout(zoomTimeout);
@@ -234,6 +256,12 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   };
 
   const handleAdaptiveTimeframeSwitch = async (visibleRange: any) => {
+    // GUARD: Check if chart is disposed
+    if (!chartRef.current || !seriesRef.current) {
+      console.log('[ERROR] Chart or series disposed - aborting');
+      return;
+    }
+
     // STATE MACHINE: Block if already transitioning
     if (chartState.isTransitioning) {
       console.log('[STATE] Transition blocked - already in progress');
@@ -247,13 +275,40 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       return;
     }
 
-    const chartWidth = chartContainerRef.current!.clientWidth;
-    const visibleBars = visibleRange.to - visibleRange.from;
-    const candleWidth = chartWidth / visibleBars;
+    // CRITICAL FIX: Use time range, not logical range
+    const timeScale = chartRef.current.timeScale();
+    const visibleTimeRange = timeScale.getVisibleRange();
     
-    // DEBUG: Zoom calculations
-    console.log(`[DEBUG] Zoom check: ${visibleBars.toFixed(1)} bars visible, width=${chartWidth}px, candle width=${candleWidth.toFixed(2)}px`);
-    console.log(`[DEBUG] Thresholds: MIN=${MIN_CANDLE_WIDTH}px, MAX=${MAX_CANDLE_WIDTH}px`);
+    if (!visibleTimeRange) {
+      console.log('[ERROR] No visible time range available');
+      return;
+    }
+
+    // Count ACTUAL visible candles on screen
+    const visibleData = seriesRef.current!.data();
+    let actualVisibleCandles = 0;
+    
+    for (const candle of visibleData) {
+      const time = candle.time as number;
+      if (time >= (visibleTimeRange.from as number) && time <= (visibleTimeRange.to as number)) {
+        actualVisibleCandles++;
+      }
+    }
+    
+    if (actualVisibleCandles === 0) {
+      console.log('[ERROR] No visible candles found in time range');
+      return;
+    }
+    
+    const chartWidth = chartContainerRef.current!.clientWidth;
+    const candleWidth = chartWidth / actualVisibleCandles;
+    
+    // Enhanced debug logging
+    console.log(`[FIX] Time range: ${new Date((visibleTimeRange.from as number) * 1000).toISOString()} to ${new Date((visibleTimeRange.to as number) * 1000).toISOString()}`);
+    console.log(`[FIX] Actual visible candles: ${actualVisibleCandles}`);
+    console.log(`[FIX] Candle width: ${candleWidth.toFixed(2)}px`);
+    console.log(`[FIX] Chart width: ${chartWidth}px`);
+    console.log(`[FIX] Thresholds: MIN=${MIN_CANDLE_WIDTH}px, MAX=${MAX_CANDLE_WIDTH}px`);
 
     // Determine optimal timeframe based on candle width
     let targetTimeframe = chartState.currentTimeframe;
@@ -269,8 +324,13 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       // Too zoomed in - switch to lower timeframe
       const currentIndex = TIMEFRAMES.indexOf(chartState.currentTimeframe);
       if (currentIndex > 0) {
-        targetTimeframe = TIMEFRAMES[currentIndex - 1];
-        console.log(`[DEBUG] Candles too wide (${candleWidth.toFixed(2)}px) - suggesting ${targetTimeframe}`);
+        // SPECIAL CASE: Don't switch away from 12h for wide candles
+        if (chartState.currentTimeframe === '12h') {
+          console.log(`[DEBUG] 12h candles are wide (${candleWidth.toFixed(2)}px) but keeping 12h - it's the highest timeframe`);
+        } else {
+          targetTimeframe = TIMEFRAMES[currentIndex - 1];
+          console.log(`[DEBUG] Candles too wide (${candleWidth.toFixed(2)}px) - suggesting ${targetTimeframe}`);
+        }
       }
     }
 
@@ -296,42 +356,11 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const transitionToTimeframe = async (newTimeframe: string, visibleRange: any) => {
     console.log(`[STATE] Starting transition to ${newTimeframe}`);
     
-    // Calculate time range from visible logical range
-    const data = seriesRef.current!.data();
-    if (!data || data.length === 0) return;
+    // FUCK THE VISIBLE RANGE - LOAD ALL THE DATA
+    console.log(`[FIX] Loading FULL dataset for ${newTimeframe}, not just visible range`);
 
-    const fromIndex = Math.max(0, Math.floor(visibleRange.from));
-    const toIndex = Math.min(data.length - 1, Math.ceil(visibleRange.to));
-    
-    // DEBUG: Index calculation
-    console.log(`[DEBUG] Calculating time range from indices: ${fromIndex} to ${toIndex} (of ${data.length} candles)`);
-    
-    const fromTime = (data[fromIndex].time as number);
-    const toTime = (data[toIndex].time as number);
-    
-    // DEBUG: Time range being requested
-    console.log(`[DEBUG] Requesting data from: ${new Date(fromTime * 1000).toISOString()} to ${new Date(toTime * 1000).toISOString()}`);
-    console.log(`[DEBUG] That's ${((toTime - fromTime) / 86400).toFixed(1)} days of data`);
-    
-    // For 5m candles, limit the range to prevent loading too many candles
-    if (newTimeframe === '5m') {
-      const maxDays = 7; // Max 1 week of 5m data (2016 candles)
-      const requestedDays = (toTime - fromTime) / 86400;
-      
-      if (requestedDays > maxDays) {
-        console.warn(`[DEBUG] Limiting 5m data request from ${requestedDays.toFixed(1)} days to ${maxDays} days`);
-        const centerTime = (fromTime + toTime) / 2;
-        const halfRange = (maxDays * 86400) / 2;
-        await loadChartData(newTimeframe, { 
-          from: centerTime - halfRange, 
-          to: centerTime + halfRange 
-        });
-        return;
-      }
-    }
-
-    // Load new timeframe data
-    await loadChartData(newTimeframe, { from: fromTime, to: toTime });
+    // Load new timeframe data with FULL range
+    await loadChartData(newTimeframe);
 
     // Animate the transition
     animateTimeframeChange();
@@ -351,6 +380,12 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   };
 
   const handlePixelBasedZoom = (event: WheelEvent, chart: IChartApi) => {
+    // GUARD: Check if chart is disposed
+    if (!chart || !chartRef.current) {
+      console.log('[ERROR] Chart disposed during zoom - aborting');
+      return;
+    }
+    
     const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
     const timeScale = chart.timeScale();
     const currentRange = timeScale.getVisibleLogicalRange();
@@ -385,13 +420,6 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       // Updated data range: Jan 2, 2024 to May 31, 2024
       let from = timeRange?.from || 1704153600; // Jan 2, 2024 00:00:00
       let to = timeRange?.to || 1717200000; // May 31, 2024 23:59:59
-      
-      // For 5m timeframe without specific range, limit to last 7 days
-      if (newTimeframe === '5m' && !timeRange) {
-        console.log('[DEBUG] Limiting initial 5m load to last 7 days');
-        to = 1717200000; // May 31, 2024
-        from = to - (7 * 86400); // 7 days before
-      }
       
       console.log(`[STATE] Loading data for timeframe: ${newTimeframe}`);
       console.log(`[DEBUG] Full data range available: 2024-01-02 to 2024-05-31 (~5 months)`);
@@ -430,20 +458,23 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
 
       console.log('Formatted data:', formattedData);
 
-      seriesRef.current!.setData(formattedData);
-      console.log('Series data count:', seriesRef.current!.data().length);
+      // GUARD: Check if chart is still alive before setting data
+      if (!seriesRef.current || !chartRef.current) {
+        console.log('[ERROR] Chart disposed during data load - aborting');
+        return;
+      }
+
+      seriesRef.current.setData(formattedData);
+      console.log('Series data count:', seriesRef.current.data().length);
       
-      // Fit content to view
-      chartRef.current!.timeScale().fitContent();
+      // DO NOT USE fitContent() - it triggers oscillation
+      // chartRef.current.timeScale().fitContent();
       
       // For initial load, zoom to show a reasonable range based on timeframe
       if (!timeRange && formattedData.length > 100) {
         let visibleCandles = 100; // Default
         
         switch(newTimeframe) {
-          case '5m':
-            visibleCandles = 288; // 1 day
-            break;
           case '15m':
             visibleCandles = 192; // 2 days
             break;
@@ -454,17 +485,21 @@ export const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
             visibleCandles = 84; // 2 weeks
             break;
           case '12h':
-            visibleCandles = 60; // 1 month
+            visibleCandles = 120; // 2 months - more candles to prevent "too wide" trigger
             break;
         }
         
         const endIndex = formattedData.length - 1;
         const startIndex = Math.max(0, endIndex - visibleCandles);
-        chartRef.current!.timeScale().setVisibleRange({
-          from: formattedData[startIndex].time,
-          to: formattedData[endIndex].time
-        });
-        console.log(`[DEBUG] Initial view: showing last ${visibleCandles} candles for ${newTimeframe} timeframe`);
+        
+        // GUARD: Check chart is still alive before setting range
+        if (chartRef.current) {
+          chartRef.current.timeScale().setVisibleRange({
+            from: formattedData[startIndex].time,
+            to: formattedData[endIndex].time
+          });
+          console.log(`[DEBUG] Initial view: showing last ${visibleCandles} candles for ${newTimeframe} timeframe`);
+        }
       }
       
       // STATE MACHINE: Update state with successful transition

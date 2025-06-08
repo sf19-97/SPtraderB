@@ -131,7 +131,7 @@ function App() {
             gap: '20px'
           }}>
             <div style={{ display: 'flex', gap: '10px' }}>
-              {['1m', '5m', '15m', '1h', '4h', '1d'].map(tf => (
+              {['15m', '1h', '4h', '12h'].map(tf => (
                 <button
                   key={tf}
                   onClick={() => setSelectedTimeframe(tf)}
