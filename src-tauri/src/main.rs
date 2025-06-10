@@ -80,6 +80,97 @@ async fn fetch_candles(
     }).collect())
 }
 
+#[derive(Debug, Deserialize)]
+struct HierarchicalRequest {
+    symbol: String,
+    from: i64,
+    to: i64,
+    detail_level: String,
+}
+
+#[tauri::command]
+async fn fetch_candles_v2(
+    request: HierarchicalRequest,
+    state: State<'_, AppState>,
+) -> Result<Vec<Candle>, String> {
+    let start_time = std::time::Instant::now();
+    
+    println!("[V2] Fetch request: symbol={}, from={}, to={}, detail={}", 
+             request.symbol, request.from, request.to, request.detail_level);
+
+    let query = match request.detail_level.as_str() {
+        "4h" => {
+            "SELECT 
+                EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours')))::BIGINT as time,
+                (array_agg(h4_open ORDER BY m15_idx))[1]::FLOAT8 as open,
+                MAX(h4_high)::FLOAT8 as high,
+                MIN(h4_low)::FLOAT8 as low,
+                (array_agg(h4_close ORDER BY m15_idx DESC))[1]::FLOAT8 as close,
+                SUM(tick_count)::BIGINT as volume
+             FROM experimental.candle_hierarchy
+             WHERE symbol = $1 
+             AND base_time + (h4_idx * interval '4 hours') BETWEEN to_timestamp($2) AND to_timestamp($3)
+             GROUP BY EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours')))
+             ORDER BY time"
+        },
+        "1h" => {
+            "SELECT 
+                EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour')))::BIGINT as time,
+                (array_agg(h1_open ORDER BY m15_idx))[1]::FLOAT8 as open,
+                MAX(h1_high)::FLOAT8 as high,
+                MIN(h1_low)::FLOAT8 as low,
+                (array_agg(h1_close ORDER BY m15_idx DESC))[1]::FLOAT8 as close,
+                SUM(tick_count)::BIGINT as volume
+             FROM experimental.candle_hierarchy
+             WHERE symbol = $1 
+             AND base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour') 
+                 BETWEEN to_timestamp($2) AND to_timestamp($3)
+             GROUP BY EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour')))
+             ORDER BY time"
+        },
+        "15m" => {
+            "SELECT 
+                EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour') + (m15_idx * interval '15 minutes')))::BIGINT as time,
+                m15_open::FLOAT8 as open,
+                m15_high::FLOAT8 as high,
+                m15_low::FLOAT8 as low,
+                m15_close::FLOAT8 as close,
+                tick_count::BIGINT as volume
+             FROM experimental.candle_hierarchy
+             WHERE symbol = $1 
+             AND base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour') + (m15_idx * interval '15 minutes')
+                 BETWEEN to_timestamp($2) AND to_timestamp($3)
+             ORDER BY time"
+        },
+        _ => return Err(format!("Invalid detail level: {}", request.detail_level)),
+    };
+
+    println!("[V2] Query: {}", query);
+
+    let pool = state.db_pool.lock().await;
+    let rows = sqlx::query_as::<_, (i64, f64, f64, f64, f64, i64)>(&query)
+        .bind(&request.symbol)
+        .bind(request.from)
+        .bind(request.to)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+
+    let candles: Vec<Candle> = rows.into_iter().map(|(time, open, high, low, close, volume)| Candle {
+        time,
+        open,
+        high,
+        low,
+        close,
+        volume,
+    }).collect();
+
+    let duration = start_time.elapsed();
+    println!("[V2 PERF] Fetched {} candles in {}ms", candles.len(), duration.as_millis());
+
+    Ok(candles)
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -102,7 +193,7 @@ async fn main() {
 
     Builder::default()
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![fetch_candles])
+        .invoke_handler(tauri::generate_handler![fetch_candles, fetch_candles_v2])
         .setup(|app| {
             // Get the main window handle
             let window = app.get_webview_window("main").expect("Failed to get main window");

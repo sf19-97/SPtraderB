@@ -30,8 +30,6 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   const [typedText, setTypedText] = useState('');
   const [showAccess, setShowAccess] = useState(false);
   const [accessText, setAccessText] = useState('');
-  const [showChoice, setShowChoice] = useState(false);
-  const [choiceInput, setChoiceInput] = useState('');
   const [frameCount, setFrameCount] = useState(0);
   const [cornerChars, setCornerChars] = useState<{[key: string]: string}>({});
   const [cornerGlitch, setCornerGlitch] = useState<{[key: string]: boolean}>({});
@@ -205,7 +203,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   // Handle keyboard input (invisible, like Python version)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showAccess || showChoice) return;
+      if (showAccess) return;
 
       if (e.key === 'Enter') {
         if (typedText.toLowerCase() === 'redpill') {
@@ -220,8 +218,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
             if (index >= text.length) {
               clearInterval(interval);
               setTimeout(() => {
-                setShowAccess(false);
-                setShowChoice(true);
+                onComplete(); // Launch SPTrader directly
               }, 2000);
             }
           }, 65); // 30% slower than 50ms
@@ -236,7 +233,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [typedText, showAccess, showChoice]);
+  }, [typedText, showAccess, onComplete]);
 
   // Initialize Matrix rain - Python style
   useEffect(() => {
@@ -400,18 +397,6 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
     };
   }, []);
 
-  // Handle choice (bluepill/redpill)
-  const handleChoiceSubmit = () => {
-    if (choiceInput.toLowerCase() === 'redpill') {
-      onComplete();
-    } else if (choiceInput.toLowerCase() === 'bluepill') {
-      // Show exit messages like Python version
-      alert("You chose the blue pill...\nThe story ends here.\nYou wake up in your bed and believe\nwhatever you want to believe.");
-      window.close();
-    }
-    setChoiceInput('');
-  };
-
   return (
     <div className="matrix-container">
       <canvas ref={canvasRef} className="matrix-canvas" />
@@ -504,46 +489,6 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
           textShadow: '0 0 10px #00FF00'
         }}>
           {accessText}
-        </div>
-      )}
-      
-      {/* Choice screen */}
-      {showChoice && (
-        <div className="choice-screen" style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          color: '#00FF00',
-          fontFamily: 'monospace',
-          textAlign: 'center'
-        }}>
-          <h2>Choose your destiny:</h2>
-          <p>Type 'bluepill' - Exit the program</p>
-          <p>Type 'redpill' - Launch SPTrader</p>
-          <input
-            type="text"
-            value={choiceInput}
-            onChange={(e) => setChoiceInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleChoiceSubmit();
-              }
-            }}
-            className="matrix-input"
-            placeholder="Your choice..."
-            autoFocus
-            style={{
-              background: 'transparent',
-              border: '1px solid #00FF00',
-              color: '#00FF00',
-              padding: '10px',
-              fontSize: '16px',
-              fontFamily: 'monospace',
-              outline: 'none',
-              marginTop: '20px'
-            }}
-          />
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
-import { AdaptiveChart } from './components/AdaptiveChart';
+import AdaptiveChart from './components/AdaptiveChart';
+import { AdaptiveChartV2 } from './components/AdaptiveChartV2';
 import { MatrixLogin } from './components/MatrixLogin';
 import { useState } from 'react';
 import './App.css';
@@ -9,6 +10,8 @@ function App() {
   const [selectedPair, setSelectedPair] = useState('EURUSD');
   const [chartType, setChartType] = useState('candlestick');
   const [showIndicators, setShowIndicators] = useState(false);
+  const [chartVersion, setChartVersion] = useState<'v1' | 'v2'>('v1');
+  const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
 
   if (showMatrix) {
     return <MatrixLogin onComplete={() => setShowMatrix(false)} />;
@@ -131,23 +134,49 @@ function App() {
             gap: '20px'
           }}>
             <div style={{ display: 'flex', gap: '10px' }}>
-              {['15m', '1h', '4h', '12h'].map(tf => (
-                <button
-                  key={tf}
-                  onClick={() => setSelectedTimeframe(tf)}
-                  style={{
-                    background: selectedTimeframe === tf ? '#3a3a3a' : 'transparent',
-                    border: 'none',
-                    color: selectedTimeframe === tf ? '#4a9eff' : '#888',
+              {chartVersion === 'v1' ? (
+                // V1: Traditional timeframe buttons
+                ['15m', '1h', '4h', '12h'].map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => setSelectedTimeframe(tf)}
+                    style={{
+                      background: selectedTimeframe === tf ? '#3a3a3a' : 'transparent',
+                      border: 'none',
+                      color: selectedTimeframe === tf ? '#4a9eff' : '#888',
+                      padding: '5px 10px',
+                      borderRadius: '3px',
+                      cursor: 'pointer',
+                      fontSize: '13px'
+                    }}
+                  >
+                    {tf.toUpperCase()}
+                  </button>
+                ))
+              ) : (
+                // V2: Detail level display (read-only)
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px',
+                  color: '#888',
+                  fontSize: '13px'
+                }}>
+                  <span>Auto Detail:</span>
+                  <span style={{ 
+                    background: '#2a2a2a',
                     padding: '5px 10px',
                     borderRadius: '3px',
-                    cursor: 'pointer',
-                    fontSize: '13px'
-                  }}
-                >
-                  {tf.toUpperCase()}
-                </button>
-              ))}
+                    color: '#00ff88',
+                    fontFamily: 'monospace'
+                  }}>
+                    {v2DetailLevel.toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#666' }}>
+                    Zoom to change detail level
+                  </span>
+                </div>
+              )}
             </div>
             
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
@@ -170,6 +199,53 @@ function App() {
             </div>
           </div>
 
+          {/* Chart Version Tabs */}
+          <div style={{
+            height: '35px',
+            background: '#131313',
+            borderBottom: '1px solid #333',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 20px'
+          }}>
+            <button 
+              onClick={() => setChartVersion('v1')}
+              style={{ 
+                background: chartVersion === 'v1' ? '#333' : 'transparent',
+                color: chartVersion === 'v1' ? '#fff' : '#888',
+                border: 'none',
+                padding: '8px 16px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                borderRadius: '3px',
+                marginRight: '5px'
+              }}
+            >
+              Classic
+            </button>
+            <button 
+              onClick={() => setChartVersion('v2')}
+              style={{ 
+                background: chartVersion === 'v2' ? '#333' : 'transparent',
+                color: chartVersion === 'v2' ? '#00ff88' : '#888',
+                border: 'none',
+                padding: '8px 16px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                borderRadius: '3px'
+              }}
+            >
+              V2 (Beta)
+            </button>
+            <span style={{ 
+              marginLeft: '20px', 
+              fontSize: '11px', 
+              color: '#666' 
+            }}>
+              {chartVersion === 'v2' ? 'Hierarchical Data Engine' : 'Traditional Timeframe Switching'}
+            </span>
+          </div>
+
           {/* Chart Container */}
           <div style={{ 
             flex: 1,
@@ -185,11 +261,20 @@ function App() {
               border: '1px solid #222',
               overflow: 'hidden'
             }}>
-              <AdaptiveChart 
-                symbol={selectedPair.replace('/', '')}
-                timeframe={selectedTimeframe}
-                onTimeframeChange={setSelectedTimeframe}
-              />
+              {chartVersion === 'v1' ? (
+                <AdaptiveChart 
+                  symbol={selectedPair.replace('/', '')}
+                  timeframe={selectedTimeframe}
+                  onTimeframeChange={setSelectedTimeframe}
+                />
+              ) : (
+                <AdaptiveChartV2 
+                  symbol={selectedPair.replace('/', '')}
+                  timeframe={selectedTimeframe}
+                  onTimeframeChange={setSelectedTimeframe}
+                  onDetailLevelChange={setV2DetailLevel}
+                />
+              )}
             </div>
           </div>
         </div>

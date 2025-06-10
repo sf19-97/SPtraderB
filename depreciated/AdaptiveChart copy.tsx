@@ -101,7 +101,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         const currentBarSpacing = chartRef.current.timeScale().options().barSpacing;
         
         if (currentBarSpacing !== lastBarSpacing) {
-          console.log(`[SPACING] ${currentTimeframeRef.current}: bar spacing = ${currentBarSpacing}`);
+          console.log(`[SPACING] ${currentTimeframe}: bar spacing = ${currentBarSpacing}`);
           lastBarSpacing = currentBarSpacing;
           checkTimeframeSwitch(currentBarSpacing);
         }
@@ -109,7 +109,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     }, 100); // Check every 100ms
 
     // Load initial data
-    loadData(currentTimeframeRef.current);
+    loadData(currentTimeframe);
 
     return () => {
       clearInterval(checkInterval);
@@ -120,7 +120,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
 
   // Handle external timeframe changes from buttons
   useEffect(() => {
-    if (timeframe && timeframe !== currentTimeframeRef.current && !isTransitioning) {
+    if (timeframe && timeframe !== currentTimeframe && !isTransitioning) {
       console.log(`[EXTERNAL] Switching to ${timeframe} from button`);
       switchTimeframe(timeframe);
     }
@@ -130,17 +130,17 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     if (isTransitioning) return;
 
     // SIMPLE LOGIC: Just check bar spacing
-    if (currentTimeframeRef.current === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
+    if (currentTimeframe === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
       console.log(`[SWITCH] 1h bar spacing ${barSpacing} > ${SWITCH_TO_15M_BAR_SPACING} → switching to 15m`);
       switchTimeframe('15m');
-    } else if (currentTimeframeRef.current === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
+    } else if (currentTimeframe === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
       console.log(`[SWITCH] 15m bar spacing ${barSpacing} < ${SWITCH_TO_1H_BAR_SPACING} → switching to 1h`);
       switchTimeframe('1h');
     }
   };
 
   const switchTimeframe = async (newTimeframe: string) => {
-    if (newTimeframe === currentTimeframeRef.current || isTransitioning) return;
+    if (newTimeframe === currentTimeframe || isTransitioning) return;
     
     setIsTransitioning(true);
     
@@ -148,9 +148,8 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     const timeScale = chartRef.current!.timeScale();
     const visibleRange = timeScale.getVisibleRange();
     const currentBarSpacing = timeScale.options().barSpacing;
-    const previousTimeframe = currentTimeframeRef.current; // Store this BEFORE updating
     
-    console.log(`[TRANSITION] ${currentTimeframeRef.current} → ${newTimeframe} at bar spacing ${currentBarSpacing}`);
+    console.log(`[TRANSITION] ${currentTimeframe} → ${newTimeframe} at bar spacing ${currentBarSpacing}`);
     
     currentTimeframeRef.current = newTimeframe;
     setCurrentTimeframe(newTimeframe);
@@ -158,7 +157,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       onTimeframeChange(newTimeframe);
     }
     
-    await loadDataAndMaintainView(newTimeframe, visibleRange, currentBarSpacing, previousTimeframe);
+    await loadDataAndMaintainView(newTimeframe, visibleRange, currentBarSpacing);
     
     setIsTransitioning(false);
   };
@@ -210,7 +209,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     }
   };
 
-  const loadDataAndMaintainView = async (timeframe: string, visibleRange: any, previousBarSpacing: number, previousTimeframe: string) => {
+  const loadDataAndMaintainView = async (timeframe: string, visibleRange: any, previousBarSpacing: number) => {
     setIsLoading(true);
     
     try {
@@ -245,10 +244,10 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         // CRITICAL: Adjust bar spacing to maintain visual consistency
         let newBarSpacing = previousBarSpacing;
         
-        if (timeframe === '15m' && previousTimeframe === '1h') {
+        if (timeframe === '15m' && currentTimeframe === '1h') {
           // Going from 1h to 15m: reduce bar spacing to fit 4x more candles
           newBarSpacing = Math.max(3, previousBarSpacing / 4);
-        } else if (timeframe === '1h' && previousTimeframe === '15m') {
+        } else if (timeframe === '1h' && currentTimeframe === '15m') {
           // Going from 15m to 1h: increase bar spacing since we have 4x fewer candles
           newBarSpacing = Math.min(50, previousBarSpacing * 4);
         }
