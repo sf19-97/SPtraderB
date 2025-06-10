@@ -31,8 +31,12 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const [isTransitioning, setIsTransitioning] = useState(false);
   
   // CRITICAL: Use bar spacing thresholds, not pixel widths
-  const SWITCH_TO_15M_BAR_SPACING = 25;  // When 1h bars are spread this wide, switch to 15m
-  const SWITCH_TO_1H_BAR_SPACING = 6;    // When 15m bars are squeezed this tight, switch to 1h
+  const SWITCH_TO_15M_BAR_SPACING = 32;  // When 1h bars are spread this wide, switch to 15m
+  const SWITCH_TO_1H_BAR_SPACING = 8;    // When 15m bars are squeezed this tight, switch to 1h
+  const SWITCH_TO_4H_BAR_SPACING = 8;    // When 1h bars are squeezed this tight, switch to 4h
+  const SWITCH_FROM_4H_BAR_SPACING = 32; // When 4h bars are spread this wide, switch to 1h
+  const SWITCH_TO_12H_BAR_SPACING = 4;   // When 4h bars are squeezed this tight, switch to 12h
+  const SWITCH_FROM_12H_BAR_SPACING = 24; // When 12h bars are spread this wide, switch to 4h (3x factor)
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -129,11 +133,35 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const checkTimeframeSwitch = (barSpacing: number) => {
     if (isTransitioning) return;
 
-    // SIMPLE LOGIC: Just check bar spacing
-    if (currentTimeframeRef.current === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
+    const currentTf = currentTimeframeRef.current;
+    
+    // 12h → 4h (zooming in)
+    if (currentTf === '12h' && barSpacing > SWITCH_FROM_12H_BAR_SPACING) {
+      console.log(`[SWITCH] 12h bar spacing ${barSpacing} > ${SWITCH_FROM_12H_BAR_SPACING} → switching to 4h`);
+      switchTimeframe('4h');
+    }
+    // 4h → 12h (zooming out)
+    else if (currentTf === '4h' && barSpacing < SWITCH_TO_12H_BAR_SPACING) {
+      console.log(`[SWITCH] 4h bar spacing ${barSpacing} < ${SWITCH_TO_12H_BAR_SPACING} → switching to 12h`);
+      switchTimeframe('12h');
+    }
+    // 4h → 1h (zooming in)
+    else if (currentTf === '4h' && barSpacing > SWITCH_FROM_4H_BAR_SPACING) {
+      console.log(`[SWITCH] 4h bar spacing ${barSpacing} > ${SWITCH_FROM_4H_BAR_SPACING} → switching to 1h`);
+      switchTimeframe('1h');
+    }
+    // 1h → 4h (zooming out)
+    else if (currentTf === '1h' && barSpacing < SWITCH_TO_4H_BAR_SPACING) {
+      console.log(`[SWITCH] 1h bar spacing ${barSpacing} < ${SWITCH_TO_4H_BAR_SPACING} → switching to 4h`);
+      switchTimeframe('4h');
+    }
+    // 1h → 15m (zooming in)
+    else if (currentTf === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
       console.log(`[SWITCH] 1h bar spacing ${barSpacing} > ${SWITCH_TO_15M_BAR_SPACING} → switching to 15m`);
       switchTimeframe('15m');
-    } else if (currentTimeframeRef.current === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
+    }
+    // 15m → 1h (zooming out)
+    else if (currentTf === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
       console.log(`[SWITCH] 15m bar spacing ${barSpacing} < ${SWITCH_TO_1H_BAR_SPACING} → switching to 1h`);
       switchTimeframe('1h');
     }
@@ -188,10 +216,19 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
 
       seriesRef.current.setData(formattedData);
       
-      // Show last week of data by default
+      // Show appropriate default view based on timeframe
       if (chartRef.current && formattedData.length > 0) {
-        const oneWeekAgo = formattedData[formattedData.length - 1].time - (7 * 24 * 60 * 60);
-        const startIndex = formattedData.findIndex(d => d.time >= oneWeekAgo);
+        let daysToShow = 7; // Default for 1h
+        
+        if (timeframe === '15m') daysToShow = 2;
+        else if (timeframe === '1h') daysToShow = 7;
+        else if (timeframe === '4h') daysToShow = 30;
+        else if (timeframe === '12h') daysToShow = 60;
+        
+        const timeRange = daysToShow * 24 * 60 * 60;
+        const endTime = formattedData[formattedData.length - 1].time;
+        const startTime = endTime - timeRange;
+        const startIndex = formattedData.findIndex(d => d.time >= startTime);
         
         if (startIndex > 0) {
           chartRef.current.timeScale().setVisibleRange({
@@ -251,6 +288,18 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         } else if (timeframe === '1h' && previousTimeframe === '15m') {
           // Going from 15m to 1h: increase bar spacing since we have 4x fewer candles
           newBarSpacing = Math.min(50, previousBarSpacing * 4);
+        } else if (timeframe === '1h' && previousTimeframe === '4h') {
+          // Going from 4h to 1h: reduce bar spacing to fit 4x more candles
+          newBarSpacing = Math.max(3, previousBarSpacing / 4);
+        } else if (timeframe === '4h' && previousTimeframe === '1h') {
+          // Going from 1h to 4h: increase bar spacing since we have 4x fewer candles
+          newBarSpacing = Math.min(50, previousBarSpacing * 4);
+        } else if (timeframe === '4h' && previousTimeframe === '12h') {
+          // Going from 12h to 4h: reduce bar spacing to fit 3x more candles
+          newBarSpacing = Math.max(3, previousBarSpacing / 3);
+        } else if (timeframe === '12h' && previousTimeframe === '4h') {
+          // Going from 4h to 12h: increase bar spacing since we have 3x fewer candles
+          newBarSpacing = Math.min(50, previousBarSpacing * 3);
         }
         
         console.log(`[SPACING] Adjusting bar spacing: ${previousBarSpacing} → ${newBarSpacing}`);
