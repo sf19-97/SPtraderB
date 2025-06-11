@@ -354,7 +354,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         fontSize: '12px',
         fontFamily: 'monospace'
       }}>
-        {currentTimeframe.toUpperCase()}
+        {currentTimeframe}
       </div>
     </div>
   );

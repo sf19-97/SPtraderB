@@ -1,3 +1,18 @@
+/* Font Face Declarations */
+@font-face {
+  font-family: 'Molgan';
+  src: url('./assets/fonts/MolganRegular-YqWj2.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Quicking';
+  src: url('./assets/fonts/QuickingRegular-gw5KY.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -5,7 +20,7 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Quicking', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -18,6 +33,13 @@ body {
 #root {
   width: 100vw;
   height: 100vh;
+}
+
+/* SPTrader Logo Styling */
+.sp-trader-logo {
+  font-family: 'Quicking', sans-serif;
+  font-weight: normal;
+  font-style: normal;
 }
 
 /* Custom scrollbar for sidebars */

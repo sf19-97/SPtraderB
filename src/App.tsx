@@ -1,8 +1,16 @@
 import AdaptiveChart from './components/AdaptiveChart';
 import { AdaptiveChartV2 } from './components/AdaptiveChartV2';
 import { MatrixLogin } from './components/MatrixLogin';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import './App.css';
+
+interface DatabaseStatus {
+  connected: boolean;
+  database_name: string;
+  host: string;
+  error?: string;
+}
 
 function App() {
   const [showMatrix, setShowMatrix] = useState(true);
@@ -12,6 +20,36 @@ function App() {
   const [showIndicators, setShowIndicators] = useState(false);
   const [chartVersion, setChartVersion] = useState<'v1' | 'v2'>('v1');
   const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
+  const [dbStatus, setDbStatus] = useState<DatabaseStatus>({
+    connected: false,
+    database_name: 'forex_trading',
+    host: 'localhost',
+  });
+
+  // Check database connection every 5 seconds
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const status = await invoke<DatabaseStatus>('check_database_connection');
+        setDbStatus(status);
+      } catch (error) {
+        setDbStatus({
+          connected: false,
+          database_name: 'forex_trading',
+          host: 'localhost',
+          error: error as string,
+        });
+      }
+    };
+
+    // Check immediately
+    checkConnection();
+
+    // Then check every 5 seconds
+    const interval = setInterval(checkConnection, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   if (showMatrix) {
     return <MatrixLogin onComplete={() => setShowMatrix(false)} />;
@@ -39,7 +77,7 @@ function App() {
         color: '#fff',
         flexShrink: 0
       }}>
-        <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>SPTrader</h1>
+        <h1 className="sp-trader-logo" style={{ margin: 0, fontSize: '18px' }}>SPTrader</h1>
         
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '20px', alignItems: 'center' }}>
           <button style={{
@@ -150,7 +188,7 @@ function App() {
                       fontSize: '13px'
                     }}
                   >
-                    {tf.toUpperCase()}
+                    {tf}
                   </button>
                 ))
               ) : (
@@ -170,7 +208,7 @@ function App() {
                     color: '#00ff88',
                     fontFamily: 'monospace'
                   }}>
-                    {v2DetailLevel.toUpperCase()}
+                    {v2DetailLevel}
                   </span>
                   <span style={{ fontSize: '11px', color: '#666' }}>
                     Zoom to change detail level
@@ -338,7 +376,19 @@ function App() {
         fontSize: '12px',
         flexShrink: 0
       }}>
-        <span>Connected to: Demo Server</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: dbStatus.connected ? '#4caf50' : '#ff5252',
+            display: 'inline-block'
+          }} />
+          {dbStatus.connected 
+            ? `Connected to: ${dbStatus.database_name} (${dbStatus.host})`
+            : `Disconnected: ${dbStatus.error || 'No connection'}`
+          }
+        </span>
         <span style={{ marginLeft: 'auto' }}>Last Update: {new Date().toLocaleTimeString()}</span>
       </div>
     </div>
