@@ -16,7 +16,6 @@ function App() {
   const [showMatrix, setShowMatrix] = useState(true);
   const [selectedTimeframe, setSelectedTimeframe] = useState('1h');
   const [selectedPair, setSelectedPair] = useState('EURUSD');
-  const [chartType, setChartType] = useState('candlestick');
   const [showIndicators, setShowIndicators] = useState(false);
   const [chartVersion, setChartVersion] = useState<'v1' | 'v2'>('v1');
   const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
@@ -78,28 +77,6 @@ function App() {
         flexShrink: 0
       }}>
         <h1 className="sp-trader-logo" style={{ margin: 0, fontSize: '18px' }}>SPTrader</h1>
-        
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <button style={{
-            background: 'none',
-            border: '1px solid #444',
-            color: '#fff',
-            padding: '6px 12px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}>Connect</button>
-          
-          <button style={{
-            background: 'none',
-            border: '1px solid #444',
-            color: '#fff',
-            padding: '6px 12px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}>Settings</button>
-        </div>
       </div>
 
       {/* Main Content Area */}
@@ -117,41 +94,6 @@ function App() {
           color: '#fff',
           flexShrink: 0
         }}>
-          <h3 style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#888' }}>PAIRS</h3>
-          {['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CHF'].map(pair => (
-            <div 
-              key={pair}
-              onClick={() => setSelectedPair(pair)}
-              style={{
-                padding: '10px',
-                cursor: 'pointer',
-                borderRadius: '4px',
-                marginBottom: '5px',
-                background: selectedPair === pair ? '#2a2a2a' : 'transparent',
-                transition: 'background 0.2s'
-              }}
-            >
-              {pair}
-            </div>
-          ))}
-          
-          <h3 style={{ margin: '30px 0 20px 0', fontSize: '14px', color: '#888' }}>INDICATORS</h3>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-            <input 
-              type="checkbox" 
-              checked={showIndicators}
-              onChange={(e) => setShowIndicators(e.target.checked)}
-            />
-            Moving Averages
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-            <input type="checkbox" />
-            RSI
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <input type="checkbox" />
-            MACD
-          </label>
         </div>
 
         {/* Center Chart Area */}
@@ -171,69 +113,136 @@ function App() {
             padding: '0 20px',
             gap: '20px'
           }}>
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%' }}>
               {chartVersion === 'v1' ? (
                 // V1: Traditional timeframe buttons
-                ['15m', '1h', '4h', '12h'].map(tf => (
-                  <button
-                    key={tf}
-                    onClick={() => setSelectedTimeframe(tf)}
-                    style={{
-                      background: selectedTimeframe === tf ? '#3a3a3a' : 'transparent',
-                      border: 'none',
-                      color: selectedTimeframe === tf ? '#4a9eff' : '#888',
-                      padding: '5px 10px',
-                      borderRadius: '3px',
-                      cursor: 'pointer',
-                      fontSize: '13px'
-                    }}
-                  >
-                    {tf}
-                  </button>
-                ))
+                <>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    {['15m', '1h', '4h', '12h'].map(tf => (
+                      <button
+                        key={tf}
+                        onClick={() => setSelectedTimeframe(tf)}
+                        style={{
+                          background: selectedTimeframe === tf ? '#3a3a3a' : 'transparent',
+                          border: 'none',
+                          color: selectedTimeframe === tf ? '#4a9eff' : '#888',
+                          padding: '5px 10px',
+                          borderRadius: '3px',
+                          cursor: 'pointer',
+                          fontSize: '13px'
+                        }}
+                      >
+                        {tf}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => setShowIndicators(!showIndicators)}
+                      style={{
+                        background: showIndicators ? '#3a3a3a' : 'transparent',
+                        border: '1px solid #444',
+                        color: showIndicators ? '#4a9eff' : '#888',
+                        padding: '5px 10px',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        fontSize: '13px'
+                      }}
+                    >
+                      Indicators
+                    </button>
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <select 
+                        value={selectedPair}
+                        onChange={(e) => setSelectedPair(e.target.value)}
+                        style={{
+                          background: '#2a2a2a',
+                          border: '1px solid #444',
+                          color: '#fff',
+                          padding: '5px 30px 5px 10px',
+                          borderRadius: '3px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          WebkitAppearance: 'none',
+                          MozAppearance: 'none',
+                          appearance: 'none'
+                        }}
+                      >
+                        {['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CHF'].map(pair => (
+                          <option key={pair} value={pair}>{pair}</option>
+                        ))}
+                      </select>
+                      <span style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        pointerEvents: 'none',
+                        color: '#888',
+                        fontSize: '10px'
+                      }}>▼</span>
+                    </div>
+                  </div>
+                </>
               ) : (
                 // V2: Detail level display (read-only)
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '10px',
-                  color: '#888',
-                  fontSize: '13px'
-                }}>
-                  <span>Auto Detail:</span>
-                  <span style={{ 
-                    background: '#2a2a2a',
-                    padding: '5px 10px',
-                    borderRadius: '3px',
-                    color: '#00ff88',
-                    fontFamily: 'monospace'
+                <>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '10px',
+                    color: '#888',
+                    fontSize: '13px'
                   }}>
-                    {v2DetailLevel}
-                  </span>
-                  <span style={{ fontSize: '11px', color: '#666' }}>
-                    Zoom to change detail level
-                  </span>
-                </div>
+                    <span>Auto Detail:</span>
+                    <span style={{ 
+                      background: '#2a2a2a',
+                      padding: '5px 10px',
+                      borderRadius: '3px',
+                      color: '#00ff88',
+                      fontFamily: 'monospace'
+                    }}>
+                      {v2DetailLevel}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#666' }}>
+                      Zoom to change detail level
+                    </span>
+                  </div>
+                  <div style={{ marginLeft: 'auto', position: 'relative', display: 'inline-block' }}>
+                    <select 
+                      value={selectedPair}
+                      onChange={(e) => setSelectedPair(e.target.value)}
+                      style={{
+                        background: '#2a2a2a',
+                        border: '1px solid #444',
+                        color: '#fff',
+                        padding: '5px 30px 5px 10px',
+                        borderRadius: '3px',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        outline: 'none',
+                        WebkitAppearance: 'none',
+                        MozAppearance: 'none',
+                        appearance: 'none'
+                      }}
+                    >
+                      {['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CHF'].map(pair => (
+                        <option key={pair} value={pair}>{pair}</option>
+                      ))}
+                    </select>
+                    <span style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      pointerEvents: 'none',
+                      color: '#888',
+                      fontSize: '10px'
+                    }}>▼</span>
+                  </div>
+                </>
               )}
-            </div>
-            
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
-              <select 
-                value={chartType}
-                onChange={(e) => setChartType(e.target.value)}
-                style={{
-                  background: '#2a2a2a',
-                  border: '1px solid #444',
-                  color: '#fff',
-                  padding: '5px 10px',
-                  borderRadius: '3px',
-                  fontSize: '13px'
-                }}
-              >
-                <option value="candlestick">Candlestick</option>
-                <option value="line">Line</option>
-                <option value="bar">Bar</option>
-              </select>
             </div>
           </div>
 
@@ -384,12 +393,19 @@ function App() {
             background: dbStatus.connected ? '#4caf50' : '#ff5252',
             display: 'inline-block'
           }} />
-          {dbStatus.connected 
-            ? `Connected to: ${dbStatus.database_name} (${dbStatus.host})`
-            : `Disconnected: ${dbStatus.error || 'No connection'}`
-          }
+          {dbStatus.connected ? 'Connected' : 'Disconnected'}
         </span>
-        <span style={{ marginLeft: 'auto' }}>Last Update: {new Date().toLocaleTimeString()}</span>
+        <span style={{ marginLeft: '20px' }}>Last Update: {new Date().toLocaleTimeString()}</span>
+        <button style={{
+          marginLeft: 'auto',
+          background: 'none',
+          border: '1px solid #444',
+          color: '#fff',
+          padding: '4px 10px',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px'
+        }}>Settings</button>
       </div>
     </div>
   );
