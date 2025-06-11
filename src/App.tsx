@@ -5,6 +5,7 @@ import { MatrixLogin } from './components/MatrixLogin';
 import { AppLayout } from './layouts/AppLayout';
 import { TradingPage } from './pages/TradingPage';
 import { BacktestPage } from './pages/BacktestPage';
+import { TradingProvider } from './contexts/TradingContext';
 import './App.css';
 
 function App() {
@@ -15,18 +16,20 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<AppLayout />}>
-          <Route index element={<Navigate to="/trading" />} />
-          <Route path="trading" element={<TradingPage />} />
-          <Route path="backtest" element={<BacktestPage />} />
-          <Route path="screener" element={<div style={{ color: 'white', padding: '80px' }}>Screener Page (Coming Soon)</div>} />
-          <Route path="history" element={<div style={{ color: 'white', padding: '80px' }}>History Page (Coming Soon)</div>} />
-          <Route path="settings" element={<div style={{ color: 'white', padding: '80px' }}>Settings Page (Coming Soon)</div>} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <TradingProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<AppLayout />}>
+            <Route index element={<Navigate to="/trading" />} />
+            <Route path="trading" element={<TradingPage />} />
+            <Route path="backtest" element={<BacktestPage />} />
+            <Route path="screener" element={<div style={{ color: 'white', padding: '80px' }}>Screener Page (Coming Soon)</div>} />
+            <Route path="history" element={<div style={{ color: 'white', padding: '80px' }}>History Page (Coming Soon)</div>} />
+            <Route path="settings" element={<div style={{ color: 'white', padding: '80px' }}>Settings Page (Coming Soon)</div>} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </TradingProvider>
   );
 }
 

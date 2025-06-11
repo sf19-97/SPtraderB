@@ -9,8 +9,7 @@ export const BacktestPage = () => {
     <div style={{ 
       minHeight: '100vh', 
       background: '#0a0a0a',
-      padding: '20px',
-      paddingLeft: '80px' // Account for collapsed sidebar
+      padding: '20px'
     }}>
       <Container size="xl">
         {/* Temporary navigation */}

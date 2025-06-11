@@ -15,7 +15,7 @@ import {
 export const AppLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(true); // Start collapsed
+  const [collapsed, setCollapsed] = useState(true);
 
   const navItems = [
     { path: '/trading', label: 'Trading', icon: IconChartLine },
@@ -25,61 +25,36 @@ export const AppLayout = () => {
   ];
 
   return (
-    <Box style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      {/* Main Content - Always full width */}
-      <Box style={{ width: '100%', height: '100%' }}>
-        <Outlet />
-      </Box>
-
-      {/* Overlay Sidebar */}
+    <Box style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {/* Collapsed Sidebar - Takes up space */}
       <Box
         style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
+          width: '60px',
           height: '100vh',
-          width: collapsed ? '60px' : '200px',
           backgroundColor: '#151515',
           borderRight: '1px solid #333',
-          transition: 'width 200ms ease',
-          zIndex: 100,
-          boxShadow: collapsed ? 'none' : '4px 0 10px rgba(0,0,0,0.5)',
+          flexShrink: 0,
         }}
       >
-        <Stack h="100%" p="md" justify="space-between" gap={0}>
-          {/* Top Section */}
-          <div>
-            {/* Logo and Collapse Button */}
-            <Group justify="space-between" mb="xl">
-              {!collapsed && (
-                <Text 
-                  className="sp-trader-logo" 
-                  size="lg" 
-                  fw={700}
-                  c="white"
-                >
-                  SPTrader
-                </Text>
-              )}
-              
+        {/* Only show icons when collapsed */}
+        {collapsed && (
+          <Stack h="100%" p="md" justify="space-between" gap={0}>
+            <div>
               <ActionIcon
-                onClick={() => setCollapsed(!collapsed)}
+                onClick={() => setCollapsed(false)}
                 variant="subtle"
                 color="gray"
-                size={collapsed ? "md" : "sm"}
-                style={{ marginLeft: collapsed ? 'auto' : 0 }}
+                size="md"
+                style={{ marginBottom: '20px' }}
               >
-                {collapsed ? <IconChevronRight size={16} /> : <IconChevronLeft size={16} />}
+                <IconChevronRight size={16} />
               </ActionIcon>
-            </Group>
 
-            {/* Navigation Items */}
-            <Stack gap="xs">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path;
-                
-                if (collapsed) {
+              <Stack gap="xs">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.path;
+                  
                   return (
                     <Tooltip 
                       key={item.path}
@@ -98,48 +73,93 @@ export const AppLayout = () => {
                       </ActionIcon>
                     </Tooltip>
                   );
-                }
+                })}
+              </Stack>
+            </div>
 
-                return (
-                  <NavLink
-                    key={item.path}
-                    active={isActive}
-                    label={item.label}
-                    leftSection={<Icon size={20} />}
-                    onClick={() => navigate(item.path)}
-                    color="cyan"
+            <Tooltip label="Settings" position="right" withArrow>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="lg"
+                style={{ width: '100%' }}
+              >
+                <IconSettings size={20} />
+              </ActionIcon>
+            </Tooltip>
+          </Stack>
+        )}
+      </Box>
+
+      {/* Expanded Sidebar - Overlays */}
+      {!collapsed && (
+        <>
+          <Box
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              height: '100vh',
+              width: '200px',
+              backgroundColor: '#151515',
+              borderRight: '1px solid #333',
+              zIndex: 100,
+              boxShadow: '4px 0 10px rgba(0,0,0,0.5)',
+            }}
+          >
+            <Stack h="100%" p="md" justify="space-between" gap={0}>
+              <div>
+                <Group justify="space-between" mb="xl">
+                  <Text 
+                    className="sp-trader-logo" 
+                    size="lg" 
+                    fw={700}
+                    c="white"
+                  >
+                    SPTrader
+                  </Text>
+                  
+                  <ActionIcon
+                    onClick={() => setCollapsed(true)}
                     variant="subtle"
-                    styles={{
-                      root: {
-                        borderRadius: '4px',
-                        '&:hover': {
-                          backgroundColor: '#2a2a2a',
-                        },
-                      },
-                      label: {
-                        fontSize: '14px',
-                      },
-                    }}
-                  />
-                );
-              })}
-            </Stack>
-          </div>
+                    color="gray"
+                    size="sm"
+                  >
+                    <IconChevronLeft size={16} />
+                  </ActionIcon>
+                </Group>
 
-          {/* Bottom Section */}
-          <div>
-            {collapsed ? (
-              <Tooltip label="Settings" position="right" withArrow>
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="lg"
-                  style={{ width: '100%' }}
-                >
-                  <IconSettings size={20} />
-                </ActionIcon>
-              </Tooltip>
-            ) : (
+                <Stack gap="xs">
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname === item.path;
+                    
+                    return (
+                      <NavLink
+                        key={item.path}
+                        active={isActive}
+                        label={item.label}
+                        leftSection={<Icon size={20} />}
+                        onClick={() => navigate(item.path)}
+                        color="cyan"
+                        variant="subtle"
+                        styles={{
+                          root: {
+                            borderRadius: '4px',
+                            '&:hover': {
+                              backgroundColor: '#2a2a2a',
+                            },
+                          },
+                          label: {
+                            fontSize: '14px',
+                          },
+                        }}
+                      />
+                    );
+                  })}
+                </Stack>
+              </div>
+
               <NavLink
                 label="Settings"
                 leftSection={<IconSettings size={20} />}
@@ -157,27 +177,30 @@ export const AppLayout = () => {
                   },
                 }}
               />
-            )}
-          </div>
-        </Stack>
-      </Box>
+            </Stack>
+          </Box>
 
-      {/* Optional: Dark overlay when sidebar is expanded */}
-      {!collapsed && (
-        <Box
-          onClick={() => setCollapsed(true)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: '200px',
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            zIndex: 99,
-            cursor: 'pointer',
-          }}
-        />
+          {/* Dark overlay */}
+          <Box
+            onClick={() => setCollapsed(true)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: '200px',
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              zIndex: 99,
+              cursor: 'pointer',
+            }}
+          />
+        </>
       )}
+
+      {/* Main Content - Fills remaining space */}
+      <Box style={{ flex: 1, overflow: 'hidden' }}>
+        <Outlet />
+      </Box>
     </Box>
   );
 };
