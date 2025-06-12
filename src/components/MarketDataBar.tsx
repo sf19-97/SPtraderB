@@ -1,10 +1,12 @@
 // src/components/MarketDataBar.tsx
-import { Group, Text, Box, Paper, SegmentedControl } from '@mantine/core';
-import { IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
+import { Group, Text, Box, Paper, Badge } from '@mantine/core';
+import { IconTrendingUp, IconTrendingDown, IconClock } from '@tabler/icons-react';
 import { useTrading } from '../contexts/TradingContext';
+import { useState, useEffect } from 'react';
 
 export const MarketDataBar = () => {
-  const { selectedPair, selectedTimeframe, setTimeframe } = useTrading();
+  const { selectedPair, selectedTimeframe } = useTrading();
+  const [timeframeChanged, setTimeframeChanged] = useState(false);
   
   // Mock data - replace with real data
   const marketData = {
@@ -18,6 +20,13 @@ export const MarketDataBar = () => {
   };
 
   const isPositive = marketData.change > 0;
+
+  // Animate on timeframe change
+  useEffect(() => {
+    setTimeframeChanged(true);
+    const timer = setTimeout(() => setTimeframeChanged(false), 300);
+    return () => clearTimeout(timer);
+  }, [selectedTimeframe]);
 
   return (
     <Paper 
@@ -73,19 +82,49 @@ export const MarketDataBar = () => {
           </Box>
         </Group>
 
-        {/* Timeframe Selector */}
-        <Group>
-          <SegmentedControl
-            value={selectedTimeframe}
-            onChange={setTimeframe}
-            data={['15m', '1h', '4h', '12h']}
-            size="xs"
-            styles={{
-              root: { background: '#0a0a0a' },
-              indicator: { background: '#2a2a2a' },
+        {/* Timeframe Display - Read Only */}
+        <Box
+          style={{
+            background: 'linear-gradient(145deg, #1a1a1a, #0a0a0a)',
+            border: '1px solid #333',
+            borderRadius: '20px',
+            padding: '6px 16px',
+            position: 'relative',
+            overflow: 'hidden',
+            minWidth: '80px',
+          }}
+        >
+          <Group gap="xs" justify="center">
+            <Box
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: '#00ff88',
+                opacity: timeframeChanged ? 1 : 0.6,
+                transition: 'opacity 0.3s ease',
+              }}
+            />
+            <Text size="sm" fw={600} c="white">
+              {selectedTimeframe.toUpperCase()}
+            </Text>
+          </Group>
+          
+          {/* Glow effect on change */}
+          <Box
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 255, 136, 0.2)',
+              opacity: timeframeChanged ? 1 : 0,
+              transition: 'opacity 0.3s ease',
+              pointerEvents: 'none',
             }}
           />
-        </Group>
+        </Box>
       </Group>
     </Paper>
   );

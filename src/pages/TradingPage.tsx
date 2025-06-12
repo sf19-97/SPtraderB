@@ -17,7 +17,7 @@ interface DatabaseStatus {
 
 export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const { selectedPair, selectedTimeframe, chartVersion } = useTrading();
+  const { selectedPair, selectedTimeframe, chartVersion, setTimeframe } = useTrading();
   const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>({
     connected: false,
@@ -63,6 +63,7 @@ export const TradingPage = () => {
             <AdaptiveChart 
               symbol={selectedPair}
               timeframe={selectedTimeframe}
+              onTimeframeChange={setTimeframe}
             />
           ) : (
             <AdaptiveChartV2 
