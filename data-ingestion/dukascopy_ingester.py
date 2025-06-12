@@ -151,8 +151,8 @@ def main():
     
     # Define what to download
     symbol = "EURUSD"
-    start_date = datetime(2024, 1, 7)  # Start from Jan 2, 2024
-    end_date = datetime(2024, 6, 1)    # Through Jan 7 (6 days total)
+    start_date = datetime(2024, 6, 1)  # Start from June 1, 2024
+    end_date = datetime(2024, 11, 30)  # Through November 30, 2024
     
     print(f"Starting download of {symbol} from {start_date.date()} to {end_date.date()}")
     

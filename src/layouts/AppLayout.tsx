@@ -1,7 +1,9 @@
 // src/layouts/AppLayout.tsx
-import { NavLink, Group, Text, UnstyledButton, ActionIcon, Stack, Tooltip, Box } from '@mantine/core';
+import { NavLink, Group, Text, ActionIcon, Stack, Tooltip, Box } from '@mantine/core';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useState } from 'react';
+import { IconDatabase } from '@tabler/icons-react';
+
 import { 
   IconChartLine, 
   IconTestPipe, 
@@ -21,6 +23,7 @@ export const AppLayout = () => {
     { path: '/trading', label: 'Trading', icon: IconChartLine },
     { path: '/backtest', label: 'Backtest', icon: IconTestPipe },
     { path: '/screener', label: 'Screener', icon: IconBrain },
+    { path: '/data', label: 'Data Manager', icon: IconDatabase }, // Add this
     { path: '/history', label: 'History', icon: IconHistory },
   ];
 

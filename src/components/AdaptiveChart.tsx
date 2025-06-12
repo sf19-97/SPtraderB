@@ -200,7 +200,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
           symbol: symbol,
           timeframe: timeframe,
           from: 1704153600, // Jan 2, 2024
-          to: 1717200000,   // May 31, 2024
+          to: 1733011200,   // Nov 30, 2024
         },
       });
 
@@ -256,7 +256,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
           symbol: symbol,
           timeframe: timeframe,
           from: 1704153600,
-          to: 1717200000,
+          to: 1733011200,
         },
       });
 
