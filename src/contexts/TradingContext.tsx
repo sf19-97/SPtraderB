@@ -37,6 +37,13 @@ export const TradingProvider = ({ children }: { children: ReactNode }) => {
     volume: false,
   });
 
+  const setPair = (pair: string) => {
+    console.log('[TradingContext] setPair called with:', pair);
+    console.log('[TradingContext] Current selectedPair:', selectedPair);
+    setSelectedPair(pair);
+    console.log('[TradingContext] New selectedPair will be:', pair);
+  };
+
   const toggleIndicator = (indicator: keyof typeof indicators) => {
     setIndicators(prev => ({ ...prev, [indicator]: !prev[indicator] }));
   };
@@ -48,7 +55,7 @@ export const TradingProvider = ({ children }: { children: ReactNode }) => {
       chartType,
       chartVersion,
       indicators,
-      setPair: setSelectedPair,
+      setPair,
       setTimeframe: setSelectedTimeframe,
       setChartType,
       setChartVersion,

@@ -53,8 +53,13 @@ class DukascopyIngester:
                 timestamp_ms, ask_raw, bid_raw, ask_vol, bid_vol = struct.unpack('>3I2f', chunk)
                 
                 # Convert to actual prices (Dukascopy uses integer representation)
-                ask_price = ask_raw / 100000.0
-                bid_price = bid_raw / 100000.0
+                # JPY pairs use 3 decimal places, others use 5
+                if 'JPY' in symbol.upper():
+                    ask_price = ask_raw / 1000.0
+                    bid_price = bid_raw / 1000.0
+                else:
+                    ask_price = ask_raw / 100000.0
+                    bid_price = bid_raw / 100000.0
                 
                 # Calculate actual timestamp
                 tick_time = base_time + timedelta(milliseconds=timestamp_ms)
@@ -143,23 +148,42 @@ class DukascopyIngester:
                 pbar.update(1)
 
 def main():
-    # Database connection
-    DB_URL = "postgresql://postgres@localhost:5432/forex_trading"
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Download forex tick data from Dukascopy')
+    parser.add_argument('--symbol', type=str, required=True, help='Currency pair symbol (e.g., EURUSD)')
+    parser.add_argument('--start-date', type=str, required=True, help='Start date (YYYY-MM-DD)')
+    parser.add_argument('--end-date', type=str, required=True, help='End date (YYYY-MM-DD)')
+    parser.add_argument('--db-url', type=str, default="postgresql://postgres@localhost:5432/forex_trading",
+                       help='Database connection URL')
+    
+    args = parser.parse_args()
+    
+    # Parse dates
+    try:
+        start_date = datetime.strptime(args.start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(args.end_date, '%Y-%m-%d')
+    except ValueError as e:
+        logger.error(f"Invalid date format: {e}")
+        print(f"Error: Invalid date format. Use YYYY-MM-DD")
+        return 1
     
     # Create ingester
-    ingester = DukascopyIngester(DB_URL)
+    ingester = DukascopyIngester(args.db_url)
     
-    # Define what to download
-    symbol = "EURUSD"
-    start_date = datetime(2024, 6, 1)  # Start from June 1, 2024
-    end_date = datetime(2024, 11, 30)  # Through November 30, 2024
-    
-    print(f"Starting download of {symbol} from {start_date.date()} to {end_date.date()}")
+    print(f"Starting download of {args.symbol} from {start_date.date()} to {end_date.date()}")
     
     # Ingest the data
-    ingester.ingest_historical_data(symbol, start_date, end_date)
-    
-    print("Data ingestion complete!")
+    try:
+        ingester.ingest_historical_data(args.symbol, start_date, end_date)
+        print("Data ingestion complete!")
+        return 0
+    except Exception as e:
+        logger.error(f"Data ingestion failed: {e}")
+        print(f"Error: Data ingestion failed - {e}")
+        return 1
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())

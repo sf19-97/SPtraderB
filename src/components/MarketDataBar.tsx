@@ -1,10 +1,12 @@
 // src/components/MarketDataBar.tsx
-import { Group, Text, Box, Paper, SegmentedControl } from '@mantine/core';
+import { Group, Text, Box, Paper } from '@mantine/core';
 import { IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
 import { useTrading } from '../contexts/TradingContext';
+import { ResolutionTracker } from './ResolutionTracker';
+import { PairSelector } from './PairSelector';
 
 export const MarketDataBar = () => {
-  const { selectedPair, selectedTimeframe, setTimeframe } = useTrading();
+  const { selectedPair } = useTrading();
   
   // Mock data - replace with real data
   const marketData = {
@@ -29,17 +31,15 @@ export const MarketDataBar = () => {
       }}
     >
       <Group justify="space-between" gap="xl">
-        {/* Price Section */}
+        {/* Pair Selector and Price Section */}
         <Group gap="md">
-          <Box>
-            <Text size="xl" fw={700} c="white">
-              {selectedPair.slice(0, 3)}/{selectedPair.slice(3)}
-            </Text>
+          <Box style={{ width: '120px' }}>
+            <PairSelector />
           </Box>
           
           <Box>
             <Text size="xl" fw={600} c="white">
-              {marketData.price.toFixed(5)}
+              {marketData.price.toFixed(4)}
             </Text>
             <Group gap="xs">
               {isPositive ? 
@@ -73,19 +73,8 @@ export const MarketDataBar = () => {
           </Box>
         </Group>
 
-        {/* Timeframe Selector */}
-        <Group>
-          <SegmentedControl
-            value={selectedTimeframe}
-            onChange={setTimeframe}
-            data={['15m', '1h', '4h', '12h']}
-            size="xs"
-            styles={{
-              root: { background: '#0a0a0a' },
-              indicator: { background: '#2a2a2a' },
-            }}
-          />
-        </Group>
+        {/* Resolution Tracker - VISUAL ONLY */}
+        <ResolutionTracker />
       </Group>
     </Paper>
   );

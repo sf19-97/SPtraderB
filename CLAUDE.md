@@ -92,3 +92,36 @@ This is a common React pattern that developers should watch for:
 Any callback in useEffect with [] dependencies will capture initial state
 Use useRef for values that need to be accessed in long-lived callbacks
 This applies to: intervals, timers, event listeners, WebSocket handlers
+
+## Recent Updates Log
+
+### Currency Pair Selection & USDJPY Integration
+**Date**: January 2025
+
+#### Problem
+The trading interface only supported EURUSD. We needed to add support for multiple currency pairs, starting with USDJPY which had been recently ingested.
+
+#### Key Discoveries
+1. **USDJPY Decimal Scaling Issue**: The Python ingester was dividing all forex prices by 100,000, which is correct for EUR pairs (5 decimal places) but wrong for JPY pairs which only use 3 decimal places. JPY pairs should be divided by 1,000.
+   - Fixed existing USDJPY data in database: `UPDATE forex_ticks SET bid = bid * 100, ask = ask * 100 WHERE symbol = 'USDJPY'`
+   - Updated ingester to check for JPY in symbol name
+
+2. **Data Ingestion Process Management**: Implemented cancel functionality for long-running downloads by tracking Python subprocess PIDs in Rust backend state.
+
+#### Implementation
+1. Created `PairSelector` component using Mantine Select
+2. Added to `MarketDataBar` for easy access
+3. Connected to `TradingContext` for state management
+4. Updated `AdaptiveChart` to react to symbol changes and reload data
+
+#### Debug Logging Enhancement
+Added comprehensive logging to track timeframe changes from the ResolutionTracker:
+- All resolution/timeframe logs now prefixed with `[ResolutionTracker]`
+- Tracks actual current timeframe using `currentTimeframeRef.current` instead of initial prop
+- Provides clear visibility into automatic timeframe transitions based on zoom level
+
+#### Technical Notes
+- EURUSD: 5 decimal places (divide by 100,000)
+- USDJPY: 3 decimal places (divide by 1,000)
+- Download process tracking using HashMap<String, Child> in Rust AppState
+- Continuous aggregates must be manually refreshed after bulk data inserts

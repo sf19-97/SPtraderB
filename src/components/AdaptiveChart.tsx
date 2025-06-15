@@ -16,6 +16,13 @@ interface AdaptiveChartProps {
   onTimeframeChange?: (timeframe: string) => void;
 }
 
+interface SymbolMetadata {
+  symbol: string;
+  start_timestamp: number;
+  end_timestamp: number;
+  has_data: boolean;
+}
+
 const AdaptiveChart: React.FC<AdaptiveChartProps> = ({ 
   symbol = 'EURUSD',
   timeframe,
@@ -27,8 +34,21 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   
   const [currentTimeframe, setCurrentTimeframe] = useState(timeframe || '1h');
   const currentTimeframeRef = useRef(timeframe || '1h'); // for logic tracking
+  const symbolRef = useRef(symbol); // Track current symbol to avoid closure issues
   const [isLoading, setIsLoading] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [chartOpacity, setChartOpacity] = useState(1);
+  
+  // Cache for symbol date ranges to avoid repeated fetches
+  const symbolDateCacheRef = useRef<{ [key: string]: { from: number; to: number } }>({});
+  
+  // Transition cooldown tracking
+  const lastTransitionRef = useRef<number>(0);
+  const TRANSITION_COOLDOWN = 700; // Increased to match longer animation
+  
+  // Left edge locking
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const lockedLeftEdgeRef = useRef<number | null>(null);
   
   // CRITICAL: Use bar spacing thresholds, not pixel widths
   const SWITCH_TO_15M_BAR_SPACING = 32;  // When 1h bars are spread this wide, switch to 15m
@@ -37,6 +57,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const SWITCH_FROM_4H_BAR_SPACING = 32; // When 4h bars are spread this wide, switch to 1h
   const SWITCH_TO_12H_BAR_SPACING = 4;   // When 4h bars are squeezed this tight, switch to 12h
   const SWITCH_FROM_12H_BAR_SPACING = 24; // When 12h bars are spread this wide, switch to 4h (3x factor)
+
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -70,6 +91,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         timeVisible: true,
         secondsVisible: false,
         barSpacing: 12, // Default bar spacing
+        minBarSpacing: 2, // Prevent excessive zoom out
+        rightOffset: 5,   // Small margin on the right
+        rightBarStaysOnScroll: true, // Keep the latest bar in view when scrolling
       },
     });
 
@@ -81,13 +105,14 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       wickDownColor: '#ff4976',
       priceFormat: {
         type: 'price',
-        precision: 5,
+        precision: 5,  // Default precision, will be updated based on symbol
         minMove: 0.00001,
       },
     });
 
     chartRef.current = chart;
     seriesRef.current = candlestickSeries;
+
 
     // Handle resize
     const handleResize = () => {
@@ -105,22 +130,55 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         const currentBarSpacing = chartRef.current.timeScale().options().barSpacing;
         
         if (currentBarSpacing !== lastBarSpacing) {
-          console.log(`[SPACING] ${currentTimeframeRef.current}: bar spacing = ${currentBarSpacing}`);
+          console.log(`[ResolutionTracker] Current timeframe: ${currentTimeframeRef.current}, bar spacing: ${currentBarSpacing}`);
           lastBarSpacing = currentBarSpacing;
           checkTimeframeSwitch(currentBarSpacing);
         }
       }
     }, 100); // Check every 100ms
 
-    // Load initial data
-    loadData(currentTimeframeRef.current);
+    // Load initial data (will wait for symbol metadata to be fetched)
+
+    // Keyboard event handlers for left edge locking
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && !isShiftPressed) {
+        setIsShiftPressed(true);
+        // Lock the current left edge and unlock right
+        const visibleRange = chartRef.current?.timeScale().getVisibleRange();
+        if (visibleRange) {
+          lockedLeftEdgeRef.current = visibleRange.from as number;
+          console.log('[LOCK LEFT] Locked at:', new Date((visibleRange.from as number) * 1000).toISOString());
+        }
+        // Disable rightBarStaysOnScroll
+        chartRef.current?.timeScale().applyOptions({
+          rightBarStaysOnScroll: false
+        });
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsShiftPressed(false);
+        lockedLeftEdgeRef.current = null;
+        console.log('[LOCK LEFT] Released, re-enabling right lock');
+        // Re-enable rightBarStaysOnScroll
+        chartRef.current?.timeScale().applyOptions({
+          rightBarStaysOnScroll: true
+        });
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     return () => {
       clearInterval(checkInterval);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       chart.remove();
     };
-  }, []);
+  }, []); // Only create chart once
 
   // Handle external timeframe changes from buttons
   useEffect(() => {
@@ -130,10 +188,87 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     }
   }, [timeframe]);
 
+  // Update symbol ref when symbol changes
+  useEffect(() => {
+    symbolRef.current = symbol;
+    console.log('[AdaptiveChart] Symbol ref updated to:', symbol);
+    
+    // Clear existing chart data immediately when symbol changes
+    if (seriesRef.current) {
+      console.log('[AdaptiveChart] Clearing chart data for symbol change');
+      seriesRef.current.setData([]);
+    }
+  }, [symbol]);
+
+  // Handle symbol changes
+  useEffect(() => {
+    console.log('[AdaptiveChart] Symbol changed to:', symbol);
+    if (symbol && chartRef.current) {
+      console.log('[AdaptiveChart] Reloading data for new symbol:', symbol, 'with timeframe:', currentTimeframeRef.current);
+      // Clear cache for new symbol to force fresh metadata fetch
+      delete symbolDateCacheRef.current[symbol];
+      loadData(currentTimeframeRef.current);
+    }
+  }, [symbol]);
+
+  // Debug log for current state - tracks actual timeframe changes
+  useEffect(() => {
+    console.log('[AdaptiveChart] Current state - Symbol:', symbol, 'Actual Timeframe:', currentTimeframeRef.current);
+  }, [symbol, currentTimeframe]);
+  
+  // Function to get date range for current symbol
+  const getSymbolDateRange = async (): Promise<{ from: number; to: number }> => {
+    const currentSymbol = symbolRef.current;
+    
+    // Check cache first
+    if (symbolDateCacheRef.current[currentSymbol]) {
+      return symbolDateCacheRef.current[currentSymbol];
+    }
+    
+    try {
+      const metadata = await invoke<SymbolMetadata>('get_symbol_metadata', { symbol: currentSymbol });
+      console.log('[AdaptiveChart] Symbol metadata:', metadata);
+      
+      if (metadata.has_data) {
+        const range = {
+          from: metadata.start_timestamp,
+          to: metadata.end_timestamp
+        };
+        // Cache the result
+        symbolDateCacheRef.current[currentSymbol] = range;
+        return range;
+      }
+    } catch (error) {
+      console.error('[AdaptiveChart] Failed to fetch symbol metadata:', error);
+    }
+    
+    // Fallback to default range
+    const defaultRange = {
+      from: 1673060400, // Jan 7, 2023
+      to: 1732942799,   // Nov 30, 2024
+    };
+    symbolDateCacheRef.current[currentSymbol] = defaultRange;
+    return defaultRange;
+  };
+
+
   const checkTimeframeSwitch = (barSpacing: number) => {
-    if (isTransitioning) return;
+    if (isTransitioning) {
+      console.log('[ResolutionTracker] Skipping timeframe check - transition in progress');
+      return;
+    }
 
     const currentTf = currentTimeframeRef.current;
+    console.log('[ResolutionTracker] Checking timeframe switch - Current:', currentTf, 'Bar spacing:', barSpacing);
+    
+    // Enforce minimum bar spacing for 12h to prevent excessive zoom out
+    if (currentTf === '12h' && barSpacing < 3) {
+      console.log('[ZOOM LIMIT] Enforcing minimum bar spacing for 12h');
+      chartRef.current?.timeScale().applyOptions({
+        barSpacing: 3
+      });
+      return;
+    }
     
     // 12h → 4h (zooming in)
     if (currentTf === '12h' && barSpacing > SWITCH_FROM_12H_BAR_SPACING) {
@@ -170,6 +305,16 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const switchTimeframe = async (newTimeframe: string) => {
     if (newTimeframe === currentTimeframeRef.current || isTransitioning) return;
     
+    console.log('[ResolutionTracker] Timeframe transition:', currentTimeframeRef.current, '→', newTimeframe);
+    
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastTransitionRef.current < TRANSITION_COOLDOWN) {
+      console.log('[COOLDOWN] Too fast! Wait a bit...');
+      return; // Silent "fuckoff" response
+    }
+    
+    lastTransitionRef.current = now;
     setIsTransitioning(true);
     
     // Store current view before switching
@@ -178,7 +323,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     const currentBarSpacing = timeScale.options().barSpacing;
     const previousTimeframe = currentTimeframeRef.current; // Store this BEFORE updating
     
-    console.log(`[TRANSITION] ${currentTimeframeRef.current} → ${newTimeframe} at bar spacing ${currentBarSpacing}`);
+    console.log(`[ResolutionTracker] Executing transition: ${previousTimeframe} → ${newTimeframe} at bar spacing ${currentBarSpacing}`);
     
     currentTimeframeRef.current = newTimeframe;
     setCurrentTimeframe(newTimeframe);
@@ -192,15 +337,21 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   };
 
   const loadData = async (timeframe: string) => {
+    console.log('[AdaptiveChart] loadData called for symbol:', symbolRef.current, 'timeframe:', timeframe);
+    
     setIsLoading(true);
     
     try {
+      // Get date range for current symbol
+      const dateRange = await getSymbolDateRange();
+      console.log('[AdaptiveChart] Using date range:', new Date(dateRange.from * 1000).toISOString(), 'to', new Date(dateRange.to * 1000).toISOString());
+      
       const data = await invoke<ChartData[]>('fetch_candles', {
         request: {
-          symbol: symbol,
+          symbol: symbolRef.current,
           timeframe: timeframe,
-          from: 1704153600, // Jan 2, 2024
-          to: 1733011200,   // Nov 30, 2024
+          from: dateRange.from,
+          to: dateRange.to,
         },
       });
 
@@ -215,6 +366,13 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       }));
 
       seriesRef.current.setData(formattedData);
+      
+      // Log data bounds
+      if (formattedData.length > 0) {
+        const firstCandle = formattedData[0].time;
+        const lastCandle = formattedData[formattedData.length - 1].time;
+        console.log(`[DATA BOUNDS] ${new Date(firstCandle * 1000).toISOString()} to ${new Date(lastCandle * 1000).toISOString()}`);
+      }
       
       // Show appropriate default view based on timeframe
       if (chartRef.current && formattedData.length > 0) {
@@ -238,7 +396,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         }
       }
       
-      console.log(`[LOADED] ${timeframe}: ${data.length} candles`);
+      console.log(`[ResolutionTracker] Loaded ${timeframe}: ${data.length} candles`);
       
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -248,15 +406,26 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   };
 
   const loadDataAndMaintainView = async (timeframe: string, visibleRange: any, previousBarSpacing: number, previousTimeframe: string) => {
+    console.log('[AdaptiveChart] loadDataAndMaintainView called for symbol:', symbolRef.current, 'timeframe:', timeframe);
+    
     setIsLoading(true);
     
+    // Start fade out animation
+    setChartOpacity(0.2);
+    
+    // Longer delay for fade out to be visible
+    await new Promise(resolve => setTimeout(resolve, 250));
+    
     try {
+      // Get date range for current symbol
+      const dateRange = await getSymbolDateRange();
+      
       const data = await invoke<ChartData[]>('fetch_candles', {
         request: {
-          symbol: symbol,
+          symbol: symbolRef.current,
           timeframe: timeframe,
-          from: 1704153600,
-          to: 1733011200,
+          from: dateRange.from,
+          to: dateRange.to,
         },
       });
 
@@ -270,49 +439,79 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         close: candle.close,
       }));
 
-      seriesRef.current.setData(formattedData);
+      // Calculate new bar spacing BEFORE setting data
+      let newBarSpacing = previousBarSpacing;
       
-      // Restore the same time range
-      if (visibleRange) {
-        chartRef.current.timeScale().setVisibleRange({
-          from: visibleRange.from as any,
-          to: visibleRange.to as any
-        });
-        
-        // CRITICAL: Adjust bar spacing to maintain visual consistency
-        let newBarSpacing = previousBarSpacing;
-        
-        if (timeframe === '15m' && previousTimeframe === '1h') {
-          // Going from 1h to 15m: reduce bar spacing to fit 4x more candles
-          newBarSpacing = Math.max(3, previousBarSpacing / 4);
-        } else if (timeframe === '1h' && previousTimeframe === '15m') {
-          // Going from 15m to 1h: increase bar spacing since we have 4x fewer candles
-          newBarSpacing = Math.min(50, previousBarSpacing * 4);
-        } else if (timeframe === '1h' && previousTimeframe === '4h') {
-          // Going from 4h to 1h: reduce bar spacing to fit 4x more candles
-          newBarSpacing = Math.max(3, previousBarSpacing / 4);
-        } else if (timeframe === '4h' && previousTimeframe === '1h') {
-          // Going from 1h to 4h: increase bar spacing since we have 4x fewer candles
-          newBarSpacing = Math.min(50, previousBarSpacing * 4);
-        } else if (timeframe === '4h' && previousTimeframe === '12h') {
-          // Going from 12h to 4h: reduce bar spacing to fit 3x more candles
-          newBarSpacing = Math.max(3, previousBarSpacing / 3);
-        } else if (timeframe === '12h' && previousTimeframe === '4h') {
-          // Going from 4h to 12h: increase bar spacing since we have 3x fewer candles
-          newBarSpacing = Math.min(50, previousBarSpacing * 3);
-        }
-        
-        console.log(`[SPACING] Adjusting bar spacing: ${previousBarSpacing} → ${newBarSpacing}`);
-        
-        chartRef.current.timeScale().applyOptions({
-          barSpacing: newBarSpacing
-        });
+      if (timeframe === '15m' && previousTimeframe === '1h') {
+        // Going from 1h to 15m: reduce bar spacing to fit 4x more candles
+        newBarSpacing = Math.max(3, previousBarSpacing / 4);
+      } else if (timeframe === '1h' && previousTimeframe === '15m') {
+        // Going from 15m to 1h: increase bar spacing since we have 4x fewer candles
+        newBarSpacing = Math.min(50, previousBarSpacing * 4);
+      } else if (timeframe === '1h' && previousTimeframe === '4h') {
+        // Going from 4h to 1h: reduce bar spacing to fit 4x more candles
+        newBarSpacing = Math.max(3, previousBarSpacing / 4);
+      } else if (timeframe === '4h' && previousTimeframe === '1h') {
+        // Going from 1h to 4h: increase bar spacing since we have 4x fewer candles
+        newBarSpacing = Math.min(50, previousBarSpacing * 4);
+      } else if (timeframe === '4h' && previousTimeframe === '12h') {
+        // Going from 12h to 4h: reduce bar spacing to fit 3x more candles
+        newBarSpacing = Math.max(3, previousBarSpacing / 3);
+      } else if (timeframe === '12h' && previousTimeframe === '4h') {
+        // Going from 4h to 12h: increase bar spacing since we have 3x fewer candles
+        newBarSpacing = Math.min(50, previousBarSpacing * 3);
       }
       
-      console.log(`[LOADED] ${timeframe}: ${data.length} candles (maintained view)`);
+      console.log(`[SPACING] Pre-adjusting bar spacing: ${previousBarSpacing} → ${newBarSpacing}`);
+      
+      // Apply bar spacing BEFORE setting data
+      chartRef.current.timeScale().applyOptions({
+        barSpacing: newBarSpacing
+      });
+      
+      // NOW set the data with the correct bar spacing already applied
+      seriesRef.current.setData(formattedData);
+      
+      
+      // Set the visible range immediately after data
+      if (visibleRange) {
+        if (isShiftPressed && lockedLeftEdgeRef.current !== null) {
+          // Keep left edge locked, only adjust right edge based on duration
+          const currentDuration = visibleRange.to - visibleRange.from;
+          const ratio = timeframe === previousTimeframe ? 1 : 
+            (timeframe === '15m' && previousTimeframe === '1h') ? 4 :
+            (timeframe === '1h' && previousTimeframe === '15m') ? 0.25 :
+            (timeframe === '1h' && previousTimeframe === '4h') ? 4 :
+            (timeframe === '4h' && previousTimeframe === '1h') ? 0.25 :
+            (timeframe === '4h' && previousTimeframe === '12h') ? 3 :
+            (timeframe === '12h' && previousTimeframe === '4h') ? 0.33 : 1;
+          
+          const newDuration = currentDuration / ratio;
+          const newTo = lockedLeftEdgeRef.current + newDuration;
+          
+          chartRef.current.timeScale().setVisibleRange({
+            from: lockedLeftEdgeRef.current as any,
+            to: newTo as any
+          });
+          
+          console.log('[LOCK LEFT] Maintaining locked left edge during transition');
+        } else {
+          // Normal behavior
+          chartRef.current.timeScale().setVisibleRange({
+            from: visibleRange.from as any,
+            to: visibleRange.to as any
+          });
+        }
+      }
+      
+      console.log(`[ResolutionTracker] Loaded ${timeframe}: ${data.length} candles (maintained view)`);
+      
+      // Fade back in
+      setChartOpacity(1);
       
     } catch (error) {
       console.error('Failed to load data:', error);
+      setChartOpacity(1); // Ensure we fade back in even on error
     } finally {
       setIsLoading(false);
     }
@@ -325,7 +524,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         width: '100%',
         height: '100%',
         background: '#0a0a0a',
-        position: 'relative'
+        position: 'relative',
+        opacity: chartOpacity,
+        transition: 'opacity 300ms ease-in-out'
       }}
     >
       {isLoading && (
@@ -355,6 +556,11 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
         fontFamily: 'monospace'
       }}>
         {currentTimeframe}
+        {isShiftPressed && (
+          <span style={{ marginLeft: '10px', color: '#ff9900' }}>
+            [LOCK LEFT]
+          </span>
+        )}
       </div>
     </div>
   );

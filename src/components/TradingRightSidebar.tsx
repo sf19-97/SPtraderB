@@ -108,7 +108,7 @@ export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebar
               <NumberInput
                 label="Amount"
                 defaultValue={1.0}
-                precision={2}
+                decimalScale={2}
                 step={0.1}
                 size="sm"
               />
