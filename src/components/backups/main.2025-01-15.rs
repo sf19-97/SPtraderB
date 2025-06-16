@@ -325,7 +325,7 @@ async fn start_data_ingestion(
             
             // Store the process first
             {
-                let mut processes = ingestion_processes.lock().await;
+                let mut processes = state.ingestion_processes.lock().await;
                 processes.insert(symbol.clone(), child);
             }
             
@@ -692,18 +692,7 @@ async fn refresh_candles(
         oldest_tick
     };
     
-    let mut refresh_end = newest_tick + chrono::Duration::hours(1); // Add buffer
-    
-    // Ensure refresh_start is not after refresh_end (can happen if metadata is stale)
-    let refresh_start = if refresh_start > refresh_end {
-        println!("[REFRESH_CANDLES] Invalid range detected: start {} > end {}", 
-                 refresh_start.format("%Y-%m-%d %H:%M:%S"),
-                 refresh_end.format("%Y-%m-%d %H:%M:%S"));
-        println!("[REFRESH_CANDLES] Resetting to full range from oldest tick");
-        oldest_tick
-    } else {
-        refresh_start
-    };
+    let refresh_end = newest_tick + chrono::Duration::hours(1); // Add buffer
     
     println!("[REFRESH_CANDLES] Total refresh range: {} to {}", 
              refresh_start.format("%Y-%m-%d %H:%M:%S"),

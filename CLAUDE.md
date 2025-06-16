@@ -125,3 +125,36 @@ Added comprehensive logging to track timeframe changes from the ResolutionTracke
 - USDJPY: 3 decimal places (divide by 1,000)
 - Download process tracking using HashMap<String, Child> in Rust AppState
 - Continuous aggregates must be manually refreshed after bulk data inserts
+
+### Data Pipeline & Chart Improvements
+**Date**: January 15, 2025
+
+#### Major Fixes
+1. **Chunked Candle Generation**: Fixed "refresh window too small" TimescaleDB error by processing large date ranges in monthly chunks
+2. **Process Monitoring**: Added background task to monitor data ingestion completion with event emission
+3. **Chart Dynamic Date Loading**: Restored ability to fetch date ranges from database instead of hardcoded values
+4. **5m Candles Integration**: 
+   - Added 5m candles to UI count display (they were being generated but not shown)
+   - Note: 5m candles are generated in the data pipeline but NOT available for chart display (intentional)
+   - Chart timeframes remain: 15m, 1h, 4h, 12h only
+
+#### Technical Improvements
+- Fixed React closure issues in AdaptiveChart by using refs for stable references
+- Maintained smooth fade animations during timeframe transitions
+- Added caching for symbol date ranges to reduce API calls
+- Fixed useEffect dependency issue in DataIngestionPage causing infinite re-renders
+
+#### Known Issues
+- Data Manager query is slow (~13 seconds) due to multiple COUNT(*) operations on large tables
+- Suggested optimization: Use PostgreSQL statistics for approximate counts with exact date ranges
+
+## Project Organization
+
+### Active Scripts
+- `/data-ingestion/dukascopy_ingester.py` - Main forex data download script
+- `/data-ingestion/test_data.py` - Database verification tool
+
+### Deprecated Scripts
+Moved to `/depreciated/` folder:
+- Candle alignment check scripts (used during development for verification)
+- Old AdaptiveChart versions
