@@ -1,17 +1,14 @@
 // src/pages/DataIngestionPage.tsx
 import { useState, useEffect } from 'react';
 import { 
-  Container, 
   Title, 
   Paper, 
   Select, 
   Button, 
   Stack, 
-  Alert, 
   Progress,
   Group,
   Text,
-  Code,
   Table,
   Badge,
   ActionIcon,
@@ -24,8 +21,10 @@ import { DatePickerInput } from '@mantine/dates';
 import { IconDatabase, IconDownload, IconRefresh, IconTrash, IconX, IconChartCandle } from '@tabler/icons-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { TerminalLogger, LogEntry } from '../components/TerminalLogger';
 
-const CURRENCY_PAIRS = [
+// Default currency pairs - will be updated with actual available pairs
+const DEFAULT_CURRENCY_PAIRS = [
   'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 
   'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'
 ];
@@ -51,8 +50,6 @@ export const DataIngestionPage = () => {
   const [startDate, setStartDate] = useState<Date | null>(new Date('2024-01-01'));
   const [endDate, setEndDate] = useState<Date | null>(new Date());
   const [isIngesting, setIsIngesting] = useState(false);
-  const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
   const [availableData, setAvailableData] = useState<AvailableData[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -60,6 +57,53 @@ export const DataIngestionPage = () => {
   const [refreshingSymbol, setRefreshingSymbol] = useState<string | null>(null);
   const [refreshProgress, setRefreshProgress] = useState<{ [key: string]: { progress: number; stage: string } }>({});
   const [autoGenerateCandles, setAutoGenerateCandles] = useState(true);
+  const [availablePairs, setAvailablePairs] = useState<string[]>(DEFAULT_CURRENCY_PAIRS);
+  
+  // Terminal logs state
+  const [terminalLogs, setTerminalLogs] = useState<LogEntry[]>([
+    {
+      id: 1,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, -5),
+      type: 'info',
+      prefix: '[INFO]',
+      message: 'Data Ingestion Manager initialized',
+      color: ''
+    },
+    {
+      id: 2,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, -5),
+      type: 'db',
+      prefix: '[DB]',
+      message: 'Connected to PostgreSQL database',
+      color: ''
+    },
+    {
+      id: 3,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, -5),
+      type: 'success',
+      prefix: '[SUCCESS]',
+      message: 'Database connection pool established (10 connections)',
+      color: ''
+    }
+  ]);
+  
+  // Add log helper function with debouncing for rapid updates
+  const addLog = (type: LogEntry['type'], message: string, prefix?: string) => {
+    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, -5);
+    setTerminalLogs(prev => {
+      const newLog: LogEntry = {
+        id: Date.now() + Math.random(),
+        timestamp,
+        type,
+        prefix: prefix || '',
+        message,
+        color: ''
+      };
+      // Keep only last 1000 logs
+      const newLogs = [...prev, newLog];
+      return newLogs.length > 1000 ? newLogs.slice(-1000) : newLogs;
+    });
+  };
   
   // Modal states
   const [confirmModal, setConfirmModal] = useState<{
@@ -73,6 +117,35 @@ export const DataIngestionPage = () => {
     message: '',
     onConfirm: () => {},
   });
+
+  // Add test logs for Phase 2 testing
+  const addTestLogs = () => {
+    // Simulate various log types
+    addLog('info', 'Test: Starting simulated process');
+    setTimeout(() => addLog('python', 'Downloading EURUSD: 0%|          | 0/172 [00:00<?, ?it/s]'), 500);
+    setTimeout(() => addLog('db', 'Executing bulk insert: 3,847 rows'), 1000);
+    setTimeout(() => addLog('python', 'Downloading EURUSD: 10%|█         | 17/172 [00:30<05:26, 2.10s/it]'), 1500);
+    setTimeout(() => addLog('debug', 'DEBUG: Raw bi5 header: 0x1F8B0800...'), 2000);
+    setTimeout(() => addLog('perf', 'Memory usage: 342 MB / 1024 MB'), 2500);
+    setTimeout(() => addLog('success', 'Successfully downloaded 2024-01-01 data'), 3000);
+    setTimeout(() => addLog('warn', 'Rate limit approaching, slowing down requests'), 3500);
+    setTimeout(() => addLog('error', 'HTTP 404: No data for 2024-01-02 (weekend)'), 4000);
+    setTimeout(() => addLog('candles', 'Processing 5 minute candles... (20% complete)'), 4500);
+    setTimeout(() => addLog('python', 'Downloading EURUSD: 20%|██        | 34/172 [01:00<04:00, 1.74s/it]'), 5000);
+    
+    // Test FIFO limit - generate many logs rapidly
+    setTimeout(() => {
+      addLog('info', 'Testing FIFO limit - generating 50 logs rapidly...');
+      for (let i = 1; i <= 50; i++) {
+        setTimeout(() => {
+          addLog('debug', `DEBUG: Test log ${i} of 50 - checking FIFO behavior`);
+          if (i === 50) {
+            addLog('success', 'FIFO test complete - check if oldest logs were removed');
+          }
+        }, i * 50); // Stagger by 50ms each
+      }
+    }, 6000);
+  };
 
   // Fetch available data on component mount and listen for refresh progress
   useEffect(() => {
@@ -107,10 +180,8 @@ export const DataIngestionPage = () => {
       console.log('[DataIngestionPage] Ingestion completed for:', event.payload);
       setIsIngesting(false);
       setCurrentIngestionSymbol(null);
-      setStatus({
-        type: 'success',
-        message: `Successfully completed ingestion for ${event.payload}`
-      });
+      addLog('success', `Successfully completed ingestion for ${event.payload}`);
+      
       fetchAvailableData(); // Refresh the available data
       
       // Auto-generate candles if option is checked
@@ -127,16 +198,43 @@ export const DataIngestionPage = () => {
       console.log('[DataIngestionPage] Ingestion failed for:', event.payload);
       setIsIngesting(false);
       setCurrentIngestionSymbol(null);
-      setStatus({
-        type: 'error',
-        message: `Ingestion failed for ${event.payload}`
-      });
+      addLog('error', `Ingestion failed for ${event.payload}`);
+      
     });
 
     // Listen for ingestion started
     const unlistenStarted = listen<string>('ingestion-started', (event) => {
       console.log('[DataIngestionPage] Ingestion started for:', event.payload);
       setCurrentIngestionSymbol(event.payload);
+      addLog('info', `Process spawned successfully for ${event.payload}`);
+    });
+
+    // Listen for progress updates
+    const unlistenProgress = listen<{ symbol: string; progress: number }>('ingestion-progress', (event) => {
+      setProgress(event.payload.progress);
+      // Log progress updates every 10%
+      if (event.payload.progress % 10 === 0) {
+        addLog('info', `Download progress: ${event.payload.progress}% complete`);
+      }
+    });
+
+    // Listen for backend logs
+    const unlistenBackendLog = listen<{ timestamp: string; level: string; message: string }>('backend-log', (event) => {
+      // Map backend log levels to our log types
+      const levelMap: { [key: string]: LogEntry['type'] } = {
+        'INFO': 'info',
+        'SUCCESS': 'success',
+        'WARN': 'warn',
+        'ERROR': 'error',
+        'DEBUG': 'debug',
+        'PYTHON': 'python',
+        'DB': 'db',
+        'CANDLES': 'candles',
+        'PERF': 'perf',
+      };
+      
+      const logType = levelMap[event.payload.level] || 'info';
+      addLog(logType, event.payload.message);
     });
 
     return () => {
@@ -144,6 +242,8 @@ export const DataIngestionPage = () => {
       unlistenCompleted.then(fn => fn());
       unlistenFailed.then(fn => fn());
       unlistenStarted.then(fn => fn());
+      unlistenProgress.then(fn => fn());
+      unlistenBackendLog.then(fn => fn());
     };
   }, [autoGenerateCandles]);
 
@@ -152,9 +252,19 @@ export const DataIngestionPage = () => {
     try {
       const data = await invoke<AvailableData[]>('get_available_data');
       setAvailableData(data);
+      
+      // Extract unique symbols from available data
+      const uniqueSymbols = [...new Set(data.map(d => d.symbol))];
+      
+      // Combine with default pairs and keep unique
+      const allPairs = [...new Set([...uniqueSymbols, ...DEFAULT_CURRENCY_PAIRS])];
+      setAvailablePairs(allPairs.sort());
+      
+      addLog('info', `Loaded ${data.length} currency pairs from database`);
     } catch (error) {
       console.error('Failed to fetch available data:', error);
-      setStatus({ type: 'error', message: `Failed to fetch data: ${error}` });
+      addLog('error', `Failed to fetch available data: ${error}`);
+      
     } finally {
       setIsLoadingData(false);
     }
@@ -174,12 +284,12 @@ export const DataIngestionPage = () => {
           });
           
           if (success) {
-            setStatus({ type: 'success', message: `Successfully deleted data for ${symbol}` });
+            addLog('success', `Successfully deleted all data for ${symbol}`);
             // Refresh the data list
             await fetchAvailableData();
           }
         } catch (error) {
-          setStatus({ type: 'error', message: `Failed to delete data: ${error}` });
+          addLog('error', `Failed to delete data: ${error}`);
         }
       }
     });
@@ -202,7 +312,8 @@ export const DataIngestionPage = () => {
         
         console.log('[DataIngestionPage] Starting candle generation for', data.symbol);
         setRefreshingSymbol(data.symbol);
-        setStatus({ type: 'success', message: `Generating candles for ${data.symbol}...` });
+        addLog('user', `Candle generation triggered manually`);
+        addLog('candles', `Starting smart refresh for ${data.symbol}`);
 
         try {
           console.log('[DataIngestionPage] Invoking refresh_candles with:', {
@@ -222,13 +333,13 @@ export const DataIngestionPage = () => {
           console.log('[DataIngestionPage] refresh_candles returned:', success);
           
           if (success) {
-            setStatus({ type: 'success', message: `Successfully generated candles for ${data.symbol}` });
+            addLog('success', `Successfully generated all candles for ${data.symbol}`);
             // Refresh the data list to show updated candle counts
             await fetchAvailableData();
           }
         } catch (error) {
           console.error('[DataIngestionPage] refresh_candles error:', error);
-          setStatus({ type: 'error', message: `Failed to generate candles: ${error}` });
+          addLog('error', `Failed to generate candles: ${error}`);
           setRefreshingSymbol(null);
         }
       }
@@ -238,31 +349,33 @@ export const DataIngestionPage = () => {
   const cancelIngestion = async () => {
     if (!currentIngestionSymbol) return;
     
+    addLog('user', 'Download cancelled by user');
+    
     try {
       const cancelled = await invoke<boolean>('cancel_ingestion', { symbol: currentIngestionSymbol });
       if (cancelled) {
-        setStatus({ type: 'success', message: `Cancelled ingestion for ${currentIngestionSymbol}` });
-        setLogs(prev => [...prev, `Ingestion cancelled for ${currentIngestionSymbol}`]);
+        addLog('warn', `Process terminated for ${currentIngestionSymbol}`);
+        addLog('success', `Cancelled ingestion for ${currentIngestionSymbol}`);
         setIsIngesting(false);
         setCurrentIngestionSymbol(null);
         setProgress(0);
       }
     } catch (error) {
-      setStatus({ type: 'error', message: `Failed to cancel: ${error}` });
+      addLog('error', `Failed to cancel: ${error}`);
     }
   };
 
   const startIngestion = async () => {
     if (!startDate || !endDate || !selectedPair) {
-      setStatus({ type: 'error', message: 'Please fill all fields' });
+      addLog('error', 'Please fill all fields before starting download');
       return;
     }
 
     setIsIngesting(true);
-    setStatus(null);
     setProgress(0);
     setCurrentIngestionSymbol(selectedPair);
-    setLogs([`Starting ingestion for ${selectedPair}...`]);
+    addLog('user', `Download started by user`);
+    addLog('info', `Starting ingestion for ${selectedPair} from ${startDate!.toISOString().split('T')[0]} to ${endDate!.toISOString().split('T')[0]}`);
 
     try {
       const result = await invoke<{ success: boolean; message: string }>('start_data_ingestion', {
@@ -274,32 +387,40 @@ export const DataIngestionPage = () => {
       });
 
       if (result.success) {
-        setLogs(prev => [...prev, result.message]);
+        addLog('success', result.message);
         // The process is now running in background
         // We'll handle completion via events
         
         // If auto-generate is enabled, wait for completion then generate candles
         if (autoGenerateCandles) {
           // TODO: Listen for ingestion completion event and trigger candle generation
-          setLogs(prev => [...prev, 'Auto-generate candles enabled - will generate after download completes']);
+          addLog('info', 'Auto-generate candles enabled - will generate after download completes');
         }
       } else {
-        setStatus({ type: 'error', message: result.message });
+        addLog('error', result.message);
         setIsIngesting(false);
         setCurrentIngestionSymbol(null);
       }
     } catch (error) {
-      setStatus({ type: 'error', message: `Failed: ${error}` });
+      addLog('error', `Failed: ${error}`);
       setIsIngesting(false);
       setCurrentIngestionSymbol(null);
     }
   };
 
   return (
-    <Container size="md" pt="xl" style={{ minHeight: '100vh', background: '#0a0a0a' }}>
-      <Title order={1} c="white" mb="xl">
-        Data Ingestion Manager
-      </Title>
+    <Box style={{ display: 'flex', height: '100vh', background: '#0a0a0a' }}>
+      {/* Left Panel - Main Content (60%) */}
+      <Box style={{ flex: '0 0 60%', overflowY: 'auto', padding: '2rem' }}>
+        <Group justify="space-between" mb="xl">
+          <Title order={1} c="white">
+            Data Ingestion Manager
+          </Title>
+          {/* Temporary test button - remove after Phase 2 testing */}
+          <Button size="xs" variant="subtle" onClick={addTestLogs}>
+            Test Logs
+          </Button>
+        </Group>
 
       <Paper p="xl" withBorder style={{ background: '#1a1a1a' }}>
         <Stack>
@@ -315,7 +436,7 @@ export const DataIngestionPage = () => {
             label="Currency Pair"
             value={selectedPair}
             onChange={(value) => value && setSelectedPair(value)}
-            data={CURRENCY_PAIRS}
+            data={availablePairs}
             leftSection={<IconDatabase size={16} />}
             styles={{
               input: { background: '#2a2a2a', border: '1px solid #444' }
@@ -362,11 +483,12 @@ export const DataIngestionPage = () => {
             />
           </Group>
 
+          {/* Status alerts now go to terminal logger
           {status && (
             <Alert color={status.type === 'success' ? 'green' : 'red'}>
               {status.message}
             </Alert>
-          )}
+          )} */}
 
           <Stack gap="md">
             <Checkbox
@@ -405,6 +527,7 @@ export const DataIngestionPage = () => {
             </Group>
           </Stack>
 
+          {/* Progress now shown in terminal logger
           {isIngesting && (
             <Box>
               <Progress 
@@ -419,16 +542,8 @@ export const DataIngestionPage = () => {
                 {progress.toFixed(0)}% Complete
               </Text>
             </Box>
-          )}
+          )} */}
 
-          {logs.length > 0 && (
-            <Paper p="md" style={{ background: '#0a0a0a' }}>
-              <Text size="sm" c="dimmed" mb="xs">Logs:</Text>
-              <Code block style={{ background: '#000', color: '#0f0' }}>
-                {logs.join('\n')}
-              </Code>
-            </Paper>
-          )}
         </Stack>
       </Paper>
 
@@ -605,6 +720,25 @@ export const DataIngestionPage = () => {
           </Group>
         </Stack>
       </Modal>
-    </Container>
+      </Box>
+
+      {/* Right Panel - Terminal Logger (40%) */}
+      <Box style={{ flex: '0 0 40%' }}>
+        <TerminalLogger 
+          logs={terminalLogs} 
+          onClearLogs={() => {
+            setTerminalLogs([{
+              id: Date.now(),
+              timestamp: new Date().toISOString().replace('T', ' ').slice(0, -5),
+              type: 'info',
+              prefix: '[INFO]',
+              message: 'Console cleared',
+              color: ''
+            }]);
+          }}
+          isProcessRunning={isIngesting || refreshingSymbol !== null}
+        />
+      </Box>
+    </Box>
   );
 };

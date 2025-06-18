@@ -148,6 +148,56 @@ Added comprehensive logging to track timeframe changes from the ResolutionTracke
 - Data Manager query is slow (~13 seconds) due to multiple COUNT(*) operations on large tables
 - Suggested optimization: Use PostgreSQL statistics for approximate counts with exact date ranges
 
+## Data Ingestion Pipeline Fix
+**Date**: June 15, 2025
+
+### Critical Bugs Fixed
+
+1. **Arc<Mutex> Process Tracking Issue**
+   - **Problem**: Process spawning used different Arc references for storage vs retrieval
+   - **Root Cause**: Stored process in `state.ingestion_processes` but tried to retrieve from cloned `ingestion_processes`
+   - **Fix**: Changed line 328 to use the cloned Arc consistently
+   ```rust
+   // Before (wrong):
+   let mut processes = state.ingestion_processes.lock().await;
+   // After (correct):
+   let mut processes = ingestion_processes.lock().await;
+   ```
+
+2. **"Refresh Window Too Small" Error**
+   - **Problem**: TimescaleDB error when generating candles for USDJPY
+   - **Root Cause**: Stale metadata created invalid date ranges (refresh_start > refresh_end)
+   - **Fix**: Added validation to detect and correct invalid ranges
+   ```rust
+   let refresh_start = if refresh_start > refresh_end {
+       oldest_tick  // Reset to full range if metadata is inconsistent
+   } else {
+       refresh_start
+   };
+   ```
+
+3. **Missing Process Completion Events**
+   - **Problem**: Downloads appeared frozen at 0% even when working
+   - **Fix**: Process monitoring now properly tracks completion and emits events
+
+### Successful Test Results
+- Downloaded USDJPY data from July 12, 2024 to December 31, 2024
+- 23.7M new ticks added (77.9M total)
+- All timeframe candles generated without duplicates
+- Weekend gaps handled correctly (no Saturday data, minimal Sunday data)
+- Both EURUSD and USDJPY now have complete data through end of 2024
+
+### Pipeline Architecture
+1. **Download**: Python script downloads tick data in hourly chunks with 0.1s delays
+2. **Storage**: PostgreSQL with ON CONFLICT upsert to handle duplicates
+3. **Candle Generation**: TimescaleDB continuous aggregates cascade from ticks → 5m → 15m → 1h → 4h → 12h
+4. **Metadata Tracking**: Stores last refresh and tick timestamps to enable incremental updates
+
+### TODO
+- Implement auto-generate candles after download completion (currently manual)
+- Add pause/resume functionality for downloads
+- Optimize Data Manager query performance
+
 ## Project Organization
 
 ### Active Scripts
@@ -158,3 +208,6 @@ Added comprehensive logging to track timeframe changes from the ResolutionTracke
 Moved to `/depreciated/` folder:
 - Candle alignment check scripts (used during development for verification)
 - Old AdaptiveChart versions
+
+### Component Backups
+- `/src/components/backups/` - Working versions of components saved during major changes

@@ -11,6 +11,14 @@ use std::process::Stdio;
 use std::collections::HashMap;
 use serde_json;
 use chrono::Datelike;
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+#[derive(Clone, Debug, Serialize)]
+struct LogEvent {
+    timestamp: String,
+    level: String,
+    message: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Candle {
@@ -51,10 +59,27 @@ struct AppState {
     ingestion_processes: Arc<Mutex<HashMap<String, Child>>>,
 }
 
+// Helper function to emit log events to frontend
+fn emit_log<R: tauri::Runtime>(window: &impl Emitter<R>, level: &str, message: &str) {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+    let event = LogEvent {
+        timestamp,
+        level: level.to_string(),
+        message: message.to_string(),
+    };
+    
+    // Still print to console for debugging
+    println!("[{}] {}", level, message);
+    
+    // Emit to frontend
+    window.emit("backend-log", &event).ok();
+}
+
 #[tauri::command]
 async fn fetch_candles(
     request: DataRequest,
     state: State<'_, AppState>,
+    window: tauri::Window,
 ) -> Result<Vec<Candle>, String> {
     let table_name = match request.timeframe.as_str() {
         "15m" => "forex_candles_15m",
@@ -80,9 +105,9 @@ async fn fetch_candles(
         table_name
     );
 
-    println!("[FETCH_CANDLES] Query: {}", query);
-    println!("[FETCH_CANDLES] Params: symbol={}, from={}, to={}",
-             request.symbol, request.from, request.to);
+    emit_log(&window, "DEBUG", &format!("[FETCH_CANDLES] Query: {}", query));
+    emit_log(&window, "DEBUG", &format!("[FETCH_CANDLES] Params: symbol={}, from={}, to={}",
+             request.symbol, request.from, request.to));
 
     let pool = state.db_pool.lock().await;
     let rows = sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, f64, f64, f64, f64, i64)>(&query)
@@ -185,11 +210,12 @@ async fn check_database_connection(
 async fn fetch_candles_v2(
     request: HierarchicalRequest,
     state: State<'_, AppState>,
+    window: tauri::Window,
 ) -> Result<Vec<Candle>, String> {
     let start_time = std::time::Instant::now();
     
-    println!("[V2] Fetch request: symbol={}, from={}, to={}, detail={}", 
-             request.symbol, request.from, request.to, request.detail_level);
+    emit_log(&window, "DEBUG", &format!("[V2] Fetch request: symbol={}, from={}, to={}, detail={}", 
+             request.symbol, request.from, request.to, request.detail_level));
 
     let query = match request.detail_level.as_str() {
         "4h" => {
@@ -238,7 +264,7 @@ async fn fetch_candles_v2(
         _ => return Err(format!("Invalid detail level: {}", request.detail_level)),
     };
 
-    println!("[V2] Query: {}", query);
+    emit_log(&window, "DEBUG", &format!("[V2] Query: {}", query));
 
     let pool = state.db_pool.lock().await;
     let rows = sqlx::query_as::<_, (i64, f64, f64, f64, f64, i64)>(&query)
@@ -259,7 +285,7 @@ async fn fetch_candles_v2(
     }).collect();
 
     let duration = start_time.elapsed();
-    println!("[V2 PERF] Fetched {} candles in {}ms", candles.len(), duration.as_millis());
+    emit_log(&window, "PERF", &format!("Fetched {} candles in {}ms", candles.len(), duration.as_millis()));
 
     Ok(candles)
 }
@@ -269,9 +295,10 @@ async fn start_data_ingestion(
     request: DataIngestionRequest,
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
+    window: tauri::Window,
 ) -> Result<DataIngestionResponse, String> {
-    println!("[DATA_INGESTION] Starting ingestion for {} from {} to {}", 
-             request.symbol, request.start_date, request.end_date);
+    emit_log(&window, "INFO", &format!("Starting ingestion for {} from {} to {}", 
+             request.symbol, request.start_date, request.end_date));
 
     // Check if there's already a process running for this symbol
     {
@@ -292,7 +319,7 @@ async fn start_data_ingestion(
         .join("data-ingestion")
         .join("dukascopy_ingester.py");
 
-    println!("[DATA_INGESTION] Script path: {:?}", script_path);
+    emit_log(&window, "INFO", &format!("Script path: {:?}", script_path));
 
     // Check if the script exists
     if !script_path.exists() {
@@ -314,7 +341,7 @@ async fn start_data_ingestion(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    println!("[DATA_INGESTION] Spawning process...");
+    emit_log(&window, "INFO", "Spawning Python process...");
 
     // Spawn the process instead of waiting for it
     match cmd.spawn() {
@@ -333,6 +360,9 @@ async fn start_data_ingestion(
             app_handle.emit("ingestion-started", &symbol)
                 .map_err(|e| format!("Failed to emit event: {}", e))?;
             
+            // Clone window for the monitoring task
+            let window_clone = window.clone();
+            
             // Spawn a task to monitor the process
             tokio::spawn(async move {
                 let symbol_for_monitoring = symbol.clone();
@@ -346,19 +376,131 @@ async fn start_data_ingestion(
                     processes.remove(&symbol).unwrap()
                 };
                 
+                // Take stdout and stderr
+                let stdout = child_process.stdout.take();
+                let stderr = child_process.stderr.take();
+                
+                // Clone window for output tasks
+                let window_stdout = window_clone.clone();
+                let window_stderr = window_clone.clone();
+                let window_progress = window_clone.clone();
+                let window_progress_stderr = window_clone.clone();
+                let symbol_stdout = symbol.clone();
+                let symbol_stderr = symbol.clone();
+                let symbol_progress = symbol.clone();
+                
+                // Spawn task to read stdout
+                let stdout_task = if let Some(stdout) = stdout {
+                    let handle = tokio::spawn(async move {
+                        let reader = BufReader::new(stdout);
+                        use tokio::io::AsyncBufReadExt;
+                        let mut lines = reader.lines();
+                        
+                        while let Some(line) = lines.next_line().await.ok().flatten() {
+                            // Check if it's a progress bar line (contains % and |)
+                            if line.contains('%') && line.contains('|') && line.contains('[') {
+                                // Parse progress percentage
+                                if let Some(percent_pos) = line.find('%') {
+                                    // Look backwards from % to find the number
+                                    let prefix = &line[..percent_pos];
+                                    if let Some(number_start) = prefix.rfind(' ') {
+                                        if let Ok(progress) = prefix[number_start+1..].parse::<f32>() {
+                                            // Emit progress event
+                                            window_progress.emit("ingestion-progress", serde_json::json!({
+                                                "symbol": symbol_stdout,
+                                                "progress": progress
+                                            })).ok();
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Always emit as log (remove carriage returns)
+                            let clean_line = line.replace('\r', "");
+                            emit_log(&window_stdout, "PYTHON", &clean_line);
+                        }
+                    });
+                    Some(handle)
+                } else {
+                    None
+                };
+                
+                // Spawn task to read stderr
+                let stderr_task = if let Some(stderr) = stderr {
+                    let handle = tokio::spawn(async move {
+                        let reader = BufReader::new(stderr);
+                        use tokio::io::AsyncBufReadExt;
+                        let mut lines = reader.lines();
+                        
+                        while let Some(line) = lines.next_line().await.ok().flatten() {
+                            // Check if it's a progress bar line (contains % and |)
+                            if line.contains('%') && line.contains('|') && line.contains('[') {
+                                // Parse progress percentage
+                                if let Some(percent_pos) = line.find('%') {
+                                    // Look backwards from % to find the number
+                                    let prefix = &line[..percent_pos];
+                                    if let Some(number_start) = prefix.rfind(' ') {
+                                        if let Ok(progress) = prefix[number_start+1..].parse::<f32>() {
+                                            // Emit progress event
+                                            window_progress_stderr.emit("ingestion-progress", serde_json::json!({
+                                                "symbol": symbol_progress,
+                                                "progress": progress
+                                            })).ok();
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Check if it's an actual error or just stderr output
+                            let is_error = line.contains(" - ERROR - ") || 
+                                          line.contains(" - CRITICAL - ") || 
+                                          line.contains("Traceback") || 
+                                          line.contains("Exception:") ||
+                                          line.contains("Error:") ||
+                                          line.contains("Failed to");
+                            
+                            // Clean up the line (remove extra whitespace and carriage returns)
+                            let clean_line = line.replace('\r', "").trim().to_string();
+                            
+                            // Skip empty lines
+                            if clean_line.is_empty() {
+                                continue;
+                            }
+                            
+                            if is_error {
+                                emit_log(&window_stderr, "ERROR", &clean_line);
+                            } else {
+                                // Most stderr output from Python (logging, tqdm) is not errors
+                                emit_log(&window_stderr, "PYTHON", &clean_line);
+                            }
+                        }
+                    });
+                    Some(handle)
+                } else {
+                    None
+                };
+                
                 // Wait for the process to complete
                 match child_process.wait().await {
                     Ok(status) => {
+                        // Wait for output tasks to complete
+                        if let Some(task) = stdout_task {
+                            task.await.ok();
+                        }
+                        if let Some(task) = stderr_task {
+                            task.await.ok();
+                        }
+                        
                         if status.success() {
-                            println!("[DATA_INGESTION] Process completed successfully for {}", symbol_for_monitoring);
+                            emit_log(&window_clone, "SUCCESS", &format!("Process completed successfully for {}", symbol_for_monitoring));
                             app_handle_clone.emit("ingestion-completed", &symbol_for_monitoring).ok();
                         } else {
-                            println!("[DATA_INGESTION] Process failed for {}", symbol_for_monitoring);
+                            emit_log(&window_clone, "ERROR", &format!("Process failed for {}", symbol_for_monitoring));
                             app_handle_clone.emit("ingestion-failed", &symbol_for_monitoring).ok();
                         }
                     },
                     Err(e) => {
-                        println!("[DATA_INGESTION] Error waiting for process: {}", e);
+                        emit_log(&window_clone, "ERROR", &format!("Error waiting for process: {}", e));
                         app_handle_clone.emit("ingestion-failed", &symbol_for_monitoring).ok();
                     }
                 }
@@ -387,8 +529,9 @@ async fn cancel_ingestion(
     symbol: String,
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
+    window: tauri::Window,
 ) -> Result<bool, String> {
-    println!("[CANCEL_INGESTION] Cancelling ingestion for {}", symbol);
+    emit_log(&window, "INFO", &format!("Cancelling ingestion for {}", symbol));
     
     let mut processes = state.ingestion_processes.lock().await;
     
@@ -396,7 +539,7 @@ async fn cancel_ingestion(
         // Try to kill the process
         match child.kill().await {
             Ok(_) => {
-                println!("[CANCEL_INGESTION] Successfully killed process for {}", symbol);
+                emit_log(&window, "SUCCESS", &format!("Successfully killed process for {}", symbol));
                 
                 // Emit cancelled event
                 app_handle.emit("ingestion-cancelled", &symbol)
@@ -405,12 +548,12 @@ async fn cancel_ingestion(
                 Ok(true)
             },
             Err(e) => {
-                println!("[CANCEL_INGESTION] Failed to kill process: {}", e);
+                emit_log(&window, "ERROR", &format!("Failed to kill process: {}", e));
                 Err(format!("Failed to cancel ingestion: {}", e))
             }
         }
     } else {
-        println!("[CANCEL_INGESTION] No process found for {}", symbol);
+        emit_log(&window, "WARN", &format!("No process found for {}", symbol));
         Ok(false)
     }
 }
@@ -427,8 +570,9 @@ async fn get_ingestion_status(
 #[tauri::command]
 async fn get_available_data(
     state: State<'_, AppState>,
+    window: tauri::Window,
 ) -> Result<Vec<AvailableDataItem>, String> {
-    println!("[GET_AVAILABLE_DATA] Fetching available data summary");
+    emit_log(&window, "INFO", "Fetching available data summary");
     
     let pool = state.db_pool.lock().await;
     
@@ -540,7 +684,7 @@ async fn get_available_data(
         });
     }
     
-    println!("[GET_AVAILABLE_DATA] Found {} symbols with data", result.len());
+    emit_log(&window, "INFO", &format!("Found {} symbols with data", result.len()));
     Ok(result)
 }
 
@@ -548,9 +692,10 @@ async fn get_available_data(
 async fn delete_data_range(
     request: DeleteDataRequest,
     state: State<'_, AppState>,
+    window: tauri::Window,
 ) -> Result<bool, String> {
-    println!("[DELETE_DATA] Request to delete {} data from {:?} to {:?}", 
-             request.symbol, request.start_date, request.end_date);
+    emit_log(&window, "INFO", &format!("Request to delete {} data from {:?} to {:?}", 
+             request.symbol, request.start_date, request.end_date));
     
     let pool = state.db_pool.lock().await;
     
@@ -622,7 +767,7 @@ async fn delete_data_range(
         match result {
             Ok(query_result) => {
                 let rows_affected = query_result.rows_affected();
-                println!("[DELETE_DATA] Deleted {} rows from {}", rows_affected, table);
+                emit_log(&window, "INFO", &format!("Deleted {} rows from {}", rows_affected, table));
                 total_deleted += rows_affected as i64;
             },
             Err(e) => {
@@ -637,7 +782,7 @@ async fn delete_data_range(
     tx.commit().await
         .map_err(|e| format!("Failed to commit transaction: {}", e))?;
     
-    println!("[DELETE_DATA] Successfully deleted {} total rows", total_deleted);
+    emit_log(&window, "SUCCESS", &format!("Successfully deleted {} total rows", total_deleted));
     Ok(true)
 }
 
@@ -654,7 +799,7 @@ async fn refresh_candles(
     state: State<'_, AppState>,
     window: tauri::Window,
 ) -> Result<bool, String> {
-    println!("[REFRESH_CANDLES] Starting smart refresh for {}", request.symbol);
+    emit_log(&window, "INFO", &format!("Starting smart refresh for {}", request.symbol));
     
     let pool = state.db_pool.lock().await;
     
@@ -696,18 +841,18 @@ async fn refresh_candles(
     
     // Ensure refresh_start is not after refresh_end (can happen if metadata is stale)
     let refresh_start = if refresh_start > refresh_end {
-        println!("[REFRESH_CANDLES] Invalid range detected: start {} > end {}", 
+        emit_log(&window, "WARN", &format!("Invalid range detected: start {} > end {}", 
                  refresh_start.format("%Y-%m-%d %H:%M:%S"),
-                 refresh_end.format("%Y-%m-%d %H:%M:%S"));
-        println!("[REFRESH_CANDLES] Resetting to full range from oldest tick");
+                 refresh_end.format("%Y-%m-%d %H:%M:%S")));
+        emit_log(&window, "INFO", "Resetting to full range from oldest tick");
         oldest_tick
     } else {
         refresh_start
     };
     
-    println!("[REFRESH_CANDLES] Total refresh range: {} to {}", 
+    emit_log(&window, "INFO", &format!("Total refresh range: {} to {}", 
              refresh_start.format("%Y-%m-%d %H:%M:%S"),
-             refresh_end.format("%Y-%m-%d %H:%M:%S"));
+             refresh_end.format("%Y-%m-%d %H:%M:%S")));
     
     // Calculate total duration
     let total_duration = refresh_end - refresh_start;
@@ -715,7 +860,7 @@ async fn refresh_candles(
     
     // If the range is too large (more than 60 days), process in monthly chunks
     if days > 60 {
-        println!("[REFRESH_CANDLES] Large range detected ({} days), processing in monthly chunks", days);
+        emit_log(&window, "INFO", &format!("Large range detected ({} days), processing in monthly chunks", days));
         
         // List of continuous aggregates to refresh
         let aggregates = vec![
@@ -728,7 +873,7 @@ async fn refresh_candles(
         
         // Process each aggregate type
         for (idx, (aggregate_name, description)) in aggregates.iter().enumerate() {
-            println!("[REFRESH_CANDLES] Processing {} candles in chunks...", description);
+            emit_log(&window, "CANDLES", &format!("Processing {} candles in chunks...", description));
             
             let base_progress = idx * 20; // Each aggregate gets 20% of progress
             
@@ -767,13 +912,13 @@ async fn refresh_candles(
                 
                 match sqlx::query(&query).execute(&*pool).await {
                     Ok(_) => {
-                        println!("[REFRESH_CANDLES] Successfully refreshed {} chunk: {} to {}", 
+                        emit_log(&window, "SUCCESS", &format!("Successfully refreshed {} chunk: {} to {}", 
                                  aggregate_name, 
                                  chunk_start.format("%Y-%m-%d"),
-                                 chunk_end.format("%Y-%m-%d"));
+                                 chunk_end.format("%Y-%m-%d")));
                     },
                     Err(e) => {
-                        eprintln!("[REFRESH_CANDLES] Failed to refresh {} chunk: {}", aggregate_name, e);
+                        emit_log(&window, "ERROR", &format!("Failed to refresh {} chunk: {}", aggregate_name, e));
                         return Err(format!("Failed to refresh {}: {}", aggregate_name, e));
                     }
                 }
@@ -785,7 +930,7 @@ async fn refresh_candles(
         }
     } else {
         // Small range, process normally
-        println!("[REFRESH_CANDLES] Processing normally (range: {} days)", days);
+        emit_log(&window, "INFO", &format!("Processing normally (range: {} days)", days));
         
         // Emit progress event
         window.emit("candle-refresh-progress", serde_json::json!({
@@ -805,7 +950,7 @@ async fn refresh_candles(
         
         // Refresh each continuous aggregate
         for (aggregate_name, description, progress) in aggregates {
-            println!("[REFRESH_CANDLES] Refreshing {} candles...", description);
+            emit_log(&window, "CANDLES", &format!("Refreshing {} candles...", description));
             
             // Emit progress
             window.emit("candle-refresh-progress", serde_json::json!({
@@ -823,10 +968,10 @@ async fn refresh_candles(
             
             match sqlx::query(&query).execute(&*pool).await {
                 Ok(_) => {
-                    println!("[REFRESH_CANDLES] Successfully refreshed {}", aggregate_name);
+                    emit_log(&window, "SUCCESS", &format!("Successfully refreshed {}", aggregate_name));
                 },
                 Err(e) => {
-                    eprintln!("[REFRESH_CANDLES] Failed to refresh {}: {}", aggregate_name, e);
+                    emit_log(&window, "ERROR", &format!("Failed to refresh {}: {}", aggregate_name, e));
                     return Err(format!("Failed to refresh {}: {}", aggregate_name, e));
                 }
             }
@@ -858,7 +1003,7 @@ async fn refresh_candles(
         "stage": "Complete"
     })).ok();
     
-    println!("[REFRESH_CANDLES] All candles refreshed successfully");
+    emit_log(&window, "SUCCESS", "All candles refreshed successfully");
     Ok(true)
 }
 
@@ -866,8 +1011,9 @@ async fn refresh_candles(
 async fn get_symbol_metadata(
     symbol: String,
     state: State<'_, AppState>,
+    window: tauri::Window,
 ) -> Result<SymbolMetadata, String> {
-    println!("[GET_SYMBOL_METADATA] Fetching metadata for {}", symbol);
+    emit_log(&window, "INFO", &format!("Fetching metadata for {}", symbol));
     
     let pool = state.db_pool.lock().await;
     
@@ -894,8 +1040,8 @@ async fn get_symbol_metadata(
         
         if let (Some(start), Some(end), Some(count)) = (start_time, end_time, tick_count) {
             if count > 0 {
-                println!("[GET_SYMBOL_METADATA] Found data for {}: {} to {}", 
-                         symbol, start.format("%Y-%m-%d"), end.format("%Y-%m-%d"));
+                emit_log(&window, "INFO", &format!("Found data for {}: {} to {}", 
+                         symbol, start.format("%Y-%m-%d"), end.format("%Y-%m-%d")));
                 
                 return Ok(SymbolMetadata {
                     symbol: symbol.clone(),
@@ -908,7 +1054,7 @@ async fn get_symbol_metadata(
     }
     
     // No data found for symbol
-    println!("[GET_SYMBOL_METADATA] No data found for {}", symbol);
+    emit_log(&window, "INFO", &format!("No data found for {}", symbol));
     Ok(SymbolMetadata {
         symbol: symbol.clone(),
         start_timestamp: 0,
@@ -923,15 +1069,12 @@ async fn main() {
     
     // Database connection
     let database_url = "postgresql://postgres@localhost:5432/forex_trading";
-    println!("[MAIN] Connecting to database: {}", database_url);
-    
+    // Database connection logging will be done after we have window access
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(database_url)
         .await
         .expect("Failed to connect to database");
-    
-    println!("[MAIN] Database connected successfully");
 
     let app_state = AppState { 
         db_pool: Arc::new(Mutex::new(pool)),
@@ -955,6 +1098,11 @@ async fn main() {
         .setup(|app| {
             // Get the main window handle
             let window = app.get_webview_window("main").expect("Failed to get main window");
+            
+            // Now we can log the database connection
+            emit_log(&window, "INFO", &format!("Connecting to database: {}", "postgresql://postgres@localhost:5432/forex_trading"));
+            emit_log(&window, "SUCCESS", "Database connected successfully");
+            emit_log(&window, "INFO", "Connection pool established (10 connections)");
             
             // Show window fullscreen
             window.show()?;

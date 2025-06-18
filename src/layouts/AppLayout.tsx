@@ -7,7 +7,7 @@ import { IconDatabase } from '@tabler/icons-react';
 import { 
   IconChartLine, 
   IconTestPipe, 
-  IconBrain, 
+  IconCode, 
   IconHistory, 
   IconSettings,
   IconChevronLeft,
@@ -22,7 +22,7 @@ export const AppLayout = () => {
   const navItems = [
     { path: '/trading', label: 'Trading', icon: IconChartLine },
     { path: '/backtest', label: 'Backtest', icon: IconTestPipe },
-    { path: '/screener', label: 'Screener', icon: IconBrain },
+    { path: '/build', label: 'Build', icon: IconCode },
     { path: '/data', label: 'Data Manager', icon: IconDatabase }, // Add this
     { path: '/history', label: 'History', icon: IconHistory },
   ];
@@ -201,7 +201,7 @@ export const AppLayout = () => {
       )}
 
       {/* Main Content - Fills remaining space */}
-      <Box style={{ flex: 1, overflow: 'hidden' }}>
+      <Box style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
       </Box>
     </Box>

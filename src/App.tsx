@@ -7,6 +7,7 @@ import { TradingPage } from './pages/TradingPage';
 import { BacktestPage } from './pages/BacktestPage';
 import { TradingProvider } from './contexts/TradingContext';
 import { DataIngestionPage } from './pages/DataIngestionPage';
+import { BuildPage } from './pages/BuildPage';
 import './App.css';
 
 function App() {
@@ -25,7 +26,7 @@ function App() {
             <Route path="trading" element={<TradingPage />} />
             <Route path="backtest" element={<BacktestPage />} />
             <Route path="data" element={<DataIngestionPage />} />
-            <Route path="screener" element={<div style={{ color: 'white', padding: '80px' }}>Screener Page (Coming Soon)</div>} />
+            <Route path="build" element={<BuildPage />} />
             <Route path="history" element={<div style={{ color: 'white', padding: '80px' }}>History Page (Coming Soon)</div>} />
             <Route path="settings" element={<div style={{ color: 'white', padding: '80px' }}>Settings Page (Coming Soon)</div>} />
           </Route>
