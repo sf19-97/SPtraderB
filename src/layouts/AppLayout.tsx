@@ -201,7 +201,7 @@ export const AppLayout = () => {
       )}
 
       {/* Main Content - Fills remaining space */}
-      <Box style={{ flex: 1, overflow: 'auto' }}>
+      <Box id="main-content-scroll" style={{ flex: 1, overflow: 'auto' }}>
         <Outlet />
       </Box>
     </Box>

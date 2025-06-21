@@ -1,0 +1,121 @@
+name: simple_momentum
+type: strategy
+version: 1.0.0
+author: system
+description: Simple momentum strategy using RSI for oversold entries
+
+# Import components
+dependencies:
+  indicators:
+    - core.indicators.momentum.simple_rsi
+    - core.indicators.trend.sma
+  signals:
+    - core.signals.rsi_oversold
+  orders:
+    - core.orders.market_order
+
+# Strategy parameters
+parameters:
+  # Position sizing
+  position_size: 0.02      # 2% of capital per trade
+  max_positions: 3         # Maximum concurrent positions
+  
+  # Risk management
+  stop_loss: 0.015         # 1.5% stop loss
+  take_profit: 0.03        # 3% take profit (2:1 RR)
+  trailing_stop: false     # No trailing stop for simplicity
+  
+  # Indicator settings
+  rsi_period: 14          # RSI calculation period
+  rsi_oversold: 30        # Oversold threshold
+  sma_period: 50          # Trend filter period
+  
+# Risk management rules
+risk:
+  max_drawdown: 0.10         # Stop trading at 10% drawdown
+  daily_loss_limit: 0.03     # Stop trading at 3% daily loss
+  position_limit: 0.06       # Max 6% in any single position
+  correlation_limit: 0.7     # Avoid highly correlated positions
+  
+# Execution configuration  
+execution:
+  order_type: market         # Use market orders
+  urgency: normal           # Normal execution urgency
+  slippage_tolerance: 0.001 # 0.1% max slippage
+  rebalance_frequency: 1h   # Check signals hourly
+  
+# Market filters
+filters:
+  # Only trade liquid markets
+  min_volume_usd: 10000000   # $10M daily volume
+  max_spread_bps: 5          # Max 5 basis points spread
+  
+  # Trading session
+  trading_hours: "09:00-17:00"
+  trading_days: "Mon-Fri"
+  
+  # Avoid news events
+  avoid_major_news: true
+  news_blackout_minutes: 30
+  
+# Entry conditions
+entry:
+  # Primary signal: RSI oversold
+  primary:
+    indicator: rsi
+    condition: "< parameters.rsi_oversold"
+    min_bars: 2  # Must be oversold for 2 bars
+    
+  # Confirmation: Price above SMA (uptrend)
+  filters:
+    - indicator: close
+      condition: "> sma"
+      description: "Only buy in uptrends"
+    
+    - indicator: volume
+      condition: "> volume.rolling(20).mean()"
+      description: "Above average volume"
+  
+  # Position sizing
+  size_method: fixed_percentage
+  size_value: parameters.position_size
+  
+# Exit conditions
+exit:
+  # Take profit
+  take_profit:
+    type: percentage
+    value: parameters.take_profit
+    
+  # Stop loss
+  stop_loss:
+    type: percentage
+    value: parameters.stop_loss
+    
+  # Time-based exit
+  max_holding_period: 10  # Exit after 10 bars if no TP/SL hit
+  
+  # Signal-based exit
+  signal_exit:
+    - indicator: rsi
+      condition: "> 70"
+      description: "Exit when overbought"
+
+# Performance tracking
+metrics:
+  track:
+    - win_rate
+    - profit_factor
+    - sharpe_ratio
+    - max_drawdown
+    - avg_win_loss_ratio
+  
+  report_frequency: daily
+  
+# Backtesting configuration
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2023-12-31"
+  initial_capital: 10000
+  commission: 0.001  # 0.1% per trade
+  data_frequency: "1h"

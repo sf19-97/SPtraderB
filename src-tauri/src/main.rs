@@ -4,14 +4,18 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use std::sync::Arc;
+use std::env;
+use std::fs;
 use tokio::sync::Mutex;
 use tauri::{State, Builder, Manager, WindowEvent, Emitter};
 use tokio::process::{Command, Child};
 use std::process::Stdio;
 use std::collections::HashMap;
 use serde_json;
-use chrono::Datelike;
+use chrono::{Datelike, DateTime, Utc};
 use tokio::io::{AsyncBufReadExt, BufReader};
+
+mod workspace;
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -27,7 +31,7 @@ struct Candle {
     high: f64,
     low: f64,
     close: f64,
-    volume: i64,
+    volume: i64,  // Note: This is tick_count (number of price updates), not traded volume
 }
 
 #[derive(Debug, Serialize)]
@@ -96,7 +100,7 @@ async fn fetch_candles(
             high::FLOAT8 as high,
             low::FLOAT8 as low,
             close::FLOAT8 as close,
-            tick_count::INT8 as volume
+            tick_count::INT8 as volume  -- Volume is tick count (number of price updates), not traded volume
          FROM {} 
          WHERE symbol = $1
            AND time >= to_timestamp($2)
@@ -1063,6 +1067,153 @@ async fn get_symbol_metadata(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct ExportDataRequest {
+    symbol: String,
+    timeframe: String,
+    start_date: String,
+    end_date: String,
+    filename: String,
+}
+
+#[tauri::command]
+async fn export_test_data(
+    request: ExportDataRequest,
+    state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    emit_log(&window, "INFO", &format!("Exporting test data: {} {} from {} to {}", 
+        request.symbol, request.timeframe, request.start_date, request.end_date));
+    
+    let pool = state.db_pool.lock().await;
+    
+    // Determine table based on timeframe
+    let table_name = match request.timeframe.as_str() {
+        "5m" => "forex_candles_5m",
+        "15m" => "forex_candles_15m",
+        "1h" => "forex_candles_1h",
+        "4h" => "forex_candles_4h",
+        "12h" => "forex_candles_12h",
+        _ => return Err(format!("Invalid timeframe: {}", request.timeframe)),
+    };
+    
+    // Query data
+    let query = format!(
+        "SELECT 
+            time,
+            open::FLOAT8 as open,
+            high::FLOAT8 as high,
+            low::FLOAT8 as low,
+            close::FLOAT8 as close,
+            tick_count::BIGINT as volume
+        FROM {}
+        WHERE symbol = $1 
+            AND time >= $2::timestamp 
+            AND time <= $3::timestamp
+        ORDER BY time",
+        table_name
+    );
+    
+    let rows = sqlx::query(&query)
+        .bind(&request.symbol)
+        .bind(&request.start_date)
+        .bind(&request.end_date)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+    
+    if rows.is_empty() {
+        return Err("No data found for the specified range".to_string());
+    }
+    
+    emit_log(&window, "INFO", &format!("Found {} rows to export", rows.len()));
+    
+    // Convert to simple format for Python
+    let mut times = Vec::new();
+    let mut opens = Vec::new();
+    let mut highs = Vec::new();
+    let mut lows = Vec::new();
+    let mut closes = Vec::new();
+    let mut volumes = Vec::new();
+    
+    for row in rows {
+        let time: DateTime<Utc> = row.try_get("time").map_err(|e| format!("Failed to get time: {}", e))?;
+        times.push(time.format("%Y-%m-%d %H:%M:%S").to_string());
+        opens.push(row.try_get::<f64, _>("open").map_err(|e| format!("Failed to get open: {}", e))?);
+        highs.push(row.try_get::<f64, _>("high").map_err(|e| format!("Failed to get high: {}", e))?);
+        lows.push(row.try_get::<f64, _>("low").map_err(|e| format!("Failed to get low: {}", e))?);
+        closes.push(row.try_get::<f64, _>("close").map_err(|e| format!("Failed to get close: {}", e))?);
+        volumes.push(row.try_get::<i64, _>("volume").map_err(|e| format!("Failed to get volume: {}", e))?);
+    }
+    
+    // Create DataFrame-like structure for Parquet
+    use arrow::array::{StringArray, Float64Array, Int64Array};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use parquet::arrow::ArrowWriter;
+    use std::sync::Arc;
+    
+    // Create Arrow arrays
+    let time_array = StringArray::from(times.clone());
+    let open_array = Float64Array::from(opens.clone());
+    let high_array = Float64Array::from(highs.clone());
+    let low_array = Float64Array::from(lows.clone());
+    let close_array = Float64Array::from(closes.clone());
+    let volume_array = Int64Array::from(volumes.clone());
+    
+    // Define schema
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("time", DataType::Utf8, false),
+        Field::new("open", DataType::Float64, false),
+        Field::new("high", DataType::Float64, false),
+        Field::new("low", DataType::Float64, false),
+        Field::new("close", DataType::Float64, false),
+        Field::new("volume", DataType::Int64, false),
+    ]));
+    
+    // Create record batch
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(time_array),
+            Arc::new(open_array),
+            Arc::new(high_array),
+            Arc::new(low_array),
+            Arc::new(close_array),
+            Arc::new(volume_array),
+        ],
+    ).map_err(|e| format!("Failed to create record batch: {}", e))?;
+    
+    // Save to workspace/data directory
+    let current_dir = env::current_dir().map_err(|e| e.to_string())?;
+    let workspace_path = current_dir.parent()
+        .ok_or("Failed to get parent directory")?
+        .join("workspace")
+        .join("data");
+    
+    // Create data directory if it doesn't exist
+    fs::create_dir_all(&workspace_path)
+        .map_err(|e| format!("Failed to create data directory: {}", e))?;
+    
+    // Change extension to .parquet
+    let parquet_filename = request.filename.replace(".csv", ".parquet");
+    let file_path = workspace_path.join(&parquet_filename);
+    
+    // Write Parquet file
+    let file = fs::File::create(&file_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut writer = ArrowWriter::try_new(file, schema, None)
+        .map_err(|e| format!("Failed to create parquet writer: {}", e))?;
+    writer.write(&batch)
+        .map_err(|e| format!("Failed to write batch: {}", e))?;
+    writer.close()
+        .map_err(|e| format!("Failed to close writer: {}", e))?;
+    
+    emit_log(&window, "SUCCESS", &format!("Exported {} rows to {}", times.len(), parquet_filename));
+    
+    Ok(file_path.to_string_lossy().to_string())
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -1075,6 +1226,19 @@ async fn main() {
         .connect(database_url)
         .await
         .expect("Failed to connect to database");
+
+    // Pre-warm the database connection and caches
+    match sqlx::query("SELECT 1 FROM forex_candles_1h LIMIT 1")
+        .fetch_one(&pool)
+        .await {
+        Ok(_) => {
+            // Connection is warm, caches are primed
+        },
+        Err(e) => {
+            eprintln!("Warning: Failed to pre-warm database connection: {}", e);
+            // Non-fatal - continue with cold connection
+        }
+    }
 
     let app_state = AppState { 
         db_pool: Arc::new(Mutex::new(pool)),
@@ -1089,11 +1253,25 @@ async fn main() {
             check_database_connection,
             start_data_ingestion,
             cancel_ingestion,
+            workspace::get_workspace_tree,
+            workspace::read_component_file,
+            workspace::save_component_file,
+            workspace::create_component_file,
+            workspace::run_component,
+            workspace::get_indicator_categories,
+            workspace::get_workspace_components,
+            workspace::delete_component_file,
+            workspace::rename_component_file,
+            workspace::delete_component_folder,
+            workspace::rename_component_folder,
+            workspace::load_parquet_data,
+            workspace::list_test_datasets,
             get_ingestion_status,
             get_available_data,
             delete_data_range,
             refresh_candles,
-            get_symbol_metadata
+            get_symbol_metadata,
+            export_test_data
         ])
         .setup(|app| {
             // Get the main window handle
