@@ -251,6 +251,53 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     return defaultRange;
   };
 
+  const loadHistoricalData = async (timeframe: string, from: number, to: number) => {
+    try {
+      // Fetch the historical data
+      const historicalData = await invoke<ChartData[]>('fetch_candles', {
+        request: {
+          symbol: symbolRef.current,
+          timeframe: timeframe,
+          from: from,
+          to: to,
+        },
+      });
+
+      if (!historicalData || !seriesRef.current || historicalData.length === 0) return;
+
+      // Format the historical data
+      const formattedHistorical = historicalData.map(candle => ({
+        time: candle.time as any,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }));
+
+      // Get current data from the series
+      const currentData = seriesRef.current.data();
+      
+      // Combine historical and current data
+      const combinedData = [...formattedHistorical, ...currentData];
+      
+      // Sort by time to ensure correct order
+      combinedData.sort((a, b) => a.time - b.time);
+      
+      // Remove duplicates by keeping only unique timestamps
+      const uniqueData = combinedData.filter((candle, index, array) => {
+        // Keep if it's the first element or if its time is different from the previous
+        return index === 0 || candle.time !== array[index - 1].time;
+      });
+      
+      // Update the chart with combined data
+      seriesRef.current.setData(uniqueData); // Set all data at once
+      
+      console.log(`[AdaptiveChart] Background load complete: added ${formattedHistorical.length} historical candles, ${uniqueData.length} total after deduplication`);
+    } catch (error) {
+      console.error('[AdaptiveChart] Failed to load historical data:', error);
+      // Non-fatal - user can still interact with recent data
+    }
+  };
 
   const checkTimeframeSwitch = (barSpacing: number) => {
     if (isTransitioning) {
@@ -344,13 +391,20 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     try {
       // Get date range for current symbol
       const dateRange = await getSymbolDateRange();
-      console.log('[AdaptiveChart] Using date range:', new Date(dateRange.from * 1000).toISOString(), 'to', new Date(dateRange.to * 1000).toISOString());
+      console.log('[AdaptiveChart] Full date range:', new Date(dateRange.from * 1000).toISOString(), 'to', new Date(dateRange.to * 1000).toISOString());
       
+      // Calculate 3 months ago for initial load
+      const threeMonthsAgo = Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60);
+      const initialFrom = Math.max(dateRange.from, threeMonthsAgo);
+      
+      console.log('[AdaptiveChart] Initial load range:', new Date(initialFrom * 1000).toISOString(), 'to', new Date(dateRange.to * 1000).toISOString());
+      
+      // Phase 1: Load last 3 months for immediate display
       const data = await invoke<ChartData[]>('fetch_candles', {
         request: {
           symbol: symbolRef.current,
           timeframe: timeframe,
-          from: dateRange.from,
+          from: initialFrom,
           to: dateRange.to,
         },
       });
@@ -366,6 +420,12 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       }));
 
       seriesRef.current.setData(formattedData);
+      
+      // Phase 2: Load historical data in background if needed
+      if (initialFrom > dateRange.from) {
+        console.log('[AdaptiveChart] Loading historical data in background...');
+        loadHistoricalData(timeframe, dateRange.from, initialFrom);
+      }
       
       // Log data bounds
       if (formattedData.length > 0) {
@@ -420,6 +480,8 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       // Get date range for current symbol
       const dateRange = await getSymbolDateRange();
       
+      // For timeframe switches, we can load full range since user is actively using the chart
+      // This maintains view continuity during zoom transitions
       const data = await invoke<ChartData[]>('fetch_candles', {
         request: {
           symbol: symbolRef.current,

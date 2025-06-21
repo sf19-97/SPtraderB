@@ -101,6 +101,8 @@ export const MonacoIDE = () => {
   
   // Ref for terminal auto-scroll
   const terminalScrollRef = useRef<HTMLDivElement>(null);
+  // Ref to access latest terminal output in callbacks
+  const terminalOutputRef = useRef<string[]>([]);
   
   // Auto-scroll terminal when new output is added
   useEffect(() => {
@@ -110,6 +112,11 @@ export const MonacoIDE = () => {
         scrollArea.scrollTop = scrollArea.scrollHeight;
       }
     }
+  }, [terminalOutput]);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    terminalOutputRef.current = terminalOutput;
   }, [terminalOutput]);
   
   // Debug: Monitor context menu state
@@ -668,6 +675,50 @@ execution:
         }
       });
       
+      // After processing all output, check for chart data
+      const parseChartData = () => {
+        // Join all output lines without newlines to handle JSON that might be split
+        const fullOutput = terminalOutputRef.current.join('');
+        const startMarker = 'CHART_DATA_START';
+        const endMarker = 'CHART_DATA_END';
+        
+        const startIdx = fullOutput.lastIndexOf(startMarker);
+        const endIdx = fullOutput.lastIndexOf(endMarker);
+        
+        if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+          // Extract JSON between markers
+          let jsonStr = fullOutput.substring(
+            startIdx + startMarker.length,
+            endIdx
+          );
+          
+          // Remove any terminal formatting like timestamps
+          // Find the first { and last }
+          const jsonStart = jsonStr.indexOf('{');
+          const jsonEnd = jsonStr.lastIndexOf('}');
+          
+          if (jsonStart !== -1 && jsonEnd !== -1) {
+            jsonStr = jsonStr.substring(jsonStart, jsonEnd + 1);
+            
+            try {
+              const parsedData = JSON.parse(jsonStr);
+              console.log('[Chart] Parsed chart data with', parsedData.time?.length || 0, 'data points');
+              console.log('[Chart] Data structure:', {
+                hasTime: !!parsedData.time,
+                hasOHLC: !!(parsedData.open && parsedData.high && parsedData.low && parsedData.close),
+                hasIndicators: !!parsedData.indicators,
+                indicatorNames: parsedData.indicators ? Object.keys(parsedData.indicators) : [],
+                hasSignals: !!parsedData.signals
+              });
+              setChartData(parsedData);
+            } catch (e) {
+              console.error('[Chart] Failed to parse chart data:', e);
+              console.error('[Chart] JSON string:', jsonStr.substring(0, 200) + '...');
+            }
+          }
+        }
+      };
+      
       const unlistenStart = await listen<{
         file: string;
         timestamp: string;
@@ -708,6 +759,13 @@ execution:
       if (result.output_lines === 0 && result.error_lines === 0) {
         setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ℹ️ No output produced`]);
       }
+      
+      // Parse chart data after execution completes
+      setTimeout(() => {
+        parseChartData();
+        // Force a re-render by updating a dummy state if needed
+        console.log('[Chart] Parsing complete, chart should update now');
+      }, 200); // Slightly longer delay to ensure all output is processed
       
     } catch (error) {
       setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Error: ${error}`]);
@@ -1390,7 +1448,15 @@ execution:
                     close: number[];
                   }>('load_parquet_data', { datasetName: value });
                   
-                  setChartData(data);
+                  // Only set chart data if we don't have component output data
+                  setChartData(prevData => {
+                    // If we have existing data with indicators/signals from component output, preserve it
+                    if (prevData?.indicators || prevData?.signals) {
+                      console.log('[Chart] Preserving component output data, ignoring dataset load');
+                      return prevData;
+                    }
+                    return data;
+                  });
                   setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✓ Chart data loaded (${data.time.length} candles)`]);
                 } catch (error) {
                   setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Failed to load chart data: ${error}`]);

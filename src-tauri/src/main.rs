@@ -1227,12 +1227,22 @@ async fn main() {
         .await
         .expect("Failed to connect to database");
 
-    // Pre-warm the database connection and caches
-    match sqlx::query("SELECT 1 FROM forex_candles_1h LIMIT 1")
-        .fetch_one(&pool)
+    // Pre-warm the database connection and caches with a more realistic query
+    // This loads actual data pages and indexes that will be used
+    let three_months_ago = chrono::Utc::now().timestamp() - (90 * 24 * 60 * 60);
+    match sqlx::query(
+        "SELECT time, open, high, low, close, tick_count 
+         FROM forex_candles_1h 
+         WHERE symbol = 'EURUSD' 
+           AND time >= to_timestamp($1)
+         ORDER BY time
+         LIMIT 100"
+    )
+        .bind(three_months_ago)
+        .fetch_all(&pool)
         .await {
         Ok(_) => {
-            // Connection is warm, caches are primed
+            // Connection is warm, caches are primed with actual data pages
         },
         Err(e) => {
             eprintln!("Warning: Failed to pre-warm database connection: {}", e);

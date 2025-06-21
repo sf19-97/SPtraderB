@@ -9,7 +9,11 @@ interface ChartData {
   low: number[];
   close: number[];
   indicators?: {
-    [key: string]: number[];
+    [key: string]: (number | null)[];
+  };
+  signals?: {
+    crossovers: number[];
+    types: string[];
   };
 }
 
@@ -66,6 +70,14 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
   }, [height, isFullscreen]);
 
   useEffect(() => {
+    console.log('[PreviewChart] Render check:', {
+      hasCanvas: !!canvasRef.current,
+      hasData: !!data,
+      timeLength: data?.time?.length || 0,
+      width: dimensions.width,
+      indicators: data?.indicators ? Object.keys(data.indicators) : []
+    });
+    
     if (!canvasRef.current || !data || data.time.length === 0 || dimensions.width === 0) return;
 
     const canvas = canvasRef.current;
@@ -75,6 +87,12 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
     // Set canvas size
     canvas.width = dimensions.width;
     canvas.height = dimensions.height;
+    
+    console.log('[PreviewChart] Drawing canvas:', {
+      width: canvas.width,
+      height: canvas.height,
+      dataPoints: data.time.length
+    });
 
     // Clear canvas
     ctx.fillStyle = '#0a0a0a';
@@ -184,13 +202,20 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
         ctx.lineWidth = 1.5;
         
         ctx.beginPath();
+        let started = false;
         for (let i = 0; i < values.length; i++) {
+          if (values[i] === null || values[i] === undefined || isNaN(values[i])) {
+            started = false;
+            continue;
+          }
+          
           const dataIndex = i + startOffset;
           const x = xScale(dataIndex);
           const y = yScale(values[i]);
           
-          if (i === 0) {
+          if (!started) {
             ctx.moveTo(x, y);
+            started = true;
           } else {
             ctx.lineTo(x, y);
           }
@@ -202,6 +227,43 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
         ctx.font = '12px monospace';
         ctx.textAlign = 'left';
         ctx.fillText(name.toUpperCase(), leftPadding + 5 + idx * 60, topPadding - 5);
+      });
+    }
+    
+    // Draw signal markers if present
+    if (data.signals?.crossovers) {
+      data.signals.crossovers.forEach((idx, i) => {
+        if (idx >= 0 && idx < data.time.length) {
+          const x = xScale(idx);
+          const crossType = data.signals.types[i];
+          
+          // Draw vertical line
+          ctx.strokeStyle = crossType === 'golden_cross' ? '#00ff88' : '#ff4976';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(x, topPadding);
+          ctx.lineTo(x, topPadding + chartHeight);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          
+          // Add arrow symbol
+          ctx.fillStyle = crossType === 'golden_cross' ? '#00ff88' : '#ff4976';
+          ctx.font = 'bold 16px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(crossType === 'golden_cross' ? '↑' : '↓', x, topPadding - 10);
+          
+          // Add label in fullscreen mode
+          if (isFullscreen) {
+            ctx.font = '10px monospace';
+            ctx.fillStyle = crossType === 'golden_cross' ? '#00ff88' : '#ff4976';
+            ctx.save();
+            ctx.translate(x + 10, topPadding + 20);
+            ctx.rotate(Math.PI / 2);
+            ctx.fillText(crossType === 'golden_cross' ? 'Golden Cross' : 'Death Cross', 0, 0);
+            ctx.restore();
+          }
+        }
       });
     }
     
@@ -339,10 +401,11 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
           const startOffset = data.time.length - values.length;
           const valueIndex = hoveredIndex - startOffset;
           
-          if (valueIndex >= 0 && valueIndex < values.length) {
+          if (valueIndex >= 0 && valueIndex < values.length && values[valueIndex] !== null && values[valueIndex] !== undefined) {
             const colors = ['#4a9eff', '#ff9800', '#e91e63', '#00bcd4'];
             ctx.fillStyle = colors[idx % colors.length];
-            ctx.fillText(`${name}: ${values[valueIndex].toFixed(4)}`, tooltipX + 10, yOffset);
+            const value = typeof values[valueIndex] === 'number' ? values[valueIndex].toFixed(4) : 'N/A';
+            ctx.fillText(`${name}: ${value}`, tooltipX + 10, yOffset);
             yOffset += 15;
           }
         });
@@ -350,6 +413,17 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
     }
     
   }, [data, dimensions, hoveredIndex, mousePos]);
+  
+  // Force dimension update when data changes
+  useEffect(() => {
+    if (data && canvasRef.current?.parentElement) {
+      const width = canvasRef.current.parentElement.clientWidth;
+      if (width > 0 && width !== dimensions.width) {
+        console.log('[PreviewChart] Updating dimensions after data load:', width);
+        setDimensions(prev => ({ ...prev, width }));
+      }
+    }
+  }, [data]);
 
   // Mouse event handlers - must be defined before any returns
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {

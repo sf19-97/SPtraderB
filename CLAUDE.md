@@ -535,3 +535,44 @@ setDeleteModalOpened(true);
 ```
 
 This ensures proper user interaction in the Tauri desktop environment.
+
+## Enhanced Signal Metadata Architecture (v2)
+**Date**: January 2025
+
+### Overview
+Implemented a new metadata format that allows signals to declare parameterized indicator requirements. This enables complex multi-indicator signals without hardcoding configurations in Rust.
+
+### Key Features
+1. **Self-Contained Signals**: Signals declare exactly which indicators they need with specific parameters
+2. **No Rust Changes**: New indicator combinations work without touching the orchestration layer
+3. **Strategy Overrides**: Strategies can customize signal configurations
+
+### Example: Moving Average Crossover
+```python
+__metadata_version__ = 2  # New version
+__metadata__ = {
+    'required_indicators': [
+        {
+            'name': 'ma_fast',     # How signal references this
+            'type': 'sma',         # Which indicator to use
+            'params': {'period': 20, 'source': 'close'}  # Parameters
+        },
+        {
+            'name': 'ma_slow',
+            'type': 'sma',
+            'params': {'period': 50, 'source': 'close'}
+        }
+    ],
+    # ... rest of metadata
+}
+```
+
+### Files Created
+- `/workspace/core/signals/ma_crossover.py` - First signal using v2 metadata
+- `/workspace/strategies/ma_crossover_strategy.yaml` - Example strategy with parameter overrides
+- `/docs/ENHANCED_SIGNAL_METADATA_ARCHITECTURE.md` - Complete documentation
+
+### Next Steps
+- Implement Rust orchestration layer to parse enhanced metadata
+- Add more signals using the new format
+- Create UI support for viewing/editing enhanced metadata
