@@ -21,10 +21,19 @@ interface ViewState {
   barSpacing: number
 }
 
+interface MetadataCache {
+  [symbol: string]: {
+    from: number
+    to: number
+    timestamp: number
+  }
+}
+
 interface ChartState {
   // Cache
   candleCache: Map<string, CachedData>
   viewStates: Map<string, ViewState>
+  metadataCache: MetadataCache
   
   // Current state
   isLoading: boolean
@@ -40,6 +49,10 @@ interface ChartState {
   getCachedCandles: (key: string) => Candle[] | null
   setCachedCandles: (key: string, candles: Candle[]) => void
   invalidateCache: (pattern?: string) => void
+  
+  // Metadata cache actions
+  getCachedMetadata: (symbol: string) => { from: number; to: number } | null
+  setCachedMetadata: (symbol: string, from: number, to: number) => void
   
   // View state actions
   saveViewState: (symbol: string, state: ViewState) => void
@@ -57,6 +70,7 @@ export const useChartStore = create<ChartState>()(
       // Initial state
       candleCache: new Map(),
       viewStates: new Map(),
+      metadataCache: {},
       isLoading: false,
       currentSymbol: 'EURUSD',
       currentTimeframe: '1h',
@@ -76,6 +90,7 @@ export const useChartStore = create<ChartState>()(
         const cached = get().candleCache.get(key)
         if (!cached) {
           console.log('[ChartStore] Cache miss for:', key)
+          console.log('[ChartStore] Current cache keys:', Array.from(get().candleCache.keys()))
           return null
         }
         
@@ -83,7 +98,12 @@ export const useChartStore = create<ChartState>()(
         const now = Date.now()
         const age = now - cached.timestamp
         if (age > CACHE_TTL) {
-          console.log('[ChartStore] Cache expired for:', key, `age: ${(age/1000).toFixed(0)}s, TTL: ${(CACHE_TTL/1000).toFixed(0)}s`)
+          console.log('[ChartStore] Cache expired for:', key, {
+            age: `${(age/1000).toFixed(0)}s`,
+            ttl: `${(CACHE_TTL/1000).toFixed(0)}s`,
+            cachedAt: new Date(cached.timestamp).toISOString(),
+            now: new Date(now).toISOString()
+          })
           // Remove expired entry
           const newCache = new Map(get().candleCache)
           newCache.delete(key)
@@ -91,7 +111,7 @@ export const useChartStore = create<ChartState>()(
           return null
         }
         
-        console.log('[ChartStore] Cache hit for:', key, `(${cached.candles.length} candles)`)
+        console.log('[ChartStore] Cache hit for:', key, `(${cached.candles.length} candles, age: ${(age/1000).toFixed(0)}s)`)
         return cached.candles
       },
       
@@ -154,6 +174,44 @@ export const useChartStore = create<ChartState>()(
           console.log('[ChartStore] Retrieved view state for:', symbol, state)
         }
         return state || null
+      },
+      
+      // Get cached metadata
+      getCachedMetadata: (symbol) => {
+        const cached = get().metadataCache[symbol]
+        if (!cached) {
+          console.log('[ChartStore] Metadata cache miss for:', symbol, 'Available keys:', Object.keys(get().metadataCache))
+          return null
+        }
+        
+        // Check if expired
+        const now = Date.now()
+        const age = now - cached.timestamp
+        if (age > CACHE_TTL) {
+          console.log('[ChartStore] Metadata cache expired for:', symbol, `age: ${(age/1000).toFixed(0)}s`)
+          // Remove expired entry
+          const newCache = { ...get().metadataCache }
+          delete newCache[symbol]
+          set({ metadataCache: newCache })
+          return null
+        }
+        
+        console.log('[ChartStore] Metadata cache hit for:', symbol)
+        return { from: cached.from, to: cached.to }
+      },
+      
+      // Set cached metadata
+      setCachedMetadata: (symbol, from, to) => {
+        const newCache = {
+          ...get().metadataCache,
+          [symbol]: {
+            from,
+            to,
+            timestamp: Date.now()
+          }
+        }
+        console.log('[ChartStore] Cached metadata for:', symbol, { from, to })
+        set({ metadataCache: newCache })
       }
     }),
     {

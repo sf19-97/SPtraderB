@@ -67,6 +67,15 @@ class ConsoleInterceptor {
     if (resolutionTransitionMatch) {
       newTimeframe = resolutionTransitionMatch[1];
     }
+    
+    // Pattern 6: [AdaptiveChart] Initial load triggered
+    const initialLoadMatch = message.match(/\[AdaptiveChart\]\s+Initial load.*timeframe:\s+(\S+)/);
+    if (initialLoadMatch) {
+      const potentialTf = initialLoadMatch[1];
+      if (['15m', '1h', '4h', '12h'].includes(potentialTf)) {
+        newTimeframe = potentialTf;
+      }
+    }
 
     // If we found a new timeframe, update and notify listeners
     if (newTimeframe && newTimeframe !== this.currentTimeframe) {

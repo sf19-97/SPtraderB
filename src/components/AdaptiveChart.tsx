@@ -48,11 +48,10 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     saveViewState,
     getViewState,
     setCurrentSymbol,
-    setCurrentTimeframe: setStoreTimeframe
+    setCurrentTimeframe: setStoreTimeframe,
+    getCachedMetadata,
+    setCachedMetadata
   } = useChartStore();
-  
-  // Cache for symbol date ranges to avoid repeated fetches
-  const symbolDateCacheRef = useRef<{ [key: string]: { from: number; to: number } }>({});
   
   // Transition cooldown tracking
   const lastTransitionRef = useRef<number>(0);
@@ -64,6 +63,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   
   // Interval tracking
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // Track if initial load has been done
+  const initialLoadDoneRef = useRef(false);
   
   // CRITICAL: Use bar spacing thresholds, not pixel widths
   const SWITCH_TO_15M_BAR_SPACING = 32;  // When 1h bars are spread this wide, switch to 15m
@@ -161,7 +163,6 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       }
     }, 100); // Check every 100ms
 
-    // Load initial data (will wait for symbol metadata to be fetched)
 
     // Keyboard event handlers for left edge locking
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -209,6 +210,29 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     };
   }, []); // Only create chart once
 
+  // Initial load - only once when component mounts
+  useEffect(() => {
+    if (initialLoadDoneRef.current) {
+      console.log('[AdaptiveChart] Initial load already done, skipping');
+      return;
+    }
+    
+    let mounted = true;
+    const loadInitialData = async () => {
+      if (!mounted || initialLoadDoneRef.current) return;
+      
+      console.log('[AdaptiveChart] Initial load triggered');
+      initialLoadDoneRef.current = true;
+      
+      // Update store with initial timeframe
+      setStoreTimeframe(currentTimeframeRef.current);
+      await loadData(currentTimeframeRef.current);
+    };
+    
+    loadInitialData();
+    return () => { mounted = false; };
+  }, []); // Empty deps - only run once on mount
+
   // Handle external timeframe changes from buttons
   useEffect(() => {
     if (timeframe && timeframe !== currentTimeframeRef.current && !isTransitioning) {
@@ -217,29 +241,28 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     }
   }, [timeframe]);
 
-  // Update symbol ref when symbol changes
+  // Update symbol ref when symbol changes - combine both effects
   useEffect(() => {
+    if (!symbol) return;
+    
+    const prevSymbol = symbolRef.current;
     symbolRef.current = symbol;
     setCurrentSymbol(symbol); // Update Zustand store
-    console.log('[AdaptiveChart] Symbol ref updated to:', symbol);
     
-    // Clear existing chart data immediately when symbol changes
-    if (seriesRef.current) {
-      console.log('[AdaptiveChart] Clearing chart data for symbol change');
-      seriesRef.current.setData([]);
-    }
-  }, [symbol, setCurrentSymbol]);
-
-  // Handle symbol changes
-  useEffect(() => {
-    console.log('[AdaptiveChart] Symbol changed to:', symbol);
-    if (symbol && chartRef.current) {
+    // Only reload if symbol actually changed AND initial load is done
+    if (prevSymbol !== symbol && chartRef.current && initialLoadDoneRef.current && prevSymbol !== undefined) {
+      console.log('[AdaptiveChart] Symbol changed from', prevSymbol, 'to', symbol);
+      
+      // Clear existing chart data immediately when symbol changes
+      if (seriesRef.current) {
+        console.log('[AdaptiveChart] Clearing chart data for symbol change');
+        seriesRef.current.setData([]);
+      }
+      
       console.log('[AdaptiveChart] Reloading data for new symbol:', symbol, 'with timeframe:', currentTimeframeRef.current);
-      // Clear cache for new symbol to force fresh metadata fetch
-      delete symbolDateCacheRef.current[symbol];
       loadData(currentTimeframeRef.current);
     }
-  }, [symbol]);
+  }, [symbol, setCurrentSymbol]);
 
   // Debug log for current state - tracks actual timeframe changes
   useEffect(() => {
@@ -250,22 +273,26 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const getSymbolDateRange = async (): Promise<{ from: number; to: number }> => {
     const currentSymbol = symbolRef.current;
     
-    // Check cache first
-    if (symbolDateCacheRef.current[currentSymbol]) {
-      return symbolDateCacheRef.current[currentSymbol];
+    // Check Zustand cache first
+    const cachedMetadata = getCachedMetadata(currentSymbol);
+    if (cachedMetadata) {
+      console.log('[AdaptiveChart] Using cached metadata for:', currentSymbol);
+      return cachedMetadata;
     }
     
     try {
+      const startTime = performance.now();
       const metadata = await invoke<SymbolMetadata>('get_symbol_metadata', { symbol: currentSymbol });
-      console.log('[AdaptiveChart] Symbol metadata:', metadata);
+      const fetchTime = performance.now() - startTime;
+      console.log(`[AdaptiveChart] Symbol metadata fetched in ${fetchTime.toFixed(0)}ms:`, metadata);
       
       if (metadata.has_data) {
         const range = {
           from: metadata.start_timestamp,
           to: metadata.end_timestamp
         };
-        // Cache the result
-        symbolDateCacheRef.current[currentSymbol] = range;
+        // Cache in Zustand
+        setCachedMetadata(currentSymbol, range.from, range.to);
         return range;
       }
     } catch (error) {
@@ -275,9 +302,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     // Fallback to default range
     const defaultRange = {
       from: 1673060400, // Jan 7, 2023
-      to: 1732942799,   // Nov 30, 2024
+      to: 1750229999,   // June 2025 (updated to match your data)
     };
-    symbolDateCacheRef.current[currentSymbol] = defaultRange;
+    setCachedMetadata(currentSymbol, defaultRange.from, defaultRange.to);
     return defaultRange;
   };
 
@@ -417,6 +444,18 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const loadData = async (timeframe: string) => {
     console.log('[AdaptiveChart] loadData called for symbol:', symbolRef.current, 'timeframe:', timeframe);
     
+    // Prevent concurrent loads
+    if (isLoading) {
+      console.log('[AdaptiveChart] Already loading, skipping duplicate request');
+      return;
+    }
+    
+    // Skip loading if document is hidden (prevents display ID issues)
+    if (document.hidden) {
+      console.log('[AdaptiveChart] Document is hidden, skipping load');
+      return;
+    }
+    
     const startTime = performance.now();
     setIsLoading(true);
     
@@ -436,6 +475,12 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       
       // Check frontend cache first
       const cacheKey = getCacheKey(symbolRef.current, timeframe, initialFrom, dateRange.to);
+      console.log('[AdaptiveChart] Cache key:', cacheKey, {
+        symbol: symbolRef.current,
+        timeframe,
+        from: new Date(initialFrom * 1000).toISOString(),
+        to: new Date(dateRange.to * 1000).toISOString()
+      });
       let data = getCachedCandles(cacheKey);
       
       let dataFetchTime = performance.now();

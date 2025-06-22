@@ -1105,26 +1105,36 @@ async fn get_symbol_metadata(
     
     let pool = state.db_pool.lock().await;
     
-    // Query to get the date range for the symbol
-    let query = r#"
-        SELECT 
-            MIN(time) as start_time,
-            MAX(time) as end_time,
-            COUNT(*) as tick_count
-        FROM forex_ticks
-        WHERE symbol = $1
-    "#;
-    
-    let result = sqlx::query(query)
+    // Optimized queries using the index efficiently
+    // First, get the earliest tick
+    let min_query = "SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1";
+    let min_result = sqlx::query(min_query)
         .bind(&symbol)
         .fetch_optional(&*pool)
         .await
         .map_err(|e| format!("Database error: {}", e))?;
     
-    if let Some(row) = result {
-        let start_time: Option<chrono::DateTime<chrono::Utc>> = row.try_get("start_time").ok();
-        let end_time: Option<chrono::DateTime<chrono::Utc>> = row.try_get("end_time").ok();
-        let tick_count: Option<i64> = row.try_get("tick_count").ok();
+    // Then get the latest tick
+    let max_query = "SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time DESC LIMIT 1";
+    let max_result = sqlx::query(max_query)
+        .bind(&symbol)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+    
+    // Get count separately (this is still fast with the index)
+    let count_query = "SELECT COUNT(*) as tick_count FROM forex_ticks WHERE symbol = $1";
+    let count_result = sqlx::query(count_query)
+        .bind(&symbol)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+    
+    // Process the three query results
+    if let (Some(min_row), Some(max_row), Some(count_row)) = (min_result, max_result, count_result) {
+        let start_time: Option<chrono::DateTime<chrono::Utc>> = min_row.try_get("time").ok();
+        let end_time: Option<chrono::DateTime<chrono::Utc>> = max_row.try_get("time").ok();
+        let tick_count: Option<i64> = count_row.try_get("tick_count").ok();
         
         if let (Some(start), Some(end), Some(count)) = (start_time, end_time, tick_count) {
             if count > 0 {
@@ -1343,6 +1353,36 @@ async fn main() {
         Err(e) => {
             eprintln!("Warning: Failed to pre-warm database connection: {}", e);
             // Non-fatal - continue with cold connection
+        }
+    }
+    
+    // Pre-warm metadata queries for common symbols using optimized queries
+    println!("[INFO] Pre-warming metadata cache...");
+    let symbols = vec!["EURUSD", "USDJPY"];
+    for symbol in symbols {
+        // Pre-warm MIN query
+        let _ = sqlx::query("SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1")
+            .bind(symbol)
+            .fetch_optional(&pool)
+            .await;
+            
+        // Pre-warm MAX query
+        let _ = sqlx::query("SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time DESC LIMIT 1")
+            .bind(symbol)
+            .fetch_optional(&pool)
+            .await;
+            
+        // Pre-warm COUNT query
+        match sqlx::query("SELECT COUNT(*) FROM forex_ticks WHERE symbol = $1")
+            .bind(symbol)
+            .fetch_optional(&pool)
+            .await {
+            Ok(_) => {
+                println!("[INFO] Pre-warmed metadata for {}", symbol);
+            },
+            Err(e) => {
+                eprintln!("Warning: Failed to pre-warm metadata for {}: {}", symbol, e);
+            }
         }
     }
 
