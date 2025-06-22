@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
+import { useChartStore } from '../stores/useChartStore';
 
 interface ChartData {
   time: number;
@@ -39,6 +40,17 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [chartOpacity, setChartOpacity] = useState(1);
   
+  // Zustand store
+  const { 
+    getCachedCandles, 
+    setCachedCandles, 
+    getCacheKey,
+    saveViewState,
+    getViewState,
+    setCurrentSymbol,
+    setCurrentTimeframe: setStoreTimeframe
+  } = useChartStore();
+  
   // Cache for symbol date ranges to avoid repeated fetches
   const symbolDateCacheRef = useRef<{ [key: string]: { from: number; to: number } }>({});
   
@@ -49,6 +61,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   // Left edge locking
   const [isShiftPressed, setIsShiftPressed] = useState(false);
   const lockedLeftEdgeRef = useRef<number | null>(null);
+  
+  // Interval tracking
+  const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // CRITICAL: Use bar spacing thresholds, not pixel widths
   const SWITCH_TO_15M_BAR_SPACING = 32;  // When 1h bars are spread this wide, switch to 15m
@@ -125,14 +140,23 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
 
     // CRITICAL: Monitor BAR SPACING changes instead of pixel widths
     let lastBarSpacing = 13;
-    const checkInterval = setInterval(() => {
+    
+    checkIntervalRef.current = setInterval(() => {
       if (!isTransitioning && chartRef.current) {
-        const currentBarSpacing = chartRef.current.timeScale().options().barSpacing;
-        
-        if (currentBarSpacing !== lastBarSpacing) {
-          console.log(`[ResolutionTracker] Current timeframe: ${currentTimeframeRef.current}, bar spacing: ${currentBarSpacing}`);
-          lastBarSpacing = currentBarSpacing;
-          checkTimeframeSwitch(currentBarSpacing);
+        try {
+          const currentBarSpacing = chartRef.current.timeScale().options().barSpacing;
+          
+          if (currentBarSpacing !== lastBarSpacing) {
+            console.log(`[ResolutionTracker] Current timeframe: ${currentTimeframeRef.current}, bar spacing: ${currentBarSpacing}`);
+            lastBarSpacing = currentBarSpacing;
+            checkTimeframeSwitch(currentBarSpacing);
+          }
+        } catch (e) {
+          // Chart might be disposed, clear interval
+          if (checkIntervalRef.current) {
+            clearInterval(checkIntervalRef.current);
+            checkIntervalRef.current = null;
+          }
         }
       }
     }, 100); // Check every 100ms
@@ -172,11 +196,16 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     window.addEventListener('keyup', handleKeyUp);
 
     return () => {
-      clearInterval(checkInterval);
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      chart.remove();
+      if (chart) {
+        chart.remove();
+      }
     };
   }, []); // Only create chart once
 
@@ -191,6 +220,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   // Update symbol ref when symbol changes
   useEffect(() => {
     symbolRef.current = symbol;
+    setCurrentSymbol(symbol); // Update Zustand store
     console.log('[AdaptiveChart] Symbol ref updated to:', symbol);
     
     // Clear existing chart data immediately when symbol changes
@@ -198,7 +228,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       console.log('[AdaptiveChart] Clearing chart data for symbol change');
       seriesRef.current.setData([]);
     }
-  }, [symbol]);
+  }, [symbol, setCurrentSymbol]);
 
   // Handle symbol changes
   useEffect(() => {
@@ -374,6 +404,7 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     
     currentTimeframeRef.current = newTimeframe;
     setCurrentTimeframe(newTimeframe);
+    setStoreTimeframe(newTimeframe); // Update Zustand store
     if (onTimeframeChange) {
       onTimeframeChange(newTimeframe);
     }
@@ -386,28 +417,51 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   const loadData = async (timeframe: string) => {
     console.log('[AdaptiveChart] loadData called for symbol:', symbolRef.current, 'timeframe:', timeframe);
     
+    const startTime = performance.now();
     setIsLoading(true);
     
     try {
       // Get date range for current symbol
       const dateRange = await getSymbolDateRange();
+      const metadataTime = performance.now();
       console.log('[AdaptiveChart] Full date range:', new Date(dateRange.from * 1000).toISOString(), 'to', new Date(dateRange.to * 1000).toISOString());
+      console.log(`[TIMING] Metadata fetch: ${(metadataTime - startTime).toFixed(0)}ms`);
       
-      // Calculate 3 months ago for initial load
-      const threeMonthsAgo = Math.floor(Date.now() / 1000) - (90 * 24 * 60 * 60);
+      // Calculate 3 months ago for initial load - round to start of day for stable cache key
+      const todayStartTimestamp = Math.floor(Date.now() / 1000 / 86400) * 86400;
+      const threeMonthsAgo = todayStartTimestamp - (90 * 24 * 60 * 60);
       const initialFrom = Math.max(dateRange.from, threeMonthsAgo);
       
       console.log('[AdaptiveChart] Initial load range:', new Date(initialFrom * 1000).toISOString(), 'to', new Date(dateRange.to * 1000).toISOString());
       
-      // Phase 1: Load last 3 months for immediate display
-      const data = await invoke<ChartData[]>('fetch_candles', {
-        request: {
-          symbol: symbolRef.current,
-          timeframe: timeframe,
-          from: initialFrom,
-          to: dateRange.to,
-        },
-      });
+      // Check frontend cache first
+      const cacheKey = getCacheKey(symbolRef.current, timeframe, initialFrom, dateRange.to);
+      let data = getCachedCandles(cacheKey);
+      
+      let dataFetchTime = performance.now();
+      
+      if (data) {
+        console.log(`[TIMING] Frontend cache hit! Skipping API call`);
+      } else {
+        // Phase 1: Load last 3 months for immediate display
+        const fetchStartTime = performance.now();
+        data = await invoke<ChartData[]>('fetch_candles', {
+          request: {
+            symbol: symbolRef.current,
+            timeframe: timeframe,
+            from: initialFrom,
+            to: dateRange.to,
+          },
+        });
+
+        dataFetchTime = performance.now();
+        console.log(`[TIMING] Candle fetch: ${(dataFetchTime - fetchStartTime).toFixed(0)}ms`);
+        
+        // Cache the data
+        if (data && data.length > 0) {
+          setCachedCandles(cacheKey, data);
+        }
+      }
 
       if (!data || !seriesRef.current) return;
 
@@ -420,6 +474,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       }));
 
       seriesRef.current.setData(formattedData);
+      
+      const renderTime = performance.now();
+      console.log(`[TIMING] Chart render: ${(renderTime - dataFetchTime).toFixed(0)}ms`);
       
       // Phase 2: Load historical data in background if needed
       if (initialFrom > dateRange.from) {
@@ -457,6 +514,9 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
       }
       
       console.log(`[ResolutionTracker] Loaded ${timeframe}: ${data.length} candles`);
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`[TIMING] TOTAL LOAD TIME: ${totalTime.toFixed(0)}ms (${(totalTime/1000).toFixed(1)}s)`);
       
     } catch (error) {
       console.error('Failed to load data:', error);

@@ -422,21 +422,38 @@ pub struct RunResult {
 
 #[tauri::command]
 pub async fn get_indicator_categories() -> Result<Vec<String>, String> {
+    get_component_categories("indicator".to_string()).await
+}
+
+#[tauri::command]
+pub async fn get_component_categories(component_type: String) -> Result<Vec<String>, String> {
     let current_dir = env::current_dir().map_err(|e| e.to_string())?;
-    let indicators_path = current_dir.parent()
+    let workspace_path = current_dir.parent()
         .ok_or("Failed to get parent directory")?
-        .join("workspace")
-        .join("core")
-        .join("indicators");
+        .join("workspace");
     
-    if !indicators_path.exists() {
-        return Ok(Vec::new());
+    let component_path = match component_type.as_str() {
+        "indicator" => workspace_path.join("core").join("indicators"),
+        "signal" => workspace_path.join("core").join("signals"),
+        "order" => workspace_path.join("core").join("orders"),
+        _ => return Err(format!("Invalid component type: {}", component_type)),
+    };
+    
+    if !component_path.exists() {
+        // Return default categories if directory doesn't exist
+        let defaults = match component_type.as_str() {
+            "indicator" => vec!["momentum", "trend", "volatility", "volume", "microstructure"],
+            "signal" => vec![], // No default categories - signals are flat
+            "order" => vec!["execution_algos", "risk_filters", "smart_routing"],
+            _ => vec![],
+        };
+        return Ok(defaults.into_iter().map(String::from).collect());
     }
     
     let mut categories = Vec::new();
     
-    // Read all subdirectories in the indicators folder
-    for entry in fs::read_dir(&indicators_path).map_err(|e| e.to_string())? {
+    // Read all subdirectories in the component folder
+    for entry in fs::read_dir(&component_path).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         
@@ -654,8 +671,8 @@ pub async fn rename_component_file(
     old_path: String, 
     new_name: String
 ) -> Result<String, String> {
-    // Validate paths
-    if old_path.contains("..") || new_name.contains("..") || new_name.contains("/") || new_name.contains("\\") {
+    // Validate paths - allow forward slashes in new_name for moving files
+    if old_path.contains("..") || new_name.contains("..") || new_name.contains("\\") {
         return Err("Invalid file path or name".to_string());
     }
     
@@ -675,10 +692,30 @@ pub async fn rename_component_file(
         return Err("File not found".to_string());
     }
     
-    // Get the parent directory and create new path
-    let parent = old_full_path.parent()
-        .ok_or("Failed to get parent directory")?;
-    let new_full_path = parent.join(&new_name);
+    // Determine if this is a move or rename operation
+    let new_full_path = if new_name.contains('/') {
+        // It's a move operation - new_name is a relative path
+        let new_path = workspace_path.join(&new_name);
+        
+        // Ensure the new path is still within workspace
+        if !new_path.starts_with(&workspace_path) {
+            return Err("Access denied: destination outside workspace".to_string());
+        }
+        
+        // Ensure the target directory exists
+        if let Some(parent) = new_path.parent() {
+            if !parent.exists() {
+                return Err("Target directory does not exist".to_string());
+            }
+        }
+        
+        new_path
+    } else {
+        // It's a simple rename in the same directory
+        let parent = old_full_path.parent()
+            .ok_or("Failed to get parent directory")?;
+        parent.join(&new_name)
+    };
     
     // Check if new file already exists
     if new_full_path.exists() {
@@ -723,9 +760,13 @@ pub async fn delete_component_folder(folder_path: String) -> Result<(), String> 
         return Err("Folder not found".to_string());
     }
     
-    // Only allow deletion of custom category folders
-    if !full_path.starts_with(workspace_path.join("core").join("indicators")) {
-        return Err("Can only delete custom indicator category folders".to_string());
+    // Only allow deletion of custom category folders in core components
+    let is_valid_component_path = full_path.starts_with(workspace_path.join("core").join("indicators")) ||
+                                  full_path.starts_with(workspace_path.join("core").join("signals")) ||
+                                  full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    if !is_valid_component_path {
+        return Err("Can only delete custom category folders in core components".to_string());
     }
     
     // Don't delete default categories
@@ -733,8 +774,18 @@ pub async fn delete_component_folder(folder_path: String) -> Result<(), String> 
         .and_then(|n| n.to_str())
         .ok_or("Invalid folder name")?;
     
-    let default_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
-    if default_categories.contains(&folder_name) {
+    // Define default categories for each component type
+    let is_indicator_path = full_path.starts_with(workspace_path.join("core").join("indicators"));
+    let is_signal_path = full_path.starts_with(workspace_path.join("core").join("signals"));
+    let is_order_path = full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    let default_indicator_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
+    let default_signal_categories: [&str; 0] = []; // No default categories for signals
+    let default_order_categories = ["execution_algos", "risk_filters", "smart_routing"];
+    
+    if (is_indicator_path && default_indicator_categories.contains(&folder_name)) ||
+       (is_signal_path && default_signal_categories.contains(&folder_name)) ||
+       (is_order_path && default_order_categories.contains(&folder_name)) {
         return Err("Cannot delete default category folders".to_string());
     }
     
@@ -783,9 +834,13 @@ pub async fn rename_component_folder(
         return Err("Access denied: folder outside workspace".to_string());
     }
     
-    // Only allow renaming of custom category folders
-    if !old_full_path.starts_with(workspace_path.join("core").join("indicators")) {
-        return Err("Can only rename custom indicator category folders".to_string());
+    // Only allow renaming of custom category folders in core components
+    let is_valid_component_path = old_full_path.starts_with(workspace_path.join("core").join("indicators")) ||
+                                  old_full_path.starts_with(workspace_path.join("core").join("signals")) ||
+                                  old_full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    if !is_valid_component_path {
+        return Err("Can only rename custom category folders in core components".to_string());
     }
     
     // Don't rename default categories
@@ -793,8 +848,18 @@ pub async fn rename_component_folder(
         .and_then(|n| n.to_str())
         .ok_or("Invalid folder name")?;
     
-    let default_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
-    if default_categories.contains(&old_folder_name) {
+    // Define default categories for each component type
+    let is_indicator_path = old_full_path.starts_with(workspace_path.join("core").join("indicators"));
+    let is_signal_path = old_full_path.starts_with(workspace_path.join("core").join("signals"));
+    let is_order_path = old_full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    let default_indicator_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
+    let default_signal_categories: [&str; 0] = []; // No default categories for signals
+    let default_order_categories = ["execution_algos", "risk_filters", "smart_routing"];
+    
+    if (is_indicator_path && default_indicator_categories.contains(&old_folder_name)) ||
+       (is_signal_path && default_signal_categories.contains(&old_folder_name)) ||
+       (is_order_path && default_order_categories.contains(&old_folder_name)) {
         return Err("Cannot rename default category folders".to_string());
     }
     

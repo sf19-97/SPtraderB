@@ -330,31 +330,36 @@ const allowedPaths: Record<string, string[]> = {
    - Interactive chart with time axis and hover tooltips
    - Flat disk reading with Parquet export/import
 
-#### 📋 Future Phases
+#### 📋 Development Phases
 
 **Phase 1: Core IDE Features** ✅ COMPLETE!
 - ✅ File browsing/editing
 - ✅ Save functionality
-- ✅ Run/test execution
-- ✅ New file creation
+- ✅ Run/test execution with real-time output
+- ✅ New file creation with templates
+- ✅ Dataset selection and loading
+- ✅ Interactive chart preview with indicators
 
-**Phase 2: Enhanced Development**
-- Python linting integration
-- Auto-completion for imports
-- Inline metadata validation
-- Git integration (diff view)
+**Phase 2: Enhanced Development** (In Progress)
+- ✅ Live Preview with chart visualization (DONE)
+- ✅ Component output parsing and display (DONE)
+- ⏳ Python linting integration
+- ⏳ Auto-completion for imports
+- ⏳ Inline metadata validation
+- ⏳ Git integration (diff view)
 
-**Phase 3: Live Preview**
-- Indicator chart visualization
-- Signal trigger display
+**Phase 3: Advanced Features**
+- Signal trigger display with backtesting
 - Order execution simulation
-- Mini backtest results
+- Performance profiling
+- Multi-component orchestration
 
-**Phase 4: Component Metadata** (Designed, not implemented)
+**Phase 4: Component Metadata System**
 - See `/docs/COMPONENT_METADATA_ARCHITECTURE.md`
 - AST parsing for metadata extraction
 - SQLite cache for fast queries
 - Component discovery features
+- Performance tracking and analytics
 
 ### Debugging Tips
 
@@ -546,6 +551,7 @@ Implemented a new metadata format that allows signals to declare parameterized i
 1. **Self-Contained Signals**: Signals declare exactly which indicators they need with specific parameters
 2. **No Rust Changes**: New indicator combinations work without touching the orchestration layer
 3. **Strategy Overrides**: Strategies can customize signal configurations
+4. **Visual Output**: Components can output JSON chart data between CHART_DATA_START/END markers
 
 ### Example: Moving Average Crossover
 ```python
@@ -567,12 +573,105 @@ __metadata__ = {
 }
 ```
 
+### MA Crossover Signal Implementation
+The first signal using v2 metadata has been successfully implemented:
+- **Golden Cross Detection**: Fast MA crossing above slow MA (bullish)
+- **Death Cross Detection**: Fast MA crossing below slow MA (bearish)
+- **Real Data Support**: Loads parquet files via TEST_DATASET environment variable
+- **Visual Output**: Generates chart data with indicator overlays and signal markers
+- **Realistic Fallback**: Uses synthetic data starting at 1.0850 (realistic EURUSD price)
+
+### Component Testing with Real Data
+Components can now load real market data during testing:
+```python
+# Check for TEST_DATASET environment variable
+dataset_name = os.environ.get('TEST_DATASET')
+if dataset_name:
+    # Load real data from workspace/data/
+    table = pq.read_table(data_path)
+    test_data = table.to_pandas()
+```
+
+### Visual Output Format
+Components output chart data in JSON format for IDE preview:
+```python
+print("CHART_DATA_START")
+print(json.dumps({
+    "time": [...],
+    "open": [...],
+    "high": [...],
+    "low": [...],
+    "close": [...],
+    "indicators": {
+        "ma_fast": [...],
+        "ma_slow": [...]
+    },
+    "signals": {
+        "crossovers": [index1, index2],
+        "types": ["golden_cross", "death_cross"]
+    }
+}))
+print("CHART_DATA_END")
+```
+
 ### Files Created
 - `/workspace/core/signals/ma_crossover.py` - First signal using v2 metadata
+- `/workspace/core/signals/test_ma_crossover.py` - Test file for the signal
 - `/workspace/strategies/ma_crossover_strategy.yaml` - Example strategy with parameter overrides
 - `/docs/ENHANCED_SIGNAL_METADATA_ARCHITECTURE.md` - Complete documentation
+- `/docs/MA_CROSSOVER_SIGNAL_IMPLEMENTATION.md` - Implementation details
+
+### Technical Notes
+- **Pandas FutureWarning**: The `.fillna()` method on boolean Series shows a deprecation warning. Can be fixed with `.infer_objects(copy=False)` or `.astype(bool)`
+- **Chart Integration**: MonacoIDE parses terminal output for chart data and updates PreviewChart component
+- **Signal Markers**: Vertical lines with arrows indicate crossover points on the chart
 
 ### Next Steps
 - Implement Rust orchestration layer to parse enhanced metadata
-- Add more signals using the new format
+- Add more signals using the new format (RSI oversold/overbought, Bollinger Band squeeze, etc.)
 - Create UI support for viewing/editing enhanced metadata
+- Fix the pandas deprecation warning in ma_crossover.py
+
+## Recent Achievements (January 2025)
+
+### First Trading Signal Implementation
+Successfully implemented the MA Crossover signal as the first component using the v2 metadata architecture:
+- **Architecture Validation**: Proved the enhanced metadata design works in practice
+- **Real Data Integration**: Components can load and process actual market data
+- **Visual Feedback**: Chart preview shows indicators and signals in real-time
+- **Developer Experience**: Smooth workflow from code → run → visualize
+
+### Key Technical Accomplishments
+1. **Environment Variable Integration**: TEST_DATASET passes selected dataset to Python components
+2. **Chart Data Protocol**: JSON output between markers enables rich visualizations
+3. **Signal Detection**: Properly identifies golden/death crosses with configurable parameters
+4. **Error Handling**: Graceful fallback to synthetic data when no dataset selected
+
+### Bug Fixes and Improvements
+- Fixed synthetic test data to use realistic forex prices (1.0850 instead of 100)
+- Fixed JSON parsing issues when output is split across multiple lines
+- Fixed null value handling in chart tooltips
+- Added proper offset handling for indicators with warmup periods
+
+## TODO and Next Steps
+
+### Immediate Tasks
+1. **Fix Pandas Warning**: Update ma_crossover.py line 90 to use `.astype(bool)` or `.infer_objects(copy=False)`
+2. **Add More Signals**: 
+   - RSI oversold/overbought signal
+   - Bollinger Band squeeze signal
+   - MACD crossover signal
+3. **Improve Error Messages**: Better feedback when components fail to load data
+4. **Document Component Development**: Create guide for building indicators/signals
+
+### Near-term Goals
+1. **Orchestration Layer**: Implement Rust code to parse v2 metadata and run indicators automatically
+2. **Backtesting Integration**: Add performance metrics to signal output
+3. **Strategy Execution**: Enable running full strategies with multiple signals
+4. **Performance Optimization**: Cache indicator calculations across components
+
+### Long-term Vision
+1. **Live Trading**: Connect to broker APIs for real-time execution
+2. **ML Integration**: Support for machine learning based signals
+3. **Cloud Deployment**: Run strategies in the cloud with monitoring
+4. **Community Marketplace**: Share and discover trading components

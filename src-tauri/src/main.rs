@@ -6,14 +6,14 @@ use sqlx::Row;
 use std::sync::Arc;
 use std::env;
 use std::fs;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tauri::{State, Builder, Manager, WindowEvent, Emitter};
 use tokio::process::{Command, Child};
 use std::process::Stdio;
 use std::collections::HashMap;
 use serde_json;
 use chrono::{Datelike, DateTime, Utc};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::BufReader;
 
 mod workspace;
 
@@ -24,7 +24,7 @@ struct LogEvent {
     message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Candle {
     time: i64,
     open: f64,
@@ -34,7 +34,7 @@ struct Candle {
     volume: i64,  // Note: This is tick_count (number of price updates), not traded volume
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct SymbolMetadata {
     symbol: String,
     start_timestamp: i64,
@@ -61,6 +61,20 @@ struct DataRequest {
 struct AppState {
     db_pool: Arc<Mutex<sqlx::PgPool>>,
     ingestion_processes: Arc<Mutex<HashMap<String, Child>>>,
+    candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
+    metadata_cache: Arc<RwLock<HashMap<String, CachedMetadata>>>,
+}
+
+#[derive(Clone)]
+struct CachedCandles {
+    data: Vec<Candle>,
+    cached_at: i64,
+}
+
+#[derive(Clone)]
+struct CachedMetadata {
+    metadata: SymbolMetadata,
+    cached_at: i64,
 }
 
 // Helper function to emit log events to frontend
@@ -85,6 +99,24 @@ async fn fetch_candles(
     state: State<'_, AppState>,
     window: tauri::Window,
 ) -> Result<Vec<Candle>, String> {
+    // Create cache key
+    let cache_key = format!("{}-{}-{}-{}", request.symbol, request.timeframe, request.from, request.to);
+    let current_time = chrono::Utc::now().timestamp();
+    
+    // Try to get from cache first
+    {
+        let cache = state.candle_cache.read().await;
+        if let Some(cached) = cache.get(&cache_key) {
+            // Check if cache is still fresh (10 minutes)
+            if current_time - cached.cached_at < 600 {
+                emit_log(&window, "DEBUG", &format!("[CACHE HIT] Returning cached data for {}", cache_key));
+                return Ok(cached.data.clone());
+            }
+        }
+    }
+    
+    emit_log(&window, "DEBUG", &format!("[CACHE MISS] Fetching from database for {}", cache_key));
+    
     let table_name = match request.timeframe.as_str() {
         "15m" => "forex_candles_15m",
         "1h" => "forex_candles_1h",
@@ -122,14 +154,38 @@ async fn fetch_candles(
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
-    Ok(rows.into_iter().map(|(time, open, high, low, close, volume)| Candle {
+    let candles: Vec<Candle> = rows.into_iter().map(|(time, open, high, low, close, volume)| Candle {
         time: time.timestamp(),
         open,
         high,
         low,
         close,
         volume,
-    }).collect())
+    }).collect();
+    
+    // Update cache with new data
+    {
+        let mut cache = state.candle_cache.write().await;
+        
+        // Simple LRU: if cache is full (>10 entries), remove oldest
+        if cache.len() >= 10 {
+            // Find the oldest entry
+            if let Some(oldest_key) = cache.iter()
+                .min_by_key(|(_, v)| v.cached_at)
+                .map(|(k, _)| k.clone()) {
+                cache.remove(&oldest_key);
+                emit_log(&window, "DEBUG", &format!("[CACHE EVICT] Removed oldest entry: {}", oldest_key));
+            }
+        }
+        
+        cache.insert(cache_key.clone(), CachedCandles {
+            data: candles.clone(),
+            cached_at: current_time,
+        });
+        emit_log(&window, "DEBUG", &format!("[CACHE UPDATE] Stored {} candles for {}", candles.len(), cache_key));
+    }
+    
+    Ok(candles)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1007,6 +1063,20 @@ async fn refresh_candles(
         "stage": "Complete"
     })).ok();
     
+    // Clear cache for this symbol since data has been refreshed
+    {
+        let mut cache = state.candle_cache.write().await;
+        let keys_to_remove: Vec<String> = cache.keys()
+            .filter(|k| k.starts_with(&format!("{}-", request.symbol)))
+            .cloned()
+            .collect();
+        
+        for key in keys_to_remove {
+            cache.remove(&key);
+            emit_log(&window, "DEBUG", &format!("[CACHE CLEAR] Removed {} after refresh", key));
+        }
+    }
+    
     emit_log(&window, "SUCCESS", "All candles refreshed successfully");
     Ok(true)
 }
@@ -1017,7 +1087,21 @@ async fn get_symbol_metadata(
     state: State<'_, AppState>,
     window: tauri::Window,
 ) -> Result<SymbolMetadata, String> {
-    emit_log(&window, "INFO", &format!("Fetching metadata for {}", symbol));
+    let current_time = chrono::Utc::now().timestamp();
+    
+    // Check cache first
+    {
+        let cache = state.metadata_cache.read().await;
+        if let Some(cached) = cache.get(&symbol) {
+            // Metadata cache can be valid for longer (5 minutes)
+            if current_time - cached.cached_at < 300 {
+                emit_log(&window, "DEBUG", &format!("[METADATA CACHE HIT] Returning cached metadata for {}", symbol));
+                return Ok(cached.metadata.clone());
+            }
+        }
+    }
+    
+    emit_log(&window, "INFO", &format!("[METADATA CACHE MISS] Fetching metadata for {} from database", symbol));
     
     let pool = state.db_pool.lock().await;
     
@@ -1047,12 +1131,24 @@ async fn get_symbol_metadata(
                 emit_log(&window, "INFO", &format!("Found data for {}: {} to {}", 
                          symbol, start.format("%Y-%m-%d"), end.format("%Y-%m-%d")));
                 
-                return Ok(SymbolMetadata {
+                let metadata = SymbolMetadata {
                     symbol: symbol.clone(),
                     start_timestamp: start.timestamp(),
                     end_timestamp: end.timestamp(),
                     has_data: true,
-                });
+                };
+                
+                // Update cache
+                {
+                    let mut cache = state.metadata_cache.write().await;
+                    cache.insert(symbol.clone(), CachedMetadata {
+                        metadata: metadata.clone(),
+                        cached_at: current_time,
+                    });
+                    emit_log(&window, "DEBUG", &format!("[METADATA CACHE UPDATE] Cached metadata for {}", symbol));
+                }
+                
+                return Ok(metadata);
             }
         }
     }
@@ -1253,6 +1349,8 @@ async fn main() {
     let app_state = AppState { 
         db_pool: Arc::new(Mutex::new(pool)),
         ingestion_processes: Arc::new(Mutex::new(HashMap::new())),
+        candle_cache: Arc::new(RwLock::new(HashMap::new())),
+        metadata_cache: Arc::new(RwLock::new(HashMap::new())),
     };
 
     Builder::default()
@@ -1269,6 +1367,7 @@ async fn main() {
             workspace::create_component_file,
             workspace::run_component,
             workspace::get_indicator_categories,
+            workspace::get_component_categories,
             workspace::get_workspace_components,
             workspace::delete_component_file,
             workspace::rename_component_file,

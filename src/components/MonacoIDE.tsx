@@ -19,7 +19,8 @@ import {
   IconEdit,
   IconTrash,
   IconDatabase,
-  IconDownload
+  IconDownload,
+  IconArrowRight
 } from '@tabler/icons-react';
 import { useBuild } from '../contexts/BuildContext';
 import { IDEHelpModal } from './IDEHelpModal';
@@ -77,6 +78,10 @@ export const MonacoIDE = () => {
   // Delete confirmation modal state
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FileNode | null>(null);
+  
+  // Move mode state
+  const [moveMode, setMoveMode] = useState(false);
+  const [fileToMove, setFileToMove] = useState<FileNode | null>(null);
   
   // Export data modal state
   const [exportModalOpened, setExportModalOpened] = useState(false);
@@ -310,9 +315,15 @@ execution:
 
   // Function to load available categories
   const loadCategories = async () => {
-    if (type === 'indicator') {
+    const defaultCategoriesMap: Record<string, string[]> = {
+      indicator: ['momentum', 'trend', 'volatility', 'volume', 'microstructure'],
+      signal: [], // Signals can be organized however you want
+      order: ['execution_algos', 'risk_filters', 'smart_routing']
+    };
+    
+    if (type === 'indicator' || type === 'signal' || type === 'order') {
       try {
-        const categories = await invoke<string[]>('get_indicator_categories');
+        const categories = await invoke<string[]>('get_component_categories', { componentType: type });
         setAvailableCategories(categories);
         // Set default category if available
         if (categories.length > 0 && !categories.includes(newFileCategory)) {
@@ -321,7 +332,10 @@ execution:
       } catch (error) {
         console.error('Failed to load categories:', error);
         // Fallback to default categories
-        setAvailableCategories(['momentum', 'trend', 'volatility', 'volume', 'microstructure']);
+        setAvailableCategories(defaultCategoriesMap[type] || []);
+        if (defaultCategoriesMap[type] && defaultCategoriesMap[type].length > 0) {
+          setNewFileCategory(defaultCategoriesMap[type][0]);
+        }
       }
     }
   };
@@ -332,6 +346,25 @@ execution:
     loadCategories();
     loadAvailableDatasets();
   }, []);
+
+  // Handle ESC key to cancel move mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && moveMode) {
+        setMoveMode(false);
+        setFileToMove(null);
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] Move cancelled`]);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [moveMode]);
+  
+  // Reload categories when component type changes
+  useEffect(() => {
+    loadCategories();
+  }, [type]);
   
   // Handle resize drag
   useEffect(() => {
@@ -523,9 +556,16 @@ execution:
       const categoryToUse = isCustomCategory ? customCategoryName : newFileCategory;
       directory = `core/indicators/${categoryToUse}`;
     } else if (type === 'signal') {
-      directory = `core/signals`;
+      // For signals, allow both flat structure and categories
+      if (isCustomCategory || newFileCategory) {
+        const categoryToUse = isCustomCategory ? customCategoryName : newFileCategory;
+        directory = `core/signals/${categoryToUse}`;
+      } else {
+        directory = `core/signals`; // Default to flat structure
+      }
     } else if (type === 'order') {
-      directory = `core/orders`;
+      const categoryToUse = isCustomCategory ? customCategoryName : newFileCategory;
+      directory = `core/orders/${categoryToUse}`;
     } else if (type === 'strategy') {
       directory = `strategies`;
       extension = '.yaml';
@@ -816,6 +856,53 @@ execution:
     }
   };
   
+  const handleMoveFile = async (sourcePath: string, targetFolderPath: string) => {
+    try {
+      // Extract filename from source path
+      const fileName = sourcePath.split('/').pop();
+      if (!fileName) {
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Error: Invalid source path`]);
+        return;
+      }
+      
+      // Construct new path
+      const newPath = `${targetFolderPath}/${fileName}`;
+      
+      // Check if it's the same location
+      if (sourcePath === newPath) {
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] File is already in this location`]);
+        return;
+      }
+      
+      setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] Moving ${fileName} to ${targetFolderPath}...`]);
+      
+      // Use the rename command to move the file
+      const result = await invoke<string>('rename_component_file', { 
+        oldPath: sourcePath, 
+        newName: newPath // Pass the full new path
+      });
+      
+      // If the currently selected file was moved, update the selection
+      if (selectedFile === sourcePath) {
+        setSelectedFile(result); // Use the result which is the new path
+      }
+      
+      setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✓ Moved successfully to ${result}`]);
+      
+      // Refresh file tree
+      await loadWorkspace();
+      
+      // Exit move mode
+      setMoveMode(false);
+      setFileToMove(null);
+      
+    } catch (error) {
+      setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Error moving file: ${error}`]);
+      setMoveMode(false);
+      setFileToMove(null);
+    }
+  };
+  
   const handleRename = async () => {
     if (!contextMenuFile || !renameFileName.trim()) return;
     
@@ -961,18 +1048,51 @@ execution:
       if (!isAllowed) return null;
       
       if (node.type === 'folder') {
-        // Check if this is a custom category folder (under indicators and not a default category)
-        const isCustomCategory = node.path.startsWith('core/indicators/') && 
-          depth === 2 && // Direct child of indicators folder
-          !['momentum', 'trend', 'volatility', 'volume', 'microstructure'].includes(node.name);
+        // Define default categories for each component type
+        const defaultCategories: Record<string, string[]> = {
+          indicators: ['momentum', 'trend', 'volatility', 'volume', 'microstructure'],
+          signals: [], // No default categories - signals are currently flat
+          orders: ['execution_algos', 'risk_filters', 'smart_routing'] // Match existing folders
+        };
         
+        // Check if this is a custom category folder
+        let isCustomCategory = false;
+        
+        if (node.path.startsWith('core/indicators/') && depth === 2) {
+          isCustomCategory = !defaultCategories.indicators.includes(node.name);
+        } else if (node.path.startsWith('core/signals/') && depth === 2) {
+          // All folders under signals are custom (no defaults)
+          isCustomCategory = true;
+        } else if (node.path.startsWith('core/orders/') && depth === 2) {
+          isCustomCategory = !defaultCategories.orders.includes(node.name);
+        }
+        
+        // Check if this folder can accept files
+        // For indicators/signals/orders, we want folders that are direct children of core/X/
+        const pathParts = node.path.split('/');
+        const canAcceptFiles = (
+          (node.path.startsWith('core/indicators/') && pathParts.length === 3) ||
+          (node.path.startsWith('core/signals/') && pathParts.length === 3) ||
+          (node.path.startsWith('core/orders/') && pathParts.length === 3)
+        );
+        
+        // Check if this folder is a valid move target
+        const isValidMoveTarget = moveMode && canAcceptFiles && fileToMove && fileToMove.type === 'file';
+
         return (
           <div key={node.path}>
             <UnstyledButton
-              onClick={() => toggleFolder(node.path)}
+              onClick={() => {
+                if (isValidMoveTarget && fileToMove) {
+                  // Execute the move
+                  handleMoveFile(fileToMove.path, node.path);
+                } else {
+                  // Normal folder toggle
+                  toggleFolder(node.path);
+                }
+              }}
               onContextMenu={isCustomCategory ? (e) => {
                 e.preventDefault();
-                console.log('[ContextMenu] Opening for folder:', node.name, node.path);
                 setContextMenuPosition({ x: e.clientX, y: e.clientY });
                 setContextMenuFile(node);
                 setContextMenuOpened(true);
@@ -984,9 +1104,13 @@ execution:
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                color: '#aaa',
+                color: isValidMoveTarget ? '#00C9BD' : '#aaa',
+                backgroundColor: isValidMoveTarget ? 'rgba(0, 201, 189, 0.1)' : 'transparent',
+                border: isValidMoveTarget ? '1px solid #00C9BD' : '1px solid transparent',
+                cursor: isValidMoveTarget ? 'pointer' : 'default',
+                transition: 'all 0.2s',
                 '&:hover': {
-                  backgroundColor: 'rgba(255,255,255,0.05)'
+                  backgroundColor: isValidMoveTarget ? 'rgba(0, 201, 189, 0.2)' : 'rgba(255,255,255,0.05)'
                 }
               }}
             >
@@ -1000,6 +1124,8 @@ execution:
         );
       } else {
         const icon = node.name.endsWith('.py') ? <IconFileCode size={16} /> : <IconJson size={16} />;
+        const isFileBeingMoved = moveMode && fileToMove?.path === node.path;
+        
         return (
           <UnstyledButton
             key={node.path}
@@ -1040,7 +1166,6 @@ execution:
             }}
             onContextMenu={(e) => {
               e.preventDefault();
-              console.log('[ContextMenu] Opening for file:', node.name, node.path);
               setContextMenuPosition({ x: e.clientX, y: e.clientY });
               setContextMenuFile(node);
               setContextMenuOpened(true);
@@ -1052,10 +1177,13 @@ execution:
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
-              color: selectedFile === node.path ? '#4a9eff' : '#888',
-              backgroundColor: selectedFile === node.path ? 'rgba(74, 158, 255, 0.1)' : 'transparent',
+              color: isFileBeingMoved ? '#ff9900' : (selectedFile === node.path ? '#00C9BD' : '#888'),
+              backgroundColor: isFileBeingMoved ? 'rgba(255, 153, 0, 0.1)' : (selectedFile === node.path ? 'rgba(0, 201, 189, 0.1)' : 'transparent'),
+              border: isFileBeingMoved ? '1px dashed #ff9900' : '1px solid transparent',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
               '&:hover': {
-                backgroundColor: 'rgba(255,255,255,0.05)'
+                backgroundColor: isFileBeingMoved ? 'rgba(255, 153, 0, 0.15)' : 'rgba(255,255,255,0.05)'
               }
             }}
           >
@@ -1100,31 +1228,61 @@ execution:
           alignItems: 'center',
           justifyContent: 'space-between'
         }}>
-          <Text size="sm" fw={500} c="#cccccc">WORKSPACE</Text>
+          <Text size="sm" fw={500} c={moveMode ? "#ff9900" : "#cccccc"}>
+            {moveMode ? "MOVE MODE" : "WORKSPACE"}
+          </Text>
           <Group gap={4}>
-            <ActionIcon 
-              size="sm" 
-              variant="subtle" 
-              c="gray"
-              onClick={loadWorkspace}
-              title="Refresh file tree"
-            >
-              <IconRefresh size={14} />
-            </ActionIcon>
-            <ActionIcon 
-              size="sm" 
-              variant="subtle" 
-              c="gray"
-              onClick={() => setCreateFileOpened(true)}
-              title={`Create new ${type}`}
-            >
-              <IconPlus size={14} />
-            </ActionIcon>
+            {moveMode ? (
+              <ActionIcon 
+                size="sm" 
+                variant="subtle" 
+                c="red"
+                onClick={() => {
+                  setMoveMode(false);
+                  setFileToMove(null);
+                  setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] Move cancelled`]);
+                }}
+                title="Cancel move"
+              >
+                <IconX size={14} />
+              </ActionIcon>
+            ) : (
+              <>
+                <ActionIcon 
+                  size="sm" 
+                  variant="subtle" 
+                  c="gray"
+                  onClick={loadWorkspace}
+                  title="Refresh file tree"
+                >
+                  <IconRefresh size={14} />
+                </ActionIcon>
+                <ActionIcon 
+                  size="sm" 
+                  variant="subtle" 
+                  c="gray"
+                  onClick={() => setCreateFileOpened(true)}
+                  title={`Create new ${type}`}
+                >
+                  <IconPlus size={14} />
+                </ActionIcon>
+              </>
+            )}
           </Group>
         </Box>
         <ScrollArea style={{ flex: 1 }}>
-          <Box p="xs">
+          <Box 
+            p="xs"
+            style={{
+              minHeight: '100%'
+            }}
+          >
             {renderFileTree(fileTree)}
+            {moveMode && fileToMove && (
+              <Text size="xs" c="#ff9900" mt="md" ta="center">
+                Click a category folder to move {fileToMove.name}
+              </Text>
+            )}
           </Box>
         </ScrollArea>
         
@@ -1595,7 +1753,7 @@ execution:
             }}
           />
           
-          {type === 'indicator' && (
+          {(type === 'indicator' || type === 'signal' || type === 'order') && (
             <>
               <Select
                 label="Category"
@@ -1611,7 +1769,7 @@ execution:
                 data={[
                   ...availableCategories.map(cat => ({ 
                     value: cat, 
-                    label: cat.charAt(0).toUpperCase() + cat.slice(1) 
+                    label: cat.charAt(0).toUpperCase() + cat.slice(1).replace(/_/g, ' ') 
                   })),
                   { value: 'custom', label: '+ Create New Category...' }
                 ]}
@@ -1621,7 +1779,11 @@ execution:
               {isCustomCategory && (
                 <TextInput
                   label="New Category Name"
-                  placeholder="e.g., orderflow, market_profile"
+                  placeholder={
+                    type === 'indicator' ? "e.g., orderflow, market_profile" :
+                    type === 'signal' ? "e.g., pattern_recognition, volume_analysis" :
+                    "e.g., iceberg, twap, vwap"
+                  }
                   value={customCategoryName}
                   onChange={(e) => setCustomCategoryName(e.currentTarget.value.toLowerCase().replace(/\s+/g, '_'))}
                   description="Category folder will be created automatically"
@@ -1691,7 +1853,6 @@ execution:
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                console.log('[ContextMenu] Rename clicked');
                 const file = contextMenuFile;
                 setContextMenuOpened(false);
                 if (file) {
@@ -1721,6 +1882,44 @@ execution:
               <IconEdit size={14} />
               <Text size="sm">Rename</Text>
             </UnstyledButton>
+            
+            {contextMenuFile?.type === 'file' && (
+              <UnstyledButton
+                component="button"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const file = contextMenuFile;
+                  setContextMenuOpened(false);
+                  if (file) {
+                    setMoveMode(true);
+                    setFileToMove(file);
+                    setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] Move mode: Click a folder to move ${file.name} (ESC to cancel)`]);
+                  }
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 12px',
+                  width: '100%',
+                  borderRadius: '4px',
+                  color: '#ccc',
+                  backgroundColor: 'transparent',
+                  transition: 'background-color 0.2s',
+                  cursor: 'pointer'
+                }}
+              >
+                <IconArrowRight size={14} />
+                <Text size="sm">Move</Text>
+              </UnstyledButton>
+            )}
             
             <UnstyledButton
               component="button"

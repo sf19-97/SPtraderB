@@ -53,14 +53,19 @@ class ConsoleInterceptor {
       newTimeframe = externalMatch[1];
     }
 
-    // Pattern 4: [LOADED] 15m: X candles (use cautiously as it might be from initial load)
-    const loadedMatch = message.match(/\[LOADED\]\s+(\S+):\s+\d+\s+candles/);
-    if (loadedMatch && !message.includes('maintained view')) {
-      // Only update if this seems to be an initial load, not a view maintenance
-      const potentialTf = loadedMatch[1];
+    // Pattern 4: [ResolutionTracker] Loaded 1h: X candles
+    const resolutionLoadedMatch = message.match(/\[ResolutionTracker\]\s+Loaded\s+(\S+):\s+\d+\s+candles/);
+    if (resolutionLoadedMatch && !message.includes('maintained view')) {
+      const potentialTf = resolutionLoadedMatch[1];
       if (['15m', '1h', '4h', '12h'].includes(potentialTf)) {
         newTimeframe = potentialTf;
       }
+    }
+    
+    // Pattern 5: [ResolutionTracker] Timeframe transition: X → Y
+    const resolutionTransitionMatch = message.match(/\[ResolutionTracker\]\s+Timeframe transition:\s+\S+\s+→\s+(\S+)/);
+    if (resolutionTransitionMatch) {
+      newTimeframe = resolutionTransitionMatch[1];
     }
 
     // If we found a new timeframe, update and notify listeners
