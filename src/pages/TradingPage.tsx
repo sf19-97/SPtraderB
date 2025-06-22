@@ -5,7 +5,7 @@ import { MarketDataBar } from '../components/MarketDataBar';
 import { TradingRightSidebar } from '../components/TradingRightSidebar';
 import AdaptiveChart from '../components/AdaptiveChart';
 import { AdaptiveChartV2 } from '../components/AdaptiveChartV2';
-import { useTrading } from '../contexts/TradingContext';
+import { useTradingStore } from '../stores/useTradingStore';
 import { invoke } from '@tauri-apps/api/core';
 
 interface DatabaseStatus {
@@ -17,7 +17,7 @@ interface DatabaseStatus {
 
 export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const { selectedPair, selectedTimeframe, chartVersion } = useTrading();
+  const { selectedPair, selectedTimeframe, chartVersion } = useTradingStore();
   const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>({
     connected: false,

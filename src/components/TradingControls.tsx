@@ -1,6 +1,6 @@
 import { Group, SegmentedControl, Select, Chip, Paper, Text, ActionIcon } from '@mantine/core';
 import { IconChartCandle, IconChartLine, IconChartBar } from '@tabler/icons-react';
-import { useTrading } from '../contexts/TradingContext';
+import { useTradingStore } from '../stores/useTradingStore';
 
 export const TradingControls = () => {
   const { 
@@ -10,7 +10,7 @@ export const TradingControls = () => {
     setChartType,
     indicators,
     toggleIndicator 
-  } = useTrading();
+  } = useTradingStore();
 
   const timeframes = [
     { label: '15m', value: '15m' },

@@ -1,7 +1,7 @@
 // src/components/TradingRightSidebar.tsx
 import { Stack, Title, Text, Switch, Button, NumberInput, Divider, Box, Group, ActionIcon } from '@mantine/core';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
-import { useTrading } from '../contexts/TradingContext';
+import { useTradingStore } from '../stores/useTradingStore';
 
 interface TradingRightSidebarProps {
   collapsed: boolean;
@@ -9,7 +9,7 @@ interface TradingRightSidebarProps {
 }
 
 export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebarProps) => {
-  const { indicators, toggleIndicator } = useTrading();
+  const { indicators, toggleIndicator } = useTradingStore();
 
   if (collapsed) {
     return (

@@ -1,12 +1,12 @@
 // src/components/MarketDataBar.tsx
 import { Group, Text, Box, Paper } from '@mantine/core';
 import { IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
-import { useTrading } from '../contexts/TradingContext';
+import { useTradingStore } from '../stores/useTradingStore';
 import { ResolutionTracker } from './ResolutionTracker';
 import { PairSelector } from './PairSelector';
 
 export const MarketDataBar = () => {
-  const { selectedPair } = useTrading();
+  const { selectedPair } = useTradingStore();
   
   // Mock data - replace with real data
   const marketData = {

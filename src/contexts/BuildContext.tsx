@@ -82,6 +82,7 @@ export const BuildProvider = ({ children }: { children: ReactNode }) => {
       scrollPosition,
       lastOpenedComponent,
       recentComponents,
+      // Actions
       setSearchTerm,
       setSelectedCategory,
       setScrollPosition,

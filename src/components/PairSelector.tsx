@@ -1,8 +1,8 @@
 import { Select } from '@mantine/core';
-import { useTrading } from '../contexts/TradingContext';
+import { useTradingStore } from '../stores/useTradingStore';
 
 export const PairSelector = () => {
-  const { selectedPair, setPair } = useTrading();
+  const { selectedPair, setPair } = useTradingStore();
 
   console.log('[PairSelector] Current selectedPair:', selectedPair);
 
