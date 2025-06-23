@@ -1,10 +1,13 @@
 """
 Test data loader for indicator development
+Supports both parquet files and live data from cache
 """
 import os
 import pandas as pd
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+import json
+import tempfile
 
 
 def get_data_dir() -> Path:
@@ -59,6 +62,117 @@ def list_test_datasets() -> List[Dict[str, Any]]:
             print(f"Error reading {file_path}: {e}")
     
     return sorted(datasets, key=lambda x: x['name'])
+
+
+def load_data_from_env() -> pd.DataFrame:
+    """
+    Load data based on environment variables set by the IDE
+    
+    Checks DATA_SOURCE env var:
+    - 'live': Load from cache using LIVE_* parameters
+    - 'parquet': Load from TEST_DATASET file
+    - None: Fall back to load_test_data()
+    
+    Returns:
+        DataFrame with OHLC data
+    """
+    data_source = os.environ.get('DATA_SOURCE')
+    
+    # Debug output
+    print(f"DATA_SOURCE: {data_source}")
+    if data_source == 'live':
+        # Load from cache parameters
+        symbol = os.environ.get('LIVE_SYMBOL', 'EURUSD')
+        timeframe = os.environ.get('LIVE_TIMEFRAME', '1h')
+        from_ts = os.environ.get('LIVE_FROM')
+        to_ts = os.environ.get('LIVE_TO')
+        cache_key = os.environ.get('CACHE_KEY')
+        
+        print(f"Using Live mode: {symbol} {timeframe}")
+        print(f"Cache key: {cache_key}")
+        
+        # For now, we'll create sample data with the correct parameters
+        # In the future, this would connect to the actual cache
+        # through a Tauri command or shared memory
+        
+        # Create realistic data for the requested symbol
+        if from_ts and to_ts:
+            start_date = pd.to_datetime(int(from_ts), unit='s')
+            end_date = pd.to_datetime(int(to_ts), unit='s')
+            
+            # Calculate number of periods based on timeframe
+            freq_map = {
+                '5m': '5min',
+                '15m': '15min',
+                '1h': '1h',
+                '4h': '4h',
+                '12h': '12h'
+            }
+            freq = freq_map.get(timeframe, '1h')
+            
+            dates = pd.date_range(start=start_date, end=end_date, freq=freq)
+            periods = len(dates)
+            
+            print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            print(f"Generating {periods} candles")
+            
+            # Base price depends on symbol
+            base_prices = {
+                'EURUSD': 1.0850,
+                'USDJPY': 150.00,
+                'GBPUSD': 1.2700,
+                'AUDUSD': 0.6600
+            }
+            base_price = base_prices.get(symbol, 1.0000)
+            
+            # Generate realistic price movement
+            import numpy as np
+            np.random.seed(42)
+            returns = np.random.normal(0.0001, 0.002, periods)
+            close_prices = base_price * np.exp(np.cumsum(returns))
+            
+            # Generate OHLC
+            high_prices = close_prices * (1 + np.abs(np.random.normal(0, 0.001, periods)))
+            low_prices = close_prices * (1 - np.abs(np.random.normal(0, 0.001, periods)))
+            open_prices = np.roll(close_prices, 1)
+            open_prices[0] = close_prices[0]
+            
+            # Create DataFrame
+            df = pd.DataFrame({
+                'open': open_prices,
+                'high': high_prices,
+                'low': low_prices,
+                'close': close_prices,
+                'volume': np.random.poisson(1000000, periods)
+            }, index=dates)
+            
+            # Ensure high/low are correct
+            df['high'] = df[['open', 'high', 'low', 'close']].max(axis=1)
+            df['low'] = df[['open', 'high', 'low', 'close']].min(axis=1)
+            
+            return df
+        else:
+            # Fall back to default sample data
+            return create_sample_data()
+            
+    elif data_source == 'parquet':
+        # Load from parquet file
+        dataset = os.environ.get('TEST_DATASET')
+        print(f"Using Parquet mode: {dataset if dataset else 'default dataset'}")
+        if dataset:
+            return load_test_data(dataset)
+        else:
+            print("No TEST_DATASET specified, loading default")
+            return load_test_data()
+    
+    else:
+        # No data source specified, try TEST_DATASET first
+        dataset = os.environ.get('TEST_DATASET')
+        if dataset:
+            return load_test_data(dataset)
+        else:
+            # Fall back to default behavior
+            return load_test_data()
 
 
 def load_test_data(dataset: Optional[str] = None) -> pd.DataFrame:

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
-import { Box, Group, Text, ActionIcon, Button, Stack, UnstyledButton, ScrollArea, Loader, Modal, TextInput, Select } from '@mantine/core';
+import { Box, Group, Text, ActionIcon, Button, Stack, UnstyledButton, ScrollArea, Loader, Modal, TextInput, Select, SegmentedControl } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { 
   IconChevronLeft, 
@@ -18,7 +18,6 @@ import {
   IconRefresh,
   IconEdit,
   IconTrash,
-  IconDatabase,
   IconDownload,
   IconArrowRight
 } from '@tabler/icons-react';
@@ -27,6 +26,8 @@ import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { useChartStore } from '../stores/useChartStore';
+import { useTradingStore } from '../stores/useTradingStore';
 
 interface FileNode {
   name: string;
@@ -96,6 +97,13 @@ export const MonacoIDE = () => {
   
   // Chart and component output state
   const [chartData, setChartData] = useState<any>(null);
+  const [dataSourceMode, setDataSourceMode] = useState<'live' | 'parquet'>('live');
+  const [liveDataParams, setLiveDataParams] = useState({
+    symbol: 'EURUSD',
+    timeframe: '1h',
+    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
+    to: new Date()
+  });
   const [componentOutput, setComponentOutput] = useState({
     lastValue: '--',
     signal: '--',
@@ -103,6 +111,26 @@ export const MonacoIDE = () => {
     dataPoints: '--'
   });
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  
+  // Zustand stores
+  const chartStore = useChartStore();
+  const { selectedPair, selectedTimeframe } = useTradingStore();
+  
+  // Initialize live data params with current chart selection
+  useEffect(() => {
+    setLiveDataParams(prev => ({
+      ...prev,
+      symbol: selectedPair,
+      timeframe: selectedTimeframe
+    }));
+  }, [selectedPair, selectedTimeframe]);
+  
+  // Load data when live mode params change
+  useEffect(() => {
+    if (dataSourceMode === 'live') {
+      loadLiveData();
+    }
+  }, [liveDataParams, dataSourceMode]);
   
   // Ref for terminal auto-scroll
   const terminalScrollRef = useRef<HTMLDivElement>(null);
@@ -652,7 +680,7 @@ execution:
           if (line.includes('Execution completed in')) {
             const match = line.match(/(\d+\.?\d*)\s*ms/);
             if (match) {
-              setComponentOutput(prev => ({ ...prev, execution: `${match[1]}ms` }));
+              setComponentOutput((prev: any) => ({ ...prev, execution: `${match[1]}ms` }));
             }
           }
           
@@ -660,7 +688,7 @@ execution:
           if (line.includes('Shape:')) {
             const match = line.match(/\((\d+),/);
             if (match) {
-              setComponentOutput(prev => ({ ...prev, dataPoints: match[1] }));
+              setComponentOutput((prev: any) => ({ ...prev, dataPoints: match[1] }));
             }
           }
           
@@ -672,7 +700,7 @@ execution:
               
               // Update chart with indicator overlay
               if (chartData && indicatorData.values && indicatorData.name) {
-                setChartData(prev => ({
+                setChartData((prev: any) => ({
                   ...prev!,
                   indicators: {
                     ...prev?.indicators,
@@ -684,7 +712,7 @@ execution:
               // Update last value
               if (indicatorData.values && indicatorData.values.length > 0) {
                 const lastValue = indicatorData.values[indicatorData.values.length - 1];
-                setComponentOutput(prev => ({ 
+                setComponentOutput((prev: any) => ({ 
                   ...prev, 
                   lastValue: typeof lastValue === 'number' ? lastValue.toFixed(4) : lastValue 
                 }));
@@ -698,18 +726,18 @@ execution:
           if (line.includes('Mean SMA:') || line.includes('Mean:')) {
             const match = line.match(/:\s*(\d+\.\d+)/);
             if (match) {
-              setComponentOutput(prev => ({ ...prev, lastValue: match[1] }));
+              setComponentOutput((prev: any) => ({ ...prev, lastValue: match[1] }));
             }
           }
           
           // Parse signal output
           if (line.includes('Signal:') || line.includes('SIGNAL:')) {
             if (line.toLowerCase().includes('buy')) {
-              setComponentOutput(prev => ({ ...prev, signal: 'BUY' }));
+              setComponentOutput((prev: any) => ({ ...prev, signal: 'BUY' }));
             } else if (line.toLowerCase().includes('sell')) {
-              setComponentOutput(prev => ({ ...prev, signal: 'SELL' }));
+              setComponentOutput((prev: any) => ({ ...prev, signal: 'SELL' }));
             } else if (line.toLowerCase().includes('neutral')) {
-              setComponentOutput(prev => ({ ...prev, signal: 'NEUTRAL' }));
+              setComponentOutput((prev: any) => ({ ...prev, signal: 'NEUTRAL' }));
             }
           }
         }
@@ -779,6 +807,39 @@ execution:
         setIsRunning(false);
       });
       
+      // Prepare environment variables based on data source mode
+      let envVars: Record<string, string> = {};
+      
+      if (dataSourceMode === 'live') {
+        // Pass live data parameters
+        envVars['DATA_SOURCE'] = 'live';
+        envVars['LIVE_SYMBOL'] = liveDataParams.symbol;
+        envVars['LIVE_TIMEFRAME'] = liveDataParams.timeframe;
+        envVars['LIVE_FROM'] = Math.floor(liveDataParams.from.getTime() / 1000).toString();
+        envVars['LIVE_TO'] = Math.floor(liveDataParams.to.getTime() / 1000).toString();
+        
+        // Generate cache key for Python to use
+        const cacheKey = chartStore.getCacheKey(
+          liveDataParams.symbol,
+          liveDataParams.timeframe,
+          Math.floor(liveDataParams.from.getTime() / 1000),
+          Math.floor(liveDataParams.to.getTime() / 1000)
+        );
+        envVars['CACHE_KEY'] = cacheKey;
+        
+        // Debug output
+        console.log('[Run] Live mode environment variables:', envVars);
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📊 Running in Live mode: ${liveDataParams.symbol} ${liveDataParams.timeframe}`]);
+      } else {
+        // Pass parquet dataset
+        envVars['DATA_SOURCE'] = 'parquet';
+        envVars['TEST_DATASET'] = selectedDataset || '';
+        
+        // Debug output
+        console.log('[Run] Parquet mode environment variables:', envVars);
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📄 Running in Parquet mode: ${selectedDataset || 'default'}`]);
+      }
+      
       // Run the component
       const result = await invoke<{
         success: boolean;
@@ -787,13 +848,14 @@ execution:
         error_lines: number;
       }>('run_component', { 
         filePath: selectedFile,
-        dataset: selectedDataset 
+        dataset: dataSourceMode === 'parquet' ? selectedDataset : null,
+        envVars
       });
       
       // Clean up listeners
-      await unlistenOutput();
-      await unlistenStart();
-      await unlistenComplete();
+      unlistenOutput();
+      unlistenStart();
+      unlistenComplete();
       
       // Add summary if no output
       if (result.output_lines === 0 && result.error_lines === 0) {
@@ -984,7 +1046,7 @@ execution:
       
       setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 Exporting ${exportSymbol} ${exportTimeframe} data...`]);
       
-      const result = await invoke<string>('export_test_data', {
+      await invoke<string>('export_test_data', {
         request: {
           symbol: exportSymbol,
           timeframe: exportTimeframe,
@@ -1014,16 +1076,78 @@ execution:
   
   const loadAvailableDatasets = async () => {
     try {
-      // Get available parquet datasets
+      console.log('[Dataset] Loading available datasets...');
       const datasets = await invoke<string[]>('list_test_datasets');
+      console.log('[Dataset] Found datasets:', datasets);
       setAvailableDatasets(datasets);
       
-      // If we just exported data, select the newest one
+      // Auto-select first dataset if none selected
       if (datasets.length > 0 && !selectedDataset) {
         setSelectedDataset(datasets[0]);
       }
     } catch (error) {
-      console.error('Failed to load datasets:', error);
+      console.error('[Dataset] Failed to load datasets:', error);
+      setAvailableDatasets([]);
+    }
+  };
+  
+  const loadLiveData = async () => {
+    try {
+      const { symbol, timeframe, from, to } = liveDataParams;
+      
+      // Generate cache key
+      const fromTimestamp = Math.floor(from.getTime() / 1000);
+      const toTimestamp = Math.floor(to.getTime() / 1000);
+      const cacheKey = chartStore.getCacheKey(symbol, timeframe, fromTimestamp, toTimestamp);
+      
+      // Check cache first
+      const cachedData = chartStore.getCachedCandles(cacheKey);
+      if (cachedData) {
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Using cached data for ${symbol} ${timeframe}`]);
+        // Convert to chart format
+        const chartData = {
+          time: cachedData.map(c => new Date(c.time * 1000).toISOString()),
+          open: cachedData.map(c => c.open),
+          high: cachedData.map(c => c.high),
+          low: cachedData.map(c => c.low),
+          close: cachedData.map(c => c.close)
+        };
+        setChartData(chartData);
+        return;
+      }
+      
+      // Fetch from backend
+      setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔄 Loading ${symbol} ${timeframe} data...`]);
+      
+      const data = await invoke<any>('fetch_candles', {
+        symbol,
+        timeframe,
+        from: fromTimestamp,
+        to: toTimestamp
+      });
+      
+      if (data && data.candles && data.candles.length > 0) {
+        // Cache the data
+        chartStore.setCachedCandles(cacheKey, data.candles);
+        
+        // Convert to chart format
+        const chartData = {
+          time: data.candles.map((c: any) => new Date(c.time * 1000).toISOString()),
+          open: data.candles.map((c: any) => c.open),
+          high: data.candles.map((c: any) => c.high),
+          low: data.candles.map((c: any) => c.low),
+          close: data.candles.map((c: any) => c.close)
+        };
+        setChartData(chartData);
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✓ Loaded ${data.candles.length} candles`]);
+      } else {
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ No data available for selected range`]);
+        setChartData(null);
+      }
+    } catch (error) {
+      console.error('[LiveData] Failed to load:', error);
+      setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Failed to load data: ${error}`]);
+      setChartData(null);
     }
   };
   
@@ -1510,7 +1634,7 @@ execution:
               <Text size="xs" fw={500} c="#cccccc">TERMINAL</Text>
               {selectedFile?.endsWith('.py') && (
                 <Text size="xs" c="dimmed" ff="monospace">
-                  {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to run
+                  {navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to run
                 </Text>
               )}
             </Group>
@@ -1566,21 +1690,133 @@ execution:
           justifyContent: 'space-between'
         }}>
           <Text size="sm" fw={500} c="#cccccc">LIVE PREVIEW</Text>
-          <ActionIcon 
-            size="sm" 
-            variant="subtle" 
-            c="gray"
-            onClick={() => setExportModalOpened(true)}
-            title="Export test data"
-          >
-            <IconDatabase size={14} />
-          </ActionIcon>
+          <SegmentedControl
+            size="xs"
+            value={dataSourceMode}
+            onChange={(value) => setDataSourceMode(value as 'live' | 'parquet')}
+            data={[
+              { label: 'Live', value: 'live' },
+              { label: 'Parquet', value: 'parquet' }
+            ]}
+            styles={{
+              root: {
+                background: '#2a2a2a',
+                border: '1px solid #444'
+              },
+              control: {
+                border: 'none'
+              },
+              label: {
+                color: '#ccc',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              },
+              indicator: {
+                background: '#4a9eff'
+              }
+            }}
+          />
         </Box>
         
         <Box style={{ flex: 1, padding: '16px' }}>
-          {/* Dataset selector with refresh */}
-          <Group gap="xs" mb="xs">
-            <Select
+          {/* Data source controls */}
+          {dataSourceMode === 'live' ? (
+            // Live mode controls
+            <Stack gap="xs" mb="md">
+              <Group gap="xs">
+                <Select
+                  size="xs"
+                  label="Symbol"
+                  value={liveDataParams.symbol}
+                  onChange={(value) => setLiveDataParams(prev => ({ ...prev, symbol: value || 'EURUSD' }))}
+                  data={[
+                    { value: 'EURUSD', label: 'EUR/USD' },
+                    { value: 'USDJPY', label: 'USD/JPY' },
+                    { value: 'GBPUSD', label: 'GBP/USD' },
+                    { value: 'AUDUSD', label: 'AUD/USD' }
+                  ]}
+                  styles={{
+                    input: {
+                      background: '#2a2a2a',
+                      border: '1px solid #444',
+                      color: '#fff'
+                    },
+                    dropdown: {
+                      background: '#1a1a1a',
+                      border: '1px solid #444'
+                    }
+                  }}
+                />
+                <Select
+                  size="xs"
+                  label="Timeframe"
+                  value={liveDataParams.timeframe}
+                  onChange={(value) => setLiveDataParams(prev => ({ ...prev, timeframe: value || '1h' }))}
+                  data={[
+                    { value: '15m', label: '15 minutes' },
+                    { value: '1h', label: '1 hour' },
+                    { value: '4h', label: '4 hours' },
+                    { value: '12h', label: '12 hours' }
+                  ]}
+                  styles={{
+                    input: {
+                      background: '#2a2a2a',
+                      border: '1px solid #444',
+                      color: '#fff'
+                    },
+                    dropdown: {
+                      background: '#1a1a1a',
+                      border: '1px solid #444'
+                    }
+                  }}
+                />
+              </Group>
+              <Group gap="xs">
+                <DatePickerInput
+                  size="xs"
+                  label="From"
+                  value={liveDataParams.from}
+                  onChange={(value) => {
+                    if (value) {
+                      setLiveDataParams(prev => ({ ...prev, from: new Date(value) }));
+                    }
+                  }}
+                  maxDate={liveDataParams.to}
+                  styles={{
+                    input: {
+                      background: '#2a2a2a',
+                      border: '1px solid #444',
+                      color: '#fff'
+                    }
+                  }}
+                />
+                <DatePickerInput
+                  size="xs"
+                  label="To"
+                  value={liveDataParams.to}
+                  onChange={(value) => {
+                    if (value) {
+                      setLiveDataParams(prev => ({ ...prev, to: new Date(value) }));
+                    }
+                  }}
+                  minDate={liveDataParams.from}
+                  maxDate={new Date()}
+                  styles={{
+                    input: {
+                      background: '#2a2a2a',
+                      border: '1px solid #444',
+                      color: '#fff'
+                    }
+                  }}
+                />
+              </Group>
+            </Stack>
+          ) : (
+            // Parquet mode controls
+            <Group gap="xs" mb="xs">
+              <Select
             size="xs"
             placeholder="Select test dataset"
             value={selectedDataset}
@@ -1607,7 +1843,7 @@ execution:
                   }>('load_parquet_data', { datasetName: value });
                   
                   // Only set chart data if we don't have component output data
-                  setChartData(prevData => {
+                  setChartData((prevData: any) => {
                     // If we have existing data with indicators/signals from component output, preserve it
                     if (prevData?.indicators || prevData?.signals) {
                       console.log('[Chart] Preserving component output data, ignoring dataset load');
@@ -1630,10 +1866,6 @@ execution:
               disabled: ds === selectedDataset
             }))}
             style={{ flex: 1 }}
-            popoverProps={{
-              withinPortal: true,
-              zIndex: 9999
-            }}
             styles={{
               input: {
                 background: '#2a2a2a',
@@ -1652,7 +1884,7 @@ execution:
                 border: '1px solid #444',
                 zIndex: 9999
               },
-              item: {
+              option: {
                 color: '#ccc',
                 '&[data-hovered]': {
                   backgroundColor: '#2a2a2a',
@@ -1670,15 +1902,40 @@ execution:
               }
             }}
           />
-          <ActionIcon 
-            size="sm" 
-            variant="subtle" 
-            onClick={() => loadAvailableDatasets()}
-            title="Refresh datasets"
-          >
-            <IconRefresh size={14} />
-          </ActionIcon>
-        </Group>
+              <ActionIcon 
+                size="sm" 
+                variant="subtle" 
+                onClick={() => loadAvailableDatasets()}
+                title="Refresh datasets"
+              >
+                <IconRefresh size={14} />
+              </ActionIcon>
+            </Group>
+          )}
+          
+          {/* Export button for parquet mode */}
+          {dataSourceMode === 'parquet' && (
+            <Button
+              size="xs"
+              variant="outline"
+              fullWidth
+              mb="md"
+              leftSection={<IconDownload size={14} />}
+              onClick={() => setExportModalOpened(true)}
+              styles={{
+                root: {
+                  border: '1px solid #444',
+                  color: '#ccc',
+                  '&:hover': {
+                    background: '#2a2a2a',
+                    borderColor: '#666'
+                  }
+                }
+              }}
+            >
+              Export New Dataset
+            </Button>
+          )}
           
           {/* Chart preview */}
           <PreviewChart 
@@ -2049,7 +2306,7 @@ execution:
             label="Start Date"
             placeholder="Select start date"
             value={exportStartDate}
-            onChange={setExportStartDate}
+            onChange={(value) => setExportStartDate(value ? new Date(value) : null)}
             required
           />
           
@@ -2057,7 +2314,7 @@ execution:
             label="End Date"
             placeholder="Select end date"
             value={exportEndDate}
-            onChange={setExportEndDate}
+            onChange={(value) => setExportEndDate(value ? new Date(value) : null)}
             required
           />
           

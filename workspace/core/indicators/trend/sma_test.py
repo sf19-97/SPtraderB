@@ -73,34 +73,13 @@ if __name__ == "__main__":
     
     sys.path.append('/Users/sebastian/Projects/SPtraderB/workspace')
     
-    from core.data.loader import load_test_data, list_test_datasets
+    from core.data.loader import load_data_from_env
     
     print("Testing SMA Indicator...")
     print("-" * 50)
     
-    # Check if a dataset was selected in the IDE
-    selected_dataset = os.environ.get('TEST_DATASET')
-    
-    if selected_dataset:
-        print(f"Using selected dataset: {selected_dataset}")
-        data = load_test_data(selected_dataset)
-    else:
-        # Show available datasets
-        datasets = list_test_datasets()
-        if datasets:
-            print(f"Found {len(datasets)} available dataset(s):")
-            for ds in datasets:
-                print(f"  - {ds['filename']} ({ds['rows']} rows, {ds['size_mb']:.1f} MB)")
-            print()
-            
-            # Load the first available dataset
-            latest_dataset = datasets[0]['filename']
-            print(f"Loading dataset: {latest_dataset}")
-            data = load_test_data(latest_dataset)
-        else:
-            # No datasets, create sample
-            print("No datasets found. Creating sample data...")
-            data = load_test_data()
+    # Load data using the unified interface that checks DATA_SOURCE env var
+    data = load_data_from_env()
     
     print(f"Loaded {len(data)} rows of test data")
     print(f"Columns: {list(data.columns)}")
@@ -134,6 +113,27 @@ if __name__ == "__main__":
         'values': result['sma'].dropna().tolist()  # Remove NaN values
     }
     print(f"\nINDICATOR_DATA:{json.dumps(indicator_output)}")
+    
+    # Output chart data for visualization
+    if 'time' in data.columns:
+        time_data = data['time'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist()
+    else:
+        time_data = data.index.strftime('%Y-%m-%d %H:%M:%S').tolist()
+    
+    chart_data = {
+        "time": time_data,
+        "open": data['open'].tolist(),
+        "high": data['high'].tolist(),
+        "low": data['low'].tolist(),
+        "close": data['close'].tolist(),
+        "indicators": {
+            "sma": result['sma'].tolist()
+        }
+    }
+    
+    print("\nCHART_DATA_START")
+    print(json.dumps(chart_data))
+    print("CHART_DATA_END")
     
     # Output execution time
     import time

@@ -144,82 +144,42 @@ if __name__ == "__main__":
     import os
     import sys
     
-    # Check if we should use a dataset
-    dataset_name = os.environ.get('TEST_DATASET')
+    # Add workspace to path
+    workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.append(workspace_dir)
     
-    if dataset_name:
-        # Load real data from parquet
-        try:
-            import pyarrow.parquet as pq
-            
-            # Navigate to workspace/data directory
-            workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            data_path = os.path.join(workspace_dir, 'data', dataset_name)
-            
-            if os.path.exists(data_path):
-                print(f"Loading dataset: {dataset_name}")
-                
-                # Read parquet file
-                table = pq.read_table(data_path)
-                test_data = table.to_pandas()
-                
-                # Ensure we have the right columns
-                if 'timestamp' in test_data.columns:
-                    test_data['date'] = pd.to_datetime(test_data['timestamp'])
-                elif 'time' in test_data.columns:
-                    test_data['date'] = pd.to_datetime(test_data['time'])
-                
-                print(f"Loaded {len(test_data)} rows of data")
-                
-                # Calculate indicators on real data
-                sys.path.append(workspace_dir)
-                from core.indicators.trend.sma import SMA
-                
-                sma_fast = SMA(period=20)
-                sma_slow = SMA(period=50)
-                
-                fast_result = sma_fast.calculate(test_data)
-                slow_result = sma_slow.calculate(test_data)
-                
-                ma_fast = fast_result['sma']
-                ma_slow = slow_result['sma']
-            else:
-                print(f"Dataset not found: {data_path}")
-                sys.exit(1)
-        except ImportError as e:
-            print(f"Error importing required modules: {e}")
-            print("Falling back to synthetic data")
-            dataset_name = None
-        except Exception as e:
-            print(f"Error loading dataset: {e}")
-            print("Falling back to synthetic data")
-            dataset_name = None
+    # Import the unified data loader
+    from core.data.loader import load_data_from_env
     
-    # If no dataset, use synthetic data
-    if not dataset_name:
-        # Create test data
-        dates = pd.date_range('2024-01-01', periods=100, freq='D')
+    # Load data using the unified interface
+    test_data = load_data_from_env()
+    
+    # The loader returns a DataFrame with a datetime index
+    # Add a date column for compatibility
+    test_data['date'] = test_data.index
+    
+    print(f"Loaded {len(test_data)} rows of data")
+    print(f"Date range: {test_data.index[0]} to {test_data.index[-1]}")
+    
+    # Check if we have real OHLC data or just close prices
+    has_ohlc = all(col in test_data.columns for col in ['open', 'high', 'low', 'close'])
+    
+    if has_ohlc:
+        # Calculate indicators on real OHLC data
+        from core.indicators.trend.sma import SMA
         
-        # Create realistic forex price data
-        price = 1.0850  # Realistic EURUSD starting price
-        prices = []
-        for i in range(100):
-            if i < 30:
-                price += np.random.normal(0.0005, 0.0003)  # Uptrend (5 pips average)
-            elif i < 60:
-                price += np.random.normal(-0.0005, 0.0003)  # Downtrend
-            else:
-                price += np.random.normal(0.0005, 0.0003)  # Uptrend again
-            prices.append(price)
+        sma_fast = SMA(period=20)
+        sma_slow = SMA(period=50)
         
-        test_data = pd.DataFrame({
-            'date': dates,
-            'close': prices
-        })
+        fast_result = sma_fast.calculate(test_data)
+        slow_result = sma_slow.calculate(test_data)
         
-        # Simulate moving averages
-        ma_fast = pd.Series(prices).rolling(20).mean()
-        ma_slow = pd.Series(prices).rolling(50).mean()
+        ma_fast = fast_result['sma']
+        ma_slow = slow_result['sma']
+    else:
+        # If only close prices, calculate MAs directly
+        ma_fast = test_data['close'].rolling(20).mean()
+        ma_slow = test_data['close'].rolling(50).mean()
     
     indicators = {
         'ma_fast': ma_fast,
@@ -251,7 +211,7 @@ if __name__ == "__main__":
     import json
     
     # Prepare data for visualization
-    if dataset_name and 'open' in test_data.columns:
+    if has_ohlc:
         # Use real OHLC data
         viz_data = {
             "time": test_data['date'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist() if 'date' in test_data else test_data.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
@@ -269,15 +229,9 @@ if __name__ == "__main__":
             }
         }
     else:
-        # Synthetic data - create OHLC from close prices
-        if dataset_name:
-            # No OHLC columns, but we have real close data
-            prices = test_data['close'].tolist()
-            dates = test_data['date']
-        else:
-            # Pure synthetic data
-            dates = test_data['date']
-            prices = test_data['close'].tolist()
+        # Create OHLC from close prices
+        prices = test_data['close'].tolist()
+        dates = test_data['date']
         
         # Generate realistic OHLC from close prices
         viz_data = {

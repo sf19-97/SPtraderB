@@ -932,6 +932,7 @@ pub async fn list_test_datasets() -> Result<Vec<String>, String> {
 pub async fn run_component(
     file_path: String,
     dataset: Option<String>,
+    env_vars: Option<std::collections::HashMap<String, String>>,
     window: tauri::Window,
 ) -> Result<RunResult, String> {
     // Validate path
@@ -972,6 +973,13 @@ pub async fn run_component(
     // Add dataset as environment variable if provided
     if let Some(dataset_name) = dataset {
         cmd.env("TEST_DATASET", dataset_name);
+    }
+    
+    // Add additional environment variables if provided
+    if let Some(env_vars) = env_vars {
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
     }
     
     // Emit start event
