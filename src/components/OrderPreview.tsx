@@ -28,6 +28,7 @@ import {
   IconSettings
 } from '@tabler/icons-react';
 import { useBrokerStore } from '../stores/useBrokerStore';
+import { invoke } from '@tauri-apps/api/core';
 
 interface TestResults {
   type: string;
@@ -48,28 +49,73 @@ export const OrderPreview = () => {
   // Get active profile
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
-  // Simulate latency fluctuation
+  // Check broker connection status
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentLatency(Math.floor(Math.random() * 20) + 8);
-    }, 2000);
+    const checkConnection = async () => {
+      try {
+        const status = await invoke<{
+          connected: boolean;
+          latency_ms: number;
+          broker_type: string;
+        }>('get_broker_connection_status');
+        
+        setConnectionStatus(status.connected ? 'connected' : 'disconnected');
+        setCurrentLatency(status.latency_ms);
+      } catch (error) {
+        console.error('Failed to get broker status:', error);
+      }
+    };
+
+    checkConnection();
+    const interval = setInterval(checkConnection, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  const runTest = (type: string) => {
+  const runTest = async (type: string) => {
     setTestStatus('running');
     setTestResults(null);
     
-    setTimeout(() => {
+    try {
+      const result = await invoke<{
+        success: boolean;
+        order_id?: string;
+        status?: string;
+        execution_time_ms: number;
+        slippage?: string;
+        message?: string;
+        error?: string;
+      }>('test_order_execution', { orderType: type });
+      
+      setTestStatus('complete');
+      
+      if (result.success) {
+        setTestResults({
+          type: type,
+          executionTime: result.execution_time_ms,
+          slippage: result.slippage || '0.0',
+          status: result.status?.includes('Filled') ? 'FILLED' : 'REJECTED',
+          timestamp: new Date().toLocaleTimeString()
+        });
+      } else {
+        setTestResults({
+          type: type,
+          executionTime: result.execution_time_ms,
+          slippage: '0.0',
+          status: 'FAILED',
+          timestamp: new Date().toLocaleTimeString()
+        });
+      }
+    } catch (error) {
+      console.error('Test execution failed:', error);
       setTestStatus('complete');
       setTestResults({
         type: type,
-        executionTime: Math.floor(Math.random() * 50) + 30,
-        slippage: (Math.random() * 0.8 - 0.1).toFixed(1),
-        status: Math.random() > 0.1 ? 'FILLED' : 'REJECTED',
+        executionTime: 0,
+        slippage: '0.0',
+        status: 'ERROR',
         timestamp: new Date().toLocaleTimeString()
       });
-    }, 1500);
+    }
   };
 
   const latencyColor = currentLatency < 20 ? '#40c057' : currentLatency < 50 ? '#fab005' : '#fa5252';

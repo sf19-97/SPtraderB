@@ -243,6 +243,7 @@ Migrated all trading-related state from TradingContext to BuildContext, simplify
 - Implement auto-generate candles after download completion (currently manual)
 - Add pause/resume functionality for downloads
 - Optimize Data Manager query performance
+- Wire up OrderPreview execution tests to actual broker APIs (currently using mock data)
 
 ## Component Metadata Architecture (Planned)
 
@@ -547,6 +548,140 @@ Moved to `/depreciated/` folder:
 
 ### Component Backups
 - `/src/components/backups/` - Working versions of components saved during major changes
+
+## Order Execution Implementation (January 2025)
+
+### Overview
+Implemented OrderPreview component for testing order execution algorithms in the IDE. Currently uses mock data and simulated results.
+
+### Current Features
+- **Broker Profile Selector**: Dropdown to select active broker profile
+- **Connection Status**: Shows real-time connection status and latency
+- **Test Controls**: 
+  - Single order test
+  - Stress test (100 orders)
+  - Simulate disconnect
+- **Session Statistics**: Tracks orders tested, success rate, avg latency, max slippage
+- **Deploy to Production**: Button to deploy tested orders (not yet wired)
+
+### Implementation Status
+- ✅ UI/UX complete with dark theme
+- ✅ Broker profile management with Zustand store
+- ✅ Basic encryption for API keys
+- ✅ Settings page with profile CRUD operations
+- ⏳ Actual broker API integration pending
+- ⏳ Real execution logic pending
+
+### Next Steps for Wiring Up
+1. **Broker API Integration**
+   - Add Rust commands for each broker's API (OANDA, IB, Alpaca, etc.)
+   - Implement connection management in Tauri backend
+   - Add real latency monitoring
+
+2. **Order Execution Engine**
+   - Create order execution pipeline in Rust
+   - Implement order types (market, limit, stop, etc.)
+   - Add slippage calculation and reporting
+   - Real-time order status updates via Tauri events
+
+3. **Risk Management**
+   - Position size validation
+   - Account balance checks
+   - Maximum order limits
+   - Emergency stop functionality
+
+4. **Testing Infrastructure**
+   - Paper trading mode for each broker
+   - Historical tick data replay
+   - Simulated market conditions
+   - Performance metrics collection
+
+### Security Considerations
+- Move from basic btoa/atob to proper encryption (AES-256)
+- Implement secure key storage in OS keychain
+- Add API request signing
+- Rate limiting and circuit breakers
+
+## Order Execution System Architecture (January 2025)
+
+### Overview
+We've begun architecting an institutional-grade order execution system. The design prioritizes modularity, scalability, and reliability while starting with a simple mock implementation.
+
+### Current Status
+- **Phase**: Architecture & Planning
+- **Documentation**: Complete implementation plan in `/docs/ORDER_EXECUTION_PLAN.md`
+- **UI Entry Point**: OrderPreview component (already implemented)
+
+### Key Architectural Decisions
+
+1. **Always Use Message Queue**
+   - Redis for all order flow, even in development
+   - Enables trivial scaling later
+   - Provides natural async processing
+
+2. **Event Sourcing**
+   - Complete audit trail of every order state change
+   - Stored in `order_events` table
+   - Enables replay and debugging
+
+3. **Broker Abstraction**
+   - All brokers implement common trait
+   - Mock → Practice → Live with config change
+   - OANDA as first real broker
+
+4. **Database Strategy**
+   - SQLite for development/staging
+   - Schema designed for PostgreSQL migration
+   - Individual trades + cached position summaries
+
+5. **Configuration-Driven**
+   ```toml
+   development = { broker = "mock", db = "sqlite" }
+   staging = { broker = "practice", db = "sqlite" }
+   production = { broker = "live", db = "postgresql" }
+   ```
+
+### Implementation Roadmap
+
+**Phase 1: Foundation** (Starting)
+- Order domain model with full complexity support
+- Mock broker for testing entire flow
+- Redis message queue integration
+- Basic execution engine
+
+**Phase 2: OANDA Integration**
+- REST API for order management
+- Streaming API for real-time updates
+- Practice account testing
+
+**Phase 3: Risk & Production**
+- Pre-trade risk checks
+- Circuit breakers
+- Position tracking & P&L
+
+**Phase 4: Advanced Features**
+- Complex order algorithms
+- Multi-broker support
+- Performance analytics
+
+### Technical Stack
+- **Message Queue**: Redis Streams
+- **Execution Engine**: Rust/Tokio
+- **First Broker**: OANDA (REST + Streaming APIs)
+- **Database**: SQLite → PostgreSQL
+- **Serialization**: JSON with Serde
+
+### Security & Performance
+- Latency target: < 200ms for OANDA execution
+- Message queue: > 1000 orders/second capacity
+- API keys in OS keychain (not env vars in production)
+- Complete audit trail with event sourcing
+
+### Next Steps
+1. Implement core order structures in Rust
+2. Set up Redis and mock broker
+3. Wire OrderPreview to test flow
+4. Begin OANDA integration
 
 ## Important Tauri-Specific Considerations
 

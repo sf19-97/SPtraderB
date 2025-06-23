@@ -16,6 +16,14 @@ use chrono::{Datelike, DateTime, Utc};
 use tokio::io::BufReader;
 
 mod workspace;
+mod orders;
+mod brokers;
+mod execution;
+
+use orders::{Order, OrderSide, OrderType};
+use brokers::{BrokerAPI, mock_broker::{MockBroker, MockBrokerConfig}};
+use rust_decimal::Decimal;
+use rand::Rng;
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -63,6 +71,9 @@ struct AppState {
     ingestion_processes: Arc<Mutex<HashMap<String, Child>>>,
     candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
     metadata_cache: Arc<RwLock<HashMap<String, CachedMetadata>>>,
+    // Order execution
+    mock_broker: Arc<RwLock<Option<brokers::mock_broker::MockBroker>>>,
+    redis_url: String,
 }
 
 #[derive(Clone)]
@@ -1320,6 +1331,124 @@ async fn export_test_data(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+// Order execution test command
+#[tauri::command]
+async fn test_order_execution(
+    order_type: String,
+    state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<serde_json::Value, String> {
+    emit_log(&window, "INFO", &format!("Testing {} order execution", order_type));
+    
+    // Initialize mock broker if not already done
+    {
+        let mut broker_guard = state.mock_broker.write().await;
+        if broker_guard.is_none() {
+            let mut mock_broker = MockBroker::new(MockBrokerConfig {
+                latency_ms: 50,
+                failure_rate: 0.05,
+                initial_balance: Decimal::from(100000),
+            });
+            
+            // Connect to mock broker
+            mock_broker.connect().await.map_err(|e| {
+                emit_log(&window, "ERROR", &format!("Failed to connect mock broker: {}", e));
+                e
+            })?;
+            
+            *broker_guard = Some(mock_broker);
+            emit_log(&window, "SUCCESS", "Mock broker connected");
+        }
+    }
+    
+    // Create a test order
+    let test_order = Order::new(
+        "EURUSD".to_string(),
+        OrderSide::Buy,
+        Decimal::from(1000),
+        OrderType::Market,
+        "order_preview_test".to_string(),
+    );
+    
+    // Submit order to mock broker
+    let broker_guard = state.mock_broker.read().await;
+    if let Some(broker) = broker_guard.as_ref() {
+        let start_time = std::time::Instant::now();
+        
+        match broker.submit_order(&test_order).await {
+            Ok(response) => {
+                let execution_time = start_time.elapsed().as_millis();
+                
+                emit_log(&window, "SUCCESS", &format!(
+                    "Order executed: {} - Status: {:?}", 
+                    response.broker_order_id, 
+                    response.status
+                ));
+                
+                // Calculate mock slippage
+                let slippage = match &response.status {
+                    orders::OrderStatus::Filled => {
+                        // Mock slippage calculation
+                        Decimal::from_f64_retain(rand::thread_rng().gen::<f64>() * 0.8 - 0.1).unwrap()
+                    }
+                    _ => Decimal::ZERO,
+                };
+                
+                Ok(serde_json::json!({
+                    "success": true,
+                    "order_id": response.broker_order_id,
+                    "status": format!("{:?}", response.status),
+                    "execution_time_ms": execution_time,
+                    "slippage": slippage.to_string(),
+                    "message": response.message
+                }))
+            }
+            Err(e) => {
+                emit_log(&window, "ERROR", &format!("Order execution failed: {}", e));
+                Ok(serde_json::json!({
+                    "success": false,
+                    "error": e,
+                    "execution_time_ms": start_time.elapsed().as_millis()
+                }))
+            }
+        }
+    } else {
+        Err("Mock broker not initialized".to_string())
+    }
+}
+
+// Get broker connection status
+#[tauri::command]
+async fn get_broker_connection_status(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let broker_guard = state.mock_broker.read().await;
+    
+    if let Some(broker) = broker_guard.as_ref() {
+        let connected = broker.is_connected();
+        let latency = if connected {
+            match broker.ping().await {
+                Ok(duration) => duration.as_millis() as u64,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+        
+        Ok(serde_json::json!({
+            "connected": connected,
+            "latency_ms": latency,
+            "broker_type": "mock"
+        }))
+    } else {
+        Ok(serde_json::json!({
+            "connected": false,
+            "latency_ms": 0,
+            "broker_type": "mock"
+        }))
+    }
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -1391,6 +1520,8 @@ async fn main() {
         ingestion_processes: Arc::new(Mutex::new(HashMap::new())),
         candle_cache: Arc::new(RwLock::new(HashMap::new())),
         metadata_cache: Arc::new(RwLock::new(HashMap::new())),
+        mock_broker: Arc::new(RwLock::new(None)),
+        redis_url: "redis://127.0.0.1:6379".to_string(),
     };
 
     Builder::default()
@@ -1417,6 +1548,8 @@ async fn main() {
             workspace::list_test_datasets,
             get_ingestion_status,
             get_available_data,
+            test_order_execution,
+            get_broker_connection_status,
             delete_data_range,
             refresh_candles,
             get_symbol_metadata,
