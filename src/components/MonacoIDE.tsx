@@ -24,6 +24,7 @@ import {
 import { useBuild } from '../contexts/BuildContext';
 import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
+import { OrderPreview } from './OrderPreview';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useChartStore } from '../stores/useChartStore';
@@ -125,12 +126,12 @@ export const MonacoIDE = () => {
     }));
   }, [selectedPair, selectedTimeframe]);
   
-  // Load data when live mode params change
+  // Load data when live mode params change (but not for order components)
   useEffect(() => {
-    if (dataSourceMode === 'live') {
+    if (dataSourceMode === 'live' && type !== 'order') {
       loadLiveData();
     }
-  }, [liveDataParams, dataSourceMode]);
+  }, [liveDataParams, dataSourceMode, type]);
   
   // Ref for terminal auto-scroll
   const terminalScrollRef = useRef<HTMLDivElement>(null);
@@ -1120,26 +1121,28 @@ execution:
       setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔄 Loading ${symbol} ${timeframe} data...`]);
       
       const data = await invoke<any>('fetch_candles', {
-        symbol,
-        timeframe,
-        from: fromTimestamp,
-        to: toTimestamp
+        request: {
+          symbol,
+          timeframe,
+          from: fromTimestamp,
+          to: toTimestamp
+        }
       });
       
-      if (data && data.candles && data.candles.length > 0) {
+      if (data && data.length > 0) {
         // Cache the data
-        chartStore.setCachedCandles(cacheKey, data.candles);
+        chartStore.setCachedCandles(cacheKey, data);
         
         // Convert to chart format
         const chartData = {
-          time: data.candles.map((c: any) => new Date(c.time * 1000).toISOString()),
-          open: data.candles.map((c: any) => c.open),
-          high: data.candles.map((c: any) => c.high),
-          low: data.candles.map((c: any) => c.low),
-          close: data.candles.map((c: any) => c.close)
+          time: data.map((c: any) => new Date(c.time * 1000).toISOString()),
+          open: data.map((c: any) => c.open),
+          high: data.map((c: any) => c.high),
+          low: data.map((c: any) => c.low),
+          close: data.map((c: any) => c.close)
         };
         setChartData(chartData);
-        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✓ Loaded ${data.candles.length} candles`]);
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✓ Loaded ${data.length} candles`]);
       } else {
         setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ No data available for selected range`]);
         setChartData(null);
@@ -1674,14 +1677,17 @@ execution:
         </Box>
       </Box>
       
-      {/* Live Preview */}
-      <Box style={{ 
-        width: '400px', 
-        background: '#252526', 
-        borderLeft: '1px solid #3e3e42',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
+      {/* Preview Panel - Conditional based on component type */}
+      {type === 'order' ? (
+        <OrderPreview />
+      ) : (
+        <Box style={{ 
+          width: '400px', 
+          background: '#252526', 
+          borderLeft: '1px solid #3e3e42',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
         <Box style={{ 
           padding: '12px', 
           borderBottom: '1px solid #3e3e42',
@@ -1974,6 +1980,7 @@ execution:
           </Text>
         </Box>
       </Box>
+      )}
       
       {/* Help Modal */}
       <IDEHelpModal 

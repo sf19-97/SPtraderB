@@ -8,6 +8,7 @@ import { BacktestPage } from './pages/BacktestPage';
 import { BuildProvider } from './contexts/BuildContext';
 import { DataIngestionPage } from './pages/DataIngestionPage';
 import { BuildPage } from './pages/BuildPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { MonacoIDE } from './components/MonacoIDE';
 import './App.css';
 
@@ -29,7 +30,7 @@ function App() {
             <Route path="data" element={<DataIngestionPage />} />
             <Route path="build" element={<BuildPage />} />
             <Route path="history" element={<div style={{ color: 'white', padding: '80px' }}>History Page (Coming Soon)</div>} />
-            <Route path="settings" element={<div style={{ color: 'white', padding: '80px' }}>Settings Page (Coming Soon)</div>} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
           
           {/* IDE route outside AppLayout for full screen */}

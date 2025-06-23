@@ -86,6 +86,7 @@ export const AppLayout = () => {
                 color="gray"
                 size="lg"
                 style={{ width: '100%' }}
+                onClick={() => navigate('/settings')}
               >
                 <IconSettings size={20} />
               </ActionIcon>

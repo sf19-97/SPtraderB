@@ -151,8 +151,51 @@ Added comprehensive logging to track timeframe changes from the ResolutionTracke
 - Data Manager query is slow (~13 seconds) due to multiple COUNT(*) operations on large tables
 - Suggested optimization: Use PostgreSQL statistics for approximate counts with exact date ranges
 
+## Live/Parquet Mode Toggle for BuildHub IDE
+**Date**: January 2025
+
+### Overview
+Implemented dual data source modes for component testing in the BuildHub IDE, eliminating the need for manual data export workflows.
+
+### Implementation Details
+1. **Live Mode**: 
+   - Pulls data directly from chart cache (useChartStore)
+   - No manual export step required
+   - Passes environment variables: DATA_SOURCE, LIVE_SYMBOL, LIVE_TIMEFRAME, LIVE_FROM, LIVE_TO, CACHE_KEY
+   - Falls back to backend fetch if cache miss
+
+2. **Parquet Mode**: 
+   - Traditional file-based testing with exported datasets
+   - Maintains backward compatibility
+   - Uses TEST_DATASET environment variable
+
+3. **Key Changes**:
+   - Added SegmentedControl toggle in preview panel
+   - Created `load_data_from_env()` in loader.py for unified data access
+   - Fixed `fetch_candles` API call to use `request` wrapper object
+   - Fixed TypeScript errors (removed await on cleanup, replaced navigator.platform)
+   - Components output CHART_DATA_START/END for visualization
+
+### Bug Fixes
+- Fixed fetch_candles expecting `request` parameter wrapper
+- Fixed response format (direct array, not object with candles property)
+- Fixed DatePickerInput type mismatches
+- Removed deprecated navigator.platform usage
+
+## BuildContext Consolidation
+**Date**: January 2025
+
+### Overview
+Migrated all trading-related state from TradingContext to BuildContext, simplifying state management into a single context provider.
+
+### Changes
+- Moved selectedPair, selectedTimeframe, chartType, chartVersion, indicators to BuildContext
+- Deleted TradingContext.tsx
+- Updated all components to use `useBuild()` instead of `useTrading()`
+- Maintained localStorage persistence and console logging
+
 ## Data Ingestion Pipeline Fix
-**Date**: June 15, 2025
+**Date**: January 2025
 
 ### Critical Bugs Fixed
 
@@ -226,7 +269,7 @@ A comprehensive metadata system where **code is the single source of truth** has
 
 **Status**: Architecture fully designed and ready for implementation when requested.
 
-## Build Center & IDE Implementation (June 2025)
+## Build Center & IDE Implementation (January 2025)
 
 ### Overview
 Implemented a complete component development environment with a Build Center for browsing trading components and a Monaco-based IDE for editing them.
@@ -397,7 +440,7 @@ const allowedPaths: Record<string, string[]> = {
   /data/                # Exported test datasets
 ```
 
-## Flat Disk Reading Solution for IDE Preview (June 2025)
+## Flat Disk Reading Solution for IDE Preview (January 2025)
 
 ### Overview
 Implemented a complete data export and loading system that allows components to test on real market data exported from the database. This enables rapid iteration without database dependencies.
@@ -663,6 +706,7 @@ Successfully implemented the MA Crossover signal as the first component using th
    - MACD crossover signal
 3. **Improve Error Messages**: Better feedback when components fail to load data
 4. **Document Component Development**: Create guide for building indicators/signals
+5. **Component-Specific Previews**: Implement adaptive preview panels based on component type (orders don't need candle charts)
 
 ### Near-term Goals
 1. **Orchestration Layer**: Implement Rust code to parse v2 metadata and run indicators automatically
