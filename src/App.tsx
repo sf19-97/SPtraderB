@@ -11,6 +11,7 @@ import { BuildPage } from './pages/BuildPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { MonacoIDE } from './components/MonacoIDE';
+import { OrchestratorTestPage } from './pages/OrchestratorTestPage';
 import './App.css';
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
             <Route path="build" element={<BuildPage />} />
             <Route path="history" element={<OrdersPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="orchestrator-test" element={<OrchestratorTestPage />} />
           </Route>
           
           {/* IDE route outside AppLayout for full screen */}

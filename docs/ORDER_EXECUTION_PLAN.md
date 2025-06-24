@@ -1,4 +1,4 @@
-# Order Execution System - Implementation Plan
+# [DEPRECATED] Order Execution System - Implementation Plan\n\n**Note: The Orders IDE and OrderPreview component have been removed. This plan is outdated. See ORCHESTRATOR_STATUS.md for current architecture.**\n\n# Order Execution System - Implementation Plan
 
 ## Executive Summary
 

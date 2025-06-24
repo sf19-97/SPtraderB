@@ -21,11 +21,13 @@ mod orders;
 mod brokers;
 mod execution;
 mod database;
+mod orchestrator;
 
 use execution::ExecutionEngine;
 
 // Orders module still exists but not used directly anymore
 use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
+use rust_decimal::Decimal;
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -1338,6 +1340,120 @@ async fn export_test_data(
 
 // test_order_execution command removed - orders handled by orchestrator
 
+// Test orchestrator strategy loading
+#[tauri::command]
+async fn test_orchestrator_load(
+    strategy_name: String,
+    window: tauri::Window,
+) -> Result<serde_json::Value, String> {
+    emit_log(&window, "INFO", &format!("Loading strategy: {}", strategy_name));
+    
+    // Get the workspace path
+    let current_dir = env::current_dir().map_err(|e| e.to_string())?;
+    let workspace_path = current_dir.parent()
+        .ok_or("Failed to get parent directory")?
+        .join("workspace")
+        .join("strategies")
+        .join(format!("{}.yaml", strategy_name));
+    
+    // Try to load the strategy
+    match orchestrator::Orchestrator::load_strategy(workspace_path.to_str().unwrap()) {
+        Ok(orchestrator) => {
+            let config = orchestrator.get_config();
+            let summary = orchestrator.get_summary();
+            
+            emit_log(&window, "SUCCESS", &format!("Loaded strategy: {}", config.name));
+            emit_log(&window, "INFO", &summary);
+            
+            Ok(serde_json::json!({
+                "success": true,
+                "strategy": {
+                    "name": config.name,
+                    "version": config.version,
+                    "author": config.author,
+                    "description": config.description,
+                    "indicators": config.dependencies.indicators,
+                    "signals": config.dependencies.signals,
+                    "parameter_count": config.parameters.len(),
+                    "risk_rules": config.risk.len()
+                },
+                "summary": summary
+            }))
+        }
+        Err(e) => {
+            emit_log(&window, "ERROR", &format!("Failed to load strategy: {}", e));
+            Err(format!("Failed to load strategy: {}", e))
+        }
+    }
+}
+
+// Run a simple backtest
+#[tauri::command]
+async fn run_orchestrator_backtest(
+    strategy_name: String,
+    dataset: Option<String>,
+    window: tauri::Window,
+) -> Result<serde_json::Value, String> {
+    emit_log(&window, "INFO", &format!("Starting backtest for strategy: {}", strategy_name));
+    
+    // Load the strategy
+    let current_dir = env::current_dir().map_err(|e| e.to_string())?;
+    let workspace_path = current_dir.parent()
+        .ok_or("Failed to get parent directory")?
+        .join("workspace")
+        .join("strategies")
+        .join(format!("{}.yaml", strategy_name));
+    
+    let orchestrator = orchestrator::Orchestrator::load_strategy(workspace_path.to_str().unwrap())
+        .map_err(|e| format!("Failed to load strategy: {}", e))?;
+    
+    // Create data source
+    let data_source = if let Some(filename) = dataset {
+        emit_log(&window, "INFO", &format!("Using parquet dataset: {}", filename));
+        orchestrator::DataSource::Parquet { filename }
+    } else {
+        // Default to EURUSD 1h for last 30 days
+        let to = chrono::Utc::now();
+        let from = to - chrono::Duration::days(30);
+        emit_log(&window, "INFO", &format!("Using live data: EURUSD 1h from {} to {}", from.format("%Y-%m-%d"), to.format("%Y-%m-%d")));
+        orchestrator::DataSource::Live {
+            symbol: "EURUSD".to_string(),
+            timeframe: "1h".to_string(),
+            from,
+            to,
+        }
+    };
+    
+    // Run the backtest
+    let initial_capital = rust_decimal::Decimal::from(10000);
+    emit_log(&window, "INFO", &format!("Running backtest with initial capital: ${}", initial_capital));
+    
+    match orchestrator.run_backtest(data_source, initial_capital).await {
+        Ok(result) => {
+            emit_log(&window, "SUCCESS", "Backtest completed successfully");
+            
+            Ok(serde_json::json!({
+                "success": true,
+                "result": {
+                    "total_trades": result.total_trades,
+                    "winning_trades": result.winning_trades,
+                    "losing_trades": result.losing_trades,
+                    "total_pnl": result.total_pnl.to_string(),
+                    "max_drawdown": result.max_drawdown.to_string(),
+                    "sharpe_ratio": result.sharpe_ratio,
+                    "start_capital": result.start_capital.to_string(),
+                    "end_capital": result.end_capital.to_string(),
+                    "signals_generated": result.signals_generated.len()
+                }
+            }))
+        }
+        Err(e) => {
+            emit_log(&window, "ERROR", &format!("Backtest failed: {}", e));
+            Err(format!("Backtest failed: {}", e))
+        }
+    }
+}
+
 // Get broker connection status
 #[tauri::command]
 async fn get_broker_connection_status(
@@ -1809,7 +1925,9 @@ async fn main() {
             delete_data_range,
             refresh_candles,
             get_symbol_metadata,
-            export_test_data
+            export_test_data,
+            test_orchestrator_load,
+            run_orchestrator_backtest
         ])
         .setup(|app| {
             // Get the main window handle

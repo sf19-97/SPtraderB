@@ -243,7 +243,6 @@ Migrated all trading-related state from TradingContext to BuildContext, simplify
 - Implement auto-generate candles after download completion (currently manual)
 - Add pause/resume functionality for downloads
 - Optimize Data Manager query performance
-- Wire up OrderPreview execution tests to actual broker APIs (currently using mock data)
 
 ## Component Metadata Architecture (Planned)
 
@@ -299,7 +298,6 @@ Enforced in `renderFileTree` function:
 const allowedPaths: Record<string, string[]> = {
   indicator: ['core/indicators'],
   signal: ['core/indicators', 'core/signals'],
-  order: ['core/orders', 'core/signals'],
   strategy: ['core', 'strategies']
 };
 ```
@@ -599,86 +597,37 @@ The Orders IDE has been completely removed. Orders are now just data structures 
 - Add API request signing
 - Rate limiting and circuit breakers
 
-## Order Execution System Architecture (January 2025)
+## Orchestrator Implementation (January 2025)
 
 ### Overview
-We've begun architecting an institutional-grade order execution system. The design prioritizes modularity, scalability, and reliability while starting with a simple mock implementation.
+The Orchestrator is a unified system that handles both backtesting and live trading. It replaces the Orders IDE with a simpler architecture where strategies emit signals and the orchestrator handles execution.
 
 ### Current Status
-- **Phase**: Architecture & Planning
-- **Documentation**: Complete implementation plan in `/docs/ORDER_EXECUTION_PLAN.md`
-- **UI Entry Point**: OrderPreview component (already implemented)
+- ✅ **Chunk #1**: Basic orchestrator structure that loads strategy YAML files
+- ✅ **Chunk #2**: Backtest foundation with data source configuration (Live/Parquet)
+- ⏳ **Chunk #3**: Component execution (next step)
+- ⏳ **Chunk #4**: Signal processing through strategy rules
+- ⏳ **Chunk #5**: Position sizing and risk management
+- ⏳ **Chunk #6**: Performance tracking
+- ⏳ **Chunk #7**: Live mode with Redis signals
+- ⏳ **Chunk #8**: Unified UI for all modes
 
-### Key Architectural Decisions
+### Architecture Flow
+```
+Indicators → Signals → Strategies → ORCHESTRATOR → Orders → Execution
+                                          ↓
+                                   [Backtest/Live Mode]
+```
 
-1. **Always Use Message Queue**
-   - Redis for all order flow, even in development
-   - Enables trivial scaling later
-   - Provides natural async processing
+### Key Design Decisions
+1. **Environment Variable Pattern**: Components use the same data loading whether backtesting or live
+2. **Stateless Components**: Indicators/signals just process data, orchestrator maintains state
+3. **Orders as Data**: Orders are simple Rust structs, not components
+4. **Unified Interface**: Same UI and logic for backtest/paper/live trading
 
-2. **Event Sourcing**
-   - Complete audit trail of every order state change
-   - Stored in `order_events` table
-   - Enables replay and debugging
+See `/docs/ORCHESTRATOR_STATUS.md` for detailed implementation status.
 
-3. **Broker Abstraction**
-   - All brokers implement common trait
-   - Mock → Practice → Live with config change
-   - OANDA as first real broker
 
-4. **Database Strategy**
-   - SQLite for development/staging
-   - Schema designed for PostgreSQL migration
-   - Individual trades + cached position summaries
-
-5. **Configuration-Driven**
-   ```toml
-   development = { broker = "mock", db = "sqlite" }
-   staging = { broker = "practice", db = "sqlite" }
-   production = { broker = "live", db = "postgresql" }
-   ```
-
-### Implementation Roadmap
-
-**Phase 1: Foundation** (Starting)
-- Order domain model with full complexity support
-- Mock broker for testing entire flow
-- Redis message queue integration
-- Basic execution engine
-
-**Phase 2: OANDA Integration**
-- REST API for order management
-- Streaming API for real-time updates
-- Practice account testing
-
-**Phase 3: Risk & Production**
-- Pre-trade risk checks
-- Circuit breakers
-- Position tracking & P&L
-
-**Phase 4: Advanced Features**
-- Complex order algorithms
-- Multi-broker support
-- Performance analytics
-
-### Technical Stack
-- **Message Queue**: Redis Streams
-- **Execution Engine**: Rust/Tokio
-- **First Broker**: OANDA (REST + Streaming APIs)
-- **Database**: SQLite → PostgreSQL
-- **Serialization**: JSON with Serde
-
-### Security & Performance
-- Latency target: < 200ms for OANDA execution
-- Message queue: > 1000 orders/second capacity
-- API keys in OS keychain (not env vars in production)
-- Complete audit trail with event sourcing
-
-### Next Steps
-1. Implement core order structures in Rust
-2. Set up Redis and mock broker
-3. Wire OrderPreview to test flow
-4. Begin OANDA integration
 
 ## Important Tauri-Specific Considerations
 
