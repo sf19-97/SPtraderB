@@ -7,6 +7,7 @@ use std::time::Duration;
 use crate::orders::{Order, OrderStatus};
 
 pub mod mock_broker;
+pub mod oanda;
 
 #[async_trait]
 pub trait BrokerAPI: Send + Sync {

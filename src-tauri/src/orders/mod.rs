@@ -98,6 +98,7 @@ impl Order {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add_event(&mut self, event_type: OrderEventType, details: HashMap<String, serde_json::Value>) {
         self.events.push(OrderEvent {
             id: Uuid::new_v4(),
@@ -213,6 +214,7 @@ pub enum OrderEventType {
 }
 
 // Validation
+#[allow(dead_code)]
 pub fn validate_order(order: &Order) -> Result<(), String> {
     // Basic validation
     if order.quantity <= Decimal::ZERO {

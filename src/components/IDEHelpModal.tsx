@@ -4,7 +4,7 @@ import { IconStack3, IconBolt, IconTrendingUp, IconBox, IconArrowDown, IconCheck
 interface IDEHelpModalProps {
   opened: boolean;
   onClose: () => void;
-  currentType: 'indicator' | 'signal' | 'order' | 'strategy';
+  currentType: 'indicator' | 'signal' | 'strategy';
 }
 
 export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps) => {
@@ -30,25 +30,15 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
           purpose: 'Define when to potentially enter or exit trades',
           example: 'RSI < 30 AND price above 200-day SMA = oversold in uptrend'
         };
-      case 'order':
-        return {
-          icon: <IconTrendingUp size={24} />,
-          color: 'green',
-          title: 'Order Execution',
-          description: 'Algorithms that determine HOW to execute trades.',
-          canSee: ['Signals'],
-          purpose: 'Smart order routing, position sizing, and execution tactics',
-          example: 'Iceberg order that only shows 10% of total size to the market'
-        };
       case 'strategy':
         return {
           icon: <IconBox size={24} />,
           color: 'purple',
           title: 'Strategies',
           description: 'Complete trading systems that orchestrate everything.',
-          canSee: ['Indicators', 'Signals', 'Orders'],
+          canSee: ['Indicators', 'Signals'],
           purpose: 'Combine all components with risk management rules',
-          example: 'Momentum strategy using RSI signals with iceberg orders'
+          example: 'Momentum strategy using RSI signals with risk management'
         };
     }
   };
@@ -112,10 +102,7 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
             <Stack gap="xs" align="center">
               <Badge size="lg" color="purple" variant="filled">Strategies</Badge>
               <IconArrowDown size={16} style={{ opacity: 0.5 }} />
-              <Group gap="xs">
-                <Badge size="lg" color="green" variant="filled">Orders</Badge>
-                <Badge size="lg" color="yellow" variant="filled">Signals</Badge>
-              </Group>
+              <Badge size="lg" color="yellow" variant="filled">Signals</Badge>
               <IconArrowDown size={16} style={{ opacity: 0.5 }} />
               <Badge size="lg" color="blue" variant="filled">Indicators</Badge>
             </Stack>
@@ -151,13 +138,6 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
                 <List.Item>Document the trading thesis</List.Item>
               </>
             )}
-            {currentType === 'order' && (
-              <>
-                <List.Item>Handle partial fills gracefully</List.Item>
-                <List.Item>Implement proper error handling</List.Item>
-                <List.Item>Consider market impact and slippage</List.Item>
-              </>
-            )}
             {currentType === 'strategy' && (
               <>
                 <List.Item>Always include risk management</List.Item>
@@ -176,7 +156,6 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
           <Text size="xs">
             {currentType === 'indicator' && "Test your indicators on historical data before using them in signals"}
             {currentType === 'signal' && "Use the backtester to verify signal accuracy before building strategies"}
-            {currentType === 'order' && "Start with simple execution, then add sophistication based on market conditions"}
             {currentType === 'strategy' && "Paper trade for at least 30 days before going live"}
           </Text>
         </Paper>

@@ -114,20 +114,7 @@ export const BuildPage = () => {
         complexity: 'medium',
         path: c.path
       })),
-    orders: realComponents
-      .filter(c => c.component_type === 'order')
-      .map((c, idx) => ({
-        id: idx + 1,
-        name: c.name,
-        description: c.has_metadata ? 'Order with metadata' : 'Order without metadata',
-        lastModified: 'Recently',
-        avgFillTime: '2.0s',
-        slippage: '0.03%',
-        status: c.status || 'prototype',
-        venues: ['Exchange'],
-        type: 'market',
-        path: c.path
-      })),
+    orders: [], // Orders removed - moving to orchestrator architecture
     strategies: realComponents
       .filter(c => c.component_type === 'strategy')
       .map((c, idx) => ({
@@ -140,8 +127,7 @@ export const BuildPage = () => {
         status: c.has_metadata ? 'paper_trading' : 'draft',
         components: {
           indicators: 2,
-          signals: 1,
-          orders: 1
+          signals: 1
         },
         path: c.path
       }))
@@ -364,7 +350,6 @@ export const BuildPage = () => {
             <Tabs.Tab value="all">All</Tabs.Tab>
             <Tabs.Tab value="indicators">📊 Indicators</Tabs.Tab>
             <Tabs.Tab value="signals">⚡ Signals</Tabs.Tab>
-            <Tabs.Tab value="orders">📈 Orders</Tabs.Tab>
             <Tabs.Tab value="strategies">🎯 Strategies</Tabs.Tab>
           </Tabs.List>
         </Tabs>
@@ -596,117 +581,6 @@ export const BuildPage = () => {
             </>
           )}
 
-          {/* Order Types */}
-          {(selectedCategory === 'all' || selectedCategory === 'orders') && (
-            <>
-              {selectedCategory === 'all' && (
-                <Grid.Col span={12}>
-                  <Group gap="xs" mb="md" mt="xl">
-                    <Text size="xl" fw={700}>📈 Order Execution</Text>
-                    <Text size="sm" c="dimmed">({filterComponents(components.orders).length})</Text>
-                  </Group>
-                </Grid.Col>
-              )}
-              {filterComponents(components.orders).map(order => (
-                <Grid.Col key={order.id} span={{ base: 12, sm: 6, lg: 4 }}>
-                  <Card
-                    p="lg"
-                    withBorder
-                    style={{ 
-                      background: 'rgba(31, 41, 55, 0.5)', 
-                      borderColor: hoveredItem === `order-${order.id}` ? 'rgba(34, 197, 94, 0.5)' : 'rgba(75, 85, 99, 0.3)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      transform: hoveredItem === `order-${order.id}` ? 'translateY(-2px)' : 'translateY(0)'
-                    }}
-                    onMouseEnter={() => setHoveredItem(`order-${order.id}`)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => launchIDE('order', order)}
-                  >
-                    <Group justify="space-between" align="flex-start" mb="md">
-                      <div>
-                        <Group gap="xs" mb={4}>
-                          <Text size="lg" fw={600}>{order.name}</Text>
-                          <Badge color={getStatusColor(order.status)} size="sm">
-                            {order.status}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" c="dimmed">{order.description}</Text>
-                      </div>
-                      <IconTrendingUp 
-                        size={20} 
-                        style={{ 
-                          color: hoveredItem === `order-${order.id}` ? '#22c55e' : '#6b7280',
-                          transition: 'color 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                    
-                    <Grid gutter="xs" mb="md">
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Avg Fill:</Text>
-                        <Text size="sm" c="green" fw={500}>{order.avgFillTime}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Slippage:</Text>
-                        <Text size="sm">{order.slippage}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Type:</Text>
-                        <Text size="sm">{order.type}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Venues:</Text>
-                        <Text size="xs">{order.venues.join(', ')}</Text>
-                      </Grid.Col>
-                    </Grid>
-                    
-                    <Group justify="space-between" align="center">
-                      <Group gap={4}>
-                        <IconClock size={12} style={{ color: '#6b7280' }} />
-                        <Text size="xs" c="dimmed">{order.lastModified}</Text>
-                      </Group>
-                      <IconArrowRight 
-                        size={16} 
-                        style={{ 
-                          color: hoveredItem === `order-${order.id}` ? '#22c55e' : '#6b7280',
-                          transform: hoveredItem === `order-${order.id}` ? 'translateX(4px)' : 'translateX(0)',
-                          transition: 'all 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                  </Card>
-                </Grid.Col>
-              ))}
-              <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}>
-                <Card
-                  p="lg"
-                  withBorder
-                  style={{ 
-                    background: 'rgba(31, 41, 55, 0.3)', 
-                    borderColor: 'rgba(75, 85, 99, 0.5)',
-                    borderStyle: 'dashed',
-                    cursor: 'pointer',
-                    minHeight: '200px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      borderColor: 'rgba(34, 197, 94, 0.5)',
-                      background: 'rgba(31, 41, 55, 0.4)'
-                    }
-                  }}
-                  onClick={() => launchIDE('order', null)}
-                >
-                  <Stack align="center" gap="sm">
-                    <IconPlus size={48} style={{ color: '#6b7280' }} />
-                    <Text c="dimmed">Create New Order Type</Text>
-                  </Stack>
-                </Card>
-              </Grid.Col>
-            </>
-          )}
 
           {/* Strategies */}
           {(selectedCategory === 'all' || selectedCategory === 'strategies') && (
@@ -766,7 +640,7 @@ export const BuildPage = () => {
                       <Grid.Col span={4}>
                         <Text size="xs" c="dimmed">Components:</Text>
                         <Text size="sm">
-                          {strategy.components.indicators}i {strategy.components.signals}s {strategy.components.orders}o
+                          {strategy.components.indicators}i {strategy.components.signals}s
                         </Text>
                       </Grid.Col>
                     </Grid>

@@ -287,66 +287,6 @@ class NewSignal(Signal):
     def metadata(self) -> Dict[str, Any]:
         return __metadata__
 "#,
-        "order" => r#"""
-Order: New Order Executor
-"""
-import pandas as pd
-from typing import Dict, Any, Optional
-from core.base.order import Order
-
-__metadata_version__ = 1
-__metadata__ = {
-    'name': 'new_order',
-    'category': 'market',
-    'version': '0.1.0',
-    'description': 'TODO: Add description',
-    'author': 'system',
-    'status': 'prototype',
-    'order_types': ['market', 'limit'],
-    'parameters': {
-        'size': {
-            'type': 'float',
-            'default': 1.0,
-            'min': 0.0,
-            'description': 'Order size'
-        }
-    },
-    'tags': ['TODO']
-}
-
-class NewOrder(Order):
-    """
-    TODO: Add order executor description
-    """
-    
-    def __init__(self, size: float = 1.0, **params):
-        self.size = size
-        self.params = params
-    
-    def execute(self, market_state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute order
-        
-        Args:
-            market_state: Current market data and conditions
-            
-        Returns:
-            Order details to be sent to exchange
-        """
-        # TODO: Implement execution logic
-        order = {
-            'type': 'market',
-            'side': 'buy',
-            'size': self.size,
-            'symbol': market_state.get('symbol', 'UNKNOWN'),
-            'timestamp': pd.Timestamp.now()
-        }
-        return order
-    
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        return __metadata__
-"#,
         "strategy" => r#"name: new_strategy
 type: strategy
 version: 0.1.0
@@ -360,8 +300,7 @@ dependencies:
     # - core.indicators.trend.ema
   signals:
     # - core.signals.entry.oversold
-  orders:
-    # - core.orders.execution_algos.market
+  # Orders removed - use orchestrator for execution
 
 # Strategy parameters
 parameters:
@@ -435,7 +374,6 @@ pub async fn get_component_categories(component_type: String) -> Result<Vec<Stri
     let component_path = match component_type.as_str() {
         "indicator" => workspace_path.join("core").join("indicators"),
         "signal" => workspace_path.join("core").join("signals"),
-        "order" => workspace_path.join("core").join("orders"),
         _ => return Err(format!("Invalid component type: {}", component_type)),
     };
     
@@ -504,11 +442,7 @@ pub async fn get_workspace_components() -> Result<Vec<ComponentInfo>, String> {
         scan_component_directory(&signals_path, "signal", &mut components)?;
     }
     
-    // Scan orders
-    let orders_path = workspace_path.join("core").join("orders");
-    if orders_path.exists() {
-        scan_component_directory(&orders_path, "order", &mut components)?;
-    }
+    // Orders removed - no longer scanning orders directory
     
     // Scan strategies
     let strategies_path = workspace_path.join("strategies");

@@ -14,16 +14,20 @@ use std::collections::HashMap;
 use serde_json;
 use chrono::{Datelike, DateTime, Utc};
 use tokio::io::BufReader;
+use redis::Client as RedisClient;
 
 mod workspace;
 mod orders;
 mod brokers;
 mod execution;
+mod database;
 
-use orders::{Order, OrderSide, OrderType};
-use brokers::{BrokerAPI, mock_broker::{MockBroker, MockBrokerConfig}};
+use execution::ExecutionEngine;
+
+use orders::{Order, OrderSide, OrderType, OrderEventType};
+use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
 use rust_decimal::Decimal;
-use rand::Rng;
+use redis::AsyncCommands;
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -72,8 +76,11 @@ struct AppState {
     candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
     metadata_cache: Arc<RwLock<HashMap<String, CachedMetadata>>>,
     // Order execution
-    mock_broker: Arc<RwLock<Option<brokers::mock_broker::MockBroker>>>,
+    broker: Arc<RwLock<Option<Box<dyn BrokerAPI>>>>,
     redis_url: String,
+    redis_client: Arc<Mutex<Option<RedisClient>>>,
+    execution_engine: Arc<Mutex<Option<ExecutionEngine>>>,
+    orders_db: Arc<Mutex<sqlx::SqlitePool>>,
 }
 
 #[derive(Clone)]
@@ -457,7 +464,7 @@ async fn start_data_ingestion(
                 let window_progress = window_clone.clone();
                 let window_progress_stderr = window_clone.clone();
                 let symbol_stdout = symbol.clone();
-                let symbol_stderr = symbol.clone();
+                let _symbol_stderr = symbol.clone();
                 let symbol_progress = symbol.clone();
                 
                 // Spawn task to read stdout
@@ -860,8 +867,8 @@ async fn delete_data_range(
 #[derive(Debug, Deserialize)]
 struct RefreshCandlesRequest {
     symbol: String,
-    start_date: String,
-    end_date: String,
+    _start_date: String,
+    _end_date: String,
 }
 
 #[tauri::command]
@@ -908,7 +915,7 @@ async fn refresh_candles(
         oldest_tick
     };
     
-    let mut refresh_end = newest_tick + chrono::Duration::hours(1); // Add buffer
+    let refresh_end = newest_tick + chrono::Duration::hours(1); // Add buffer
     
     // Ensure refresh_start is not after refresh_end (can happen if metadata is stale)
     let refresh_start = if refresh_start > refresh_end {
@@ -1331,89 +1338,52 @@ async fn export_test_data(
     Ok(file_path.to_string_lossy().to_string())
 }
 
-// Order execution test command
-#[tauri::command]
-async fn test_order_execution(
-    order_type: String,
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<serde_json::Value, String> {
-    emit_log(&window, "INFO", &format!("Testing {} order execution", order_type));
-    
-    // Initialize mock broker if not already done
-    {
-        let mut broker_guard = state.mock_broker.write().await;
-        if broker_guard.is_none() {
-            let mut mock_broker = MockBroker::new(MockBrokerConfig {
-                latency_ms: 50,
-                failure_rate: 0.05,
-                initial_balance: Decimal::from(100000),
-            });
+// test_order_execution command removed - orders handled by orchestrator
+            // Add to pending queue
+            let result: Result<String, _> = conn.xadd(
+                "orders:pending",
+                "*",
+                &[
+                    ("order", order_json.as_str()),
+                    ("order_id", &test_order.id.to_string()),
+                    ("timestamp", &chrono::Utc::now().to_rfc3339()),
+                ],
+            ).await;
             
-            // Connect to mock broker
-            mock_broker.connect().await.map_err(|e| {
-                emit_log(&window, "ERROR", &format!("Failed to connect mock broker: {}", e));
-                e
-            })?;
-            
-            *broker_guard = Some(mock_broker);
-            emit_log(&window, "SUCCESS", "Mock broker connected");
-        }
-    }
-    
-    // Create a test order
-    let test_order = Order::new(
-        "EURUSD".to_string(),
-        OrderSide::Buy,
-        Decimal::from(1000),
-        OrderType::Market,
-        "order_preview_test".to_string(),
-    );
-    
-    // Submit order to mock broker
-    let broker_guard = state.mock_broker.read().await;
-    if let Some(broker) = broker_guard.as_ref() {
-        let start_time = std::time::Instant::now();
-        
-        match broker.submit_order(&test_order).await {
-            Ok(response) => {
-                let execution_time = start_time.elapsed().as_millis();
-                
-                emit_log(&window, "SUCCESS", &format!(
-                    "Order executed: {} - Status: {:?}", 
-                    response.broker_order_id, 
-                    response.status
-                ));
-                
-                // Calculate mock slippage
-                let slippage = match &response.status {
-                    orders::OrderStatus::Filled => {
-                        // Mock slippage calculation
-                        Decimal::from_f64_retain(rand::thread_rng().gen::<f64>() * 0.8 - 0.1).unwrap()
-                    }
-                    _ => Decimal::ZERO,
-                };
-                
-                Ok(serde_json::json!({
-                    "success": true,
-                    "order_id": response.broker_order_id,
-                    "status": format!("{:?}", response.status),
-                    "execution_time_ms": execution_time,
-                    "slippage": slippage.to_string(),
-                    "message": response.message
-                }))
-            }
-            Err(e) => {
-                emit_log(&window, "ERROR", &format!("Order execution failed: {}", e));
-                Ok(serde_json::json!({
-                    "success": false,
-                    "error": e,
-                    "execution_time_ms": start_time.elapsed().as_millis()
-                }))
+            match result {
+                Ok(_) => {
+                    let execution_time = start_time.elapsed().as_millis();
+                    emit_log(&window, "SUCCESS", &format!(
+                        "Order {} submitted to queue", 
+                        test_order.id
+                    ));
+                    
+                    Ok(serde_json::json!({
+                        "success": true,
+                        "order_id": test_order.id.to_string(),
+                        "status": "Submitted",
+                        "execution_time_ms": execution_time,
+                        "message": "Order submitted to execution queue"
+                    }))
+                }
+                Err(e) => {
+                    emit_log(&window, "ERROR", &format!("Failed to submit order to Redis: {}", e));
+                    Ok(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to submit order: {}", e),
+                        "execution_time_ms": start_time.elapsed().as_millis()
+                    }))
+                }
             }
         }
-    } else {
-        Err("Mock broker not initialized".to_string())
+        Err(e) => {
+            emit_log(&window, "ERROR", &format!("Failed to get Redis connection: {}", e));
+            Ok(serde_json::json!({
+                "success": false,
+                "error": "Order system temporarily unavailable",
+                "execution_time_ms": start_time.elapsed().as_millis()
+            }))
+        }
     }
 }
 
@@ -1422,7 +1392,7 @@ async fn test_order_execution(
 async fn get_broker_connection_status(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let broker_guard = state.mock_broker.read().await;
+    let broker_guard = state.broker.read().await;
     
     if let Some(broker) = broker_guard.as_ref() {
         let connected = broker.is_connected();
@@ -1438,7 +1408,7 @@ async fn get_broker_connection_status(
         Ok(serde_json::json!({
             "connected": connected,
             "latency_ms": latency,
-            "broker_type": "mock"
+            "broker_type": "oanda"
         }))
     } else {
         Ok(serde_json::json!({
@@ -1446,6 +1416,315 @@ async fn get_broker_connection_status(
             "latency_ms": 0,
             "broker_type": "mock"
         }))
+    }
+}
+
+// Initialize broker with profile (called when dropdown selection changes)
+#[tauri::command]
+async fn init_broker_from_profile(
+    broker_type: String,
+    api_key: String,
+    account_id: String,
+    environment: Option<String>,
+    state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    emit_log(&window, "INFO", &format!("Initializing {} broker...", broker_type));
+    
+    match broker_type.as_str() {
+        "oanda" => {
+            // Determine API URL based on environment
+            let env = environment.unwrap_or("demo".to_string());
+            let api_url = match env.as_str() {
+                "live" => "https://api-fxtrade.oanda.com",
+                "demo" | "practice" => "https://api-fxpractice.oanda.com",
+                _ => "https://api-fxpractice.oanda.com" // Default to practice
+            };
+            
+            // Debug logging
+            emit_log(&window, "DEBUG", &format!("API URL: {}", api_url));
+            emit_log(&window, "DEBUG", &format!("Account ID: {}", account_id));
+            emit_log(&window, "DEBUG", &format!("API Key length: {}", api_key.len()));
+            emit_log(&window, "DEBUG", &format!("API Key preview: {}...{}", 
+                &api_key.chars().take(8).collect::<String>(),
+                &api_key.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>()
+            ));
+            
+            let config = OandaConfig {
+                api_url: api_url.to_string(),
+                account_id: account_id.clone(),
+                api_token: api_key.clone(),
+                practice: env != "live",
+            };
+            
+            let mut oanda_broker = OandaBroker::new(config.clone());
+            
+            // Test connection
+            match oanda_broker.connect().await {
+                Ok(_) => {
+                    emit_log(&window, "SUCCESS", "Connected to Oanda successfully");
+                    
+                    // Store the broker
+                    let mut broker_guard = state.broker.write().await;
+                    *broker_guard = Some(Box::new(oanda_broker));
+                    
+                    // Now initialize ExecutionEngine with the same broker config
+                    emit_log(&window, "INFO", "Initializing ExecutionEngine with Oanda broker...");
+                    
+                    // Create another instance for ExecutionEngine
+                    let mut engine_broker = OandaBroker::new(config.clone());
+                    match engine_broker.connect().await {
+                        Ok(_) => {
+                            match init_execution_engine_with_broker(Box::new(engine_broker), config, &state, &window).await {
+                                Ok(_) => {
+                                    emit_log(&window, "SUCCESS", "ExecutionEngine initialized with Oanda broker");
+                                }
+                                Err(e) => {
+                                    emit_log(&window, "ERROR", &format!("Failed to initialize ExecutionEngine: {}", e));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            emit_log(&window, "ERROR", &format!("Failed to connect engine broker: {}", e));
+                        }
+                    }
+                    
+                    Ok("Oanda broker initialized".to_string())
+                }
+                Err(e) => {
+                    emit_log(&window, "ERROR", &format!("Failed to connect to Oanda: {}", e));
+                    Err(format!("Failed to connect to Oanda: {}", e))
+                }
+            }
+        }
+        _ => Err(format!("Unsupported broker type: {}", broker_type))
+    }
+}
+
+// Get recent orders from database
+#[tauri::command]
+async fn get_recent_orders(
+    limit: i32,
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let db = state.orders_db.lock().await;
+    
+    match database::orders::get_recent_orders(&*db, limit).await {
+        Ok(orders) => {
+            let json_orders: Vec<serde_json::Value> = orders.into_iter()
+                .map(|o| serde_json::Value::Object(o.into_iter().collect()))
+                .collect();
+            Ok(json_orders)
+        }
+        Err(e) => Err(format!("Failed to get recent orders: {}", e))
+    }
+}
+
+// Helper function to initialize execution engine with a specific broker
+async fn init_execution_engine_with_broker(
+    broker: Box<dyn BrokerAPI>,
+    broker_config: OandaConfig, // Add config parameter
+    state: &State<'_, AppState>,
+    window: &tauri::Window,
+) -> Result<String, String> {
+    emit_log(window, "DEBUG", "Starting init_execution_engine_with_broker");
+    
+    // Check if already initialized
+    {
+        let engine_guard = state.execution_engine.lock().await;
+        if engine_guard.is_some() {
+            emit_log(window, "DEBUG", "ExecutionEngine already initialized");
+            return Ok("ExecutionEngine already initialized".to_string());
+        }
+    }
+    
+    emit_log(window, "DEBUG", "Checking Redis connection...");
+    
+    // Check if Redis is available
+    let redis_client = match RedisClient::open(state.redis_url.clone()) {
+        Ok(client) => {
+            emit_log(window, "DEBUG", "Redis client created");
+            client
+        }
+        Err(e) => {
+            emit_log(window, "ERROR", &format!("Failed to create Redis client: {}", e));
+            return Err(format!("Failed to connect to Redis: {}", e));
+        }
+    };
+    
+    // Test Redis connection
+    {
+        emit_log(window, "DEBUG", "Testing Redis connection...");
+        match redis_client.get_async_connection().await {
+            Ok(_conn) => {
+                emit_log(window, "DEBUG", "Redis connection test successful");
+            }
+            Err(e) => {
+                emit_log(window, "ERROR", &format!("Redis connection test failed: {}", e));
+                return Err(format!("Redis not available: {}", e));
+            }
+        }
+    }
+    
+    emit_log(window, "DEBUG", "Creating ExecutionEngine with provided broker...");
+    
+    // Create ExecutionEngine with the provided broker
+    let engine = ExecutionEngine::new(&state.redis_url, broker, state.orders_db.clone())
+        .map_err(|e| {
+            emit_log(window, "ERROR", &format!("Failed to create ExecutionEngine: {}", e));
+            e
+        })?;
+    
+    emit_log(window, "DEBUG", "Creating Redis client...");
+    
+    // Create Redis client
+    let redis_client = RedisClient::open(state.redis_url.clone())
+        .map_err(|e| {
+            emit_log(window, "ERROR", &format!("Failed to create Redis client: {}", e));
+            format!("Failed to create Redis client: {}", e)
+        })?;
+    
+    emit_log(window, "DEBUG", "Storing Redis client...");
+    
+    // Store Redis client
+    {
+        let mut client_guard = state.redis_client.lock().await;
+        *client_guard = Some(redis_client);
+        emit_log(window, "DEBUG", "Redis client stored");
+    }
+    
+    emit_log(window, "DEBUG", "Starting ExecutionEngine in background task...");
+    
+    // Don't store the engine in AppState - it runs independently in the background
+    // Instead, mark that it's running
+    {
+        let mut engine_guard = state.execution_engine.lock().await;
+        *engine_guard = Some(engine); // Store temporarily to mark as initialized
+    }
+    
+    // Start the execution engine in a background task with its own broker
+    let redis_url_clone = state.redis_url.clone();
+    let orders_db_clone = state.orders_db.clone();
+    let engine_window = window.clone();
+    let broker_config_clone = broker_config.clone();
+    
+    tokio::spawn(async move {
+        emit_log(&engine_window, "INFO", "ExecutionEngine background task started");
+        
+        // Create a new broker instance for the ExecutionEngine
+        let mut engine_broker = OandaBroker::new(broker_config_clone);
+        match engine_broker.connect().await {
+            Ok(_) => {
+                emit_log(&engine_window, "INFO", "ExecutionEngine broker connected");
+                
+                // Create a new ExecutionEngine with its own broker
+                match ExecutionEngine::new(&redis_url_clone, Box::new(engine_broker), orders_db_clone) {
+                    Ok(engine) => {
+                        emit_log(&engine_window, "INFO", "Starting ExecutionEngine main loop...");
+                        // This runs forever
+                        if let Err(e) = engine.run().await {
+                            emit_log(&engine_window, "ERROR", &format!("ExecutionEngine error: {}", e));
+                        }
+                    }
+                    Err(e) => {
+                        emit_log(&engine_window, "ERROR", &format!("Failed to create ExecutionEngine: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                emit_log(&engine_window, "ERROR", &format!("Failed to connect engine broker: {}", e));
+            }
+        }
+        
+        emit_log(&engine_window, "WARN", "ExecutionEngine background task ended");
+    });
+    
+    emit_log(window, "DEBUG", "init_execution_engine_with_broker completed successfully");
+    Ok("ExecutionEngine initialized".to_string())
+}
+
+// Internal function to initialize execution engine (legacy - requires broker profile)
+async fn init_execution_engine_internal(
+    _state: &State<'_, AppState>,
+    window: &tauri::Window,
+) -> Result<String, String> {
+    emit_log(window, "ERROR", "Cannot initialize ExecutionEngine without broker profile");
+    Err("Please select a broker profile first".to_string())
+}
+
+// Initialize execution engine
+#[tauri::command]
+async fn init_execution_engine(
+    state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    emit_log(&window, "INFO", "Initializing execution engine...");
+    
+    // Check if Redis is available
+    let _redis_client = match RedisClient::open(state.redis_url.clone()) {
+        Ok(client) => {
+            emit_log(&window, "SUCCESS", "Connected to Redis");
+            client
+        }
+        Err(e) => {
+            emit_log(&window, "ERROR", &format!("Failed to connect to Redis: {}", e));
+            return Err(format!("Failed to connect to Redis: {}. Make sure Redis is running on port 6379", e));
+        }
+    };
+    
+    // Check if we have a real broker connected
+    {
+        let broker_guard = state.broker.read().await;
+        if broker_guard.is_none() {
+            emit_log(&window, "ERROR", "No broker connected. Please select a broker profile first.");
+            return Err("No broker connected. Please select a broker profile.".to_string());
+        }
+    }
+    
+    emit_log(&window, "ERROR", "ExecutionEngine requires dedicated broker instance");
+    Err("Please use the broker profile dropdown to initialize ExecutionEngine".to_string())
+}
+
+// Cancel an order
+#[tauri::command]
+async fn cancel_order(
+    order_id: String,
+    state: State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<serde_json::Value, String> {
+    emit_log(&window, "INFO", &format!("Cancelling order: {}", order_id));
+    
+    // For now, we'll just mark it as cancelled in the database
+    // In a real implementation, we'd also send cancel to the broker
+    let broker_guard = state.broker.read().await;
+    if let Some(broker) = broker_guard.as_ref() {
+        match broker.cancel_order(&order_id).await {
+            Ok(_response) => {
+                emit_log(&window, "SUCCESS", &format!("Order {} cancelled", order_id));
+                
+                // TODO: Update order status in database
+                
+                // Emit order update event
+                window.emit("order-update", serde_json::json!({
+                    "order_id": order_id.clone(),
+                    "status": "Cancelled",
+                    "action": "cancelled"
+                })).unwrap();
+                
+                Ok(serde_json::json!({
+                    "success": true,
+                    "order_id": order_id,
+                    "status": "Cancelled"
+                }))
+            }
+            Err(e) => {
+                emit_log(&window, "ERROR", &format!("Failed to cancel order: {}", e));
+                Err(format!("Failed to cancel order: {}", e))
+            }
+        }
+    } else {
+        emit_log(&window, "ERROR", "ExecutionEngine not initialized");
+        Err("ExecutionEngine not initialized. Is Redis running?".to_string())
     }
 }
 
@@ -1515,13 +1794,36 @@ async fn main() {
         }
     }
 
+    // Initialize SQLite for orders
+    let orders_db_path = env::current_dir()
+        .unwrap()
+        .join("orders.db");
+    println!("Orders database path: {}", orders_db_path.display());
+    let orders_db_url = format!("sqlite:{}?mode=rwc", orders_db_path.display());
+    
+    let orders_pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&orders_db_url)
+        .await
+        .expect("Failed to connect to orders database");
+    
+    // Initialize orders database schema
+    database::orders::init_orders_db(&orders_pool)
+        .await
+        .expect("Failed to initialize orders database");
+    
+    let redis_url = "redis://127.0.0.1:6379";
+    
     let app_state = AppState { 
         db_pool: Arc::new(Mutex::new(pool)),
         ingestion_processes: Arc::new(Mutex::new(HashMap::new())),
         candle_cache: Arc::new(RwLock::new(HashMap::new())),
         metadata_cache: Arc::new(RwLock::new(HashMap::new())),
-        mock_broker: Arc::new(RwLock::new(None)),
-        redis_url: "redis://127.0.0.1:6379".to_string(),
+        broker: Arc::new(RwLock::new(None)),
+        redis_url: redis_url.to_string(),
+        redis_client: Arc::new(Mutex::new(None)),
+        execution_engine: Arc::new(Mutex::new(None)),
+        orders_db: Arc::new(Mutex::new(orders_pool)),
     };
 
     Builder::default()
@@ -1548,8 +1850,11 @@ async fn main() {
             workspace::list_test_datasets,
             get_ingestion_status,
             get_available_data,
-            test_order_execution,
             get_broker_connection_status,
+            get_recent_orders,
+            cancel_order,
+            init_execution_engine,
+            init_broker_from_profile,
             delete_data_range,
             refresh_candles,
             get_symbol_metadata,
@@ -1563,6 +1868,26 @@ async fn main() {
             emit_log(&window, "INFO", &format!("Connecting to database: {}", "postgresql://postgres@localhost:5432/forex_trading"));
             emit_log(&window, "SUCCESS", "Database connected successfully");
             emit_log(&window, "INFO", "Connection pool established (10 connections)");
+            
+            // Check Redis availability on startup
+            let window_clone = window.clone();
+            let app_handle = app.handle().clone();
+            tokio::spawn(async move {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    // Wait a moment for everything to be ready
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    
+                    // Try to connect to Redis
+                    match RedisClient::open(state.redis_url.clone()) {
+                        Ok(_) => {
+                            emit_log(&window_clone, "INFO", "Redis is available - order execution ready");
+                        }
+                        Err(_) => {
+                            emit_log(&window_clone, "WARN", "Redis not available - order execution disabled");
+                        }
+                    }
+                }
+            });
             
             // Show window fullscreen
             window.show()?;

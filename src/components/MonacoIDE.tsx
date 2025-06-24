@@ -24,7 +24,6 @@ import {
 import { useBuild } from '../contexts/BuildContext';
 import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
-import { OrderPreview } from './OrderPreview';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useChartStore } from '../stores/useChartStore';
@@ -126,9 +125,9 @@ export const MonacoIDE = () => {
     }));
   }, [selectedPair, selectedTimeframe]);
   
-  // Load data when live mode params change (but not for order components)
+  // Load data when live mode params change
   useEffect(() => {
-    if (dataSourceMode === 'live' && type !== 'order') {
+    if (dataSourceMode === 'live') {
       loadLiveData();
     }
   }, [liveDataParams, dataSourceMode, type]);
@@ -262,42 +261,6 @@ class ${fileName === 'new' ? 'YourSignalName' : fileName.charAt(0).toUpperCase()
             (data['close'] > indicators['ema20'])
         )
         return buy_signal`,
-    order: `"""
-Order Execution: ${fileName === 'new' ? 'YourOrderType' : fileName}
-Created: ${new Date().toISOString().split('T')[0]}
-"""
-
-from typing import Dict, Optional
-import numpy as np
-
-class ${fileName === 'new' ? 'YourOrderType' : fileName.charAt(0).toUpperCase() + fileName.slice(1)}:
-    """
-    Order execution algorithm
-    """
-    
-    def __init__(self, size: float, params: Optional[Dict] = None):
-        self.size = size
-        self.params = params or {}
-        
-    def execute(self, market_state: Dict) -> Dict:
-        """
-        Execute order based on market conditions
-        
-        Args:
-            market_state: Current market data and conditions
-            
-        Returns:
-            Order details to be sent to exchange
-        """
-        # Execution logic
-        order = {
-            'type': 'limit',
-            'side': 'buy',
-            'size': self.size,
-            'price': market_state['bid'] + 0.0001,
-            'time_in_force': 'IOC'
-        }
-        return order`,
     strategy: `name: "${fileName === 'new' ? 'YourStrategy' : fileName}"
 author: "anon"
 version: "1.0.0"
@@ -310,8 +273,7 @@ dependencies:
     - core.indicators.trend.ema
   signals:
     - core.signals.momentum_signals.MomentumBreakout
-  orders:
-    - core.orders.execution_algos.sniper
+  # Orders removed - use orchestrator
 
 # Strategy parameters
 parameters:
@@ -327,7 +289,7 @@ risk:
   
 # Execution settings  
 execution:
-  order_type: "sniper"
+  execution_mode: "immediate"
   slippage_tolerance: 0.0005`
   };
   
@@ -347,10 +309,9 @@ execution:
     const defaultCategoriesMap: Record<string, string[]> = {
       indicator: ['momentum', 'trend', 'volatility', 'volume', 'microstructure'],
       signal: [], // Signals can be organized however you want
-      order: ['execution_algos', 'risk_filters', 'smart_routing']
     };
     
-    if (type === 'indicator' || type === 'signal' || type === 'order') {
+    if (type === 'indicator' || type === 'signal') {
       try {
         const categories = await invoke<string[]>('get_component_categories', { componentType: type });
         setAvailableCategories(categories);
@@ -592,9 +553,6 @@ execution:
       } else {
         directory = `core/signals`; // Default to flat structure
       }
-    } else if (type === 'order') {
-      const categoryToUse = isCustomCategory ? customCategoryName : newFileCategory;
-      directory = `core/orders/${categoryToUse}`;
     } else if (type === 'strategy') {
       directory = `strategies`;
       extension = '.yaml';
@@ -1159,7 +1117,6 @@ execution:
     const allowedPaths: Record<string, string[]> = {
       indicator: ['core/indicators'],
       signal: ['core/indicators', 'core/signals'],
-      order: ['core/orders', 'core/signals'],
       strategy: ['core', 'strategies']
     };
     
@@ -1179,7 +1136,6 @@ execution:
         const defaultCategories: Record<string, string[]> = {
           indicators: ['momentum', 'trend', 'volatility', 'volume', 'microstructure'],
           signals: [], // No default categories - signals are currently flat
-          orders: ['execution_algos', 'risk_filters', 'smart_routing'] // Match existing folders
         };
         
         // Check if this is a custom category folder
@@ -1190,8 +1146,6 @@ execution:
         } else if (node.path.startsWith('core/signals/') && depth === 2) {
           // All folders under signals are custom (no defaults)
           isCustomCategory = true;
-        } else if (node.path.startsWith('core/orders/') && depth === 2) {
-          isCustomCategory = !defaultCategories.orders.includes(node.name);
         }
         
         // Check if this folder can accept files
@@ -1677,10 +1631,8 @@ execution:
         </Box>
       </Box>
       
-      {/* Preview Panel - Conditional based on component type */}
-      {type === 'order' ? (
-        <OrderPreview />
-      ) : (
+      {/* Preview Panel */}
+      {(
         <Box style={{ 
           width: '400px', 
           background: '#252526', 
@@ -1986,7 +1938,7 @@ execution:
       <IDEHelpModal 
         opened={helpOpened}
         onClose={() => setHelpOpened(false)}
-        currentType={type as 'indicator' | 'signal' | 'order' | 'strategy'}
+        currentType={type as 'indicator' | 'signal' | 'strategy'}
       />
 
       {/* Create File Modal */}

@@ -9,6 +9,7 @@ import { BuildProvider } from './contexts/BuildContext';
 import { DataIngestionPage } from './pages/DataIngestionPage';
 import { BuildPage } from './pages/BuildPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { OrdersPage } from './pages/OrdersPage';
 import { MonacoIDE } from './components/MonacoIDE';
 import './App.css';
 
@@ -29,7 +30,7 @@ function App() {
             <Route path="backtest" element={<BacktestPage />} />
             <Route path="data" element={<DataIngestionPage />} />
             <Route path="build" element={<BuildPage />} />
-            <Route path="history" element={<div style={{ color: 'white', padding: '80px' }}>History Page (Coming Soon)</div>} />
+            <Route path="history" element={<OrdersPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           
