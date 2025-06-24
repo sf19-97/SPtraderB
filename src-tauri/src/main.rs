@@ -24,10 +24,8 @@ mod database;
 
 use execution::ExecutionEngine;
 
-use orders::{Order, OrderSide, OrderType, OrderEventType};
+// Orders module still exists but not used directly anymore
 use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
-use rust_decimal::Decimal;
-use redis::AsyncCommands;
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -1339,53 +1337,6 @@ async fn export_test_data(
 }
 
 // test_order_execution command removed - orders handled by orchestrator
-            // Add to pending queue
-            let result: Result<String, _> = conn.xadd(
-                "orders:pending",
-                "*",
-                &[
-                    ("order", order_json.as_str()),
-                    ("order_id", &test_order.id.to_string()),
-                    ("timestamp", &chrono::Utc::now().to_rfc3339()),
-                ],
-            ).await;
-            
-            match result {
-                Ok(_) => {
-                    let execution_time = start_time.elapsed().as_millis();
-                    emit_log(&window, "SUCCESS", &format!(
-                        "Order {} submitted to queue", 
-                        test_order.id
-                    ));
-                    
-                    Ok(serde_json::json!({
-                        "success": true,
-                        "order_id": test_order.id.to_string(),
-                        "status": "Submitted",
-                        "execution_time_ms": execution_time,
-                        "message": "Order submitted to execution queue"
-                    }))
-                }
-                Err(e) => {
-                    emit_log(&window, "ERROR", &format!("Failed to submit order to Redis: {}", e));
-                    Ok(serde_json::json!({
-                        "success": false,
-                        "error": format!("Failed to submit order: {}", e),
-                        "execution_time_ms": start_time.elapsed().as_millis()
-                    }))
-                }
-            }
-        }
-        Err(e) => {
-            emit_log(&window, "ERROR", &format!("Failed to get Redis connection: {}", e));
-            Ok(serde_json::json!({
-                "success": false,
-                "error": "Order system temporarily unavailable",
-                "execution_time_ms": start_time.elapsed().as_millis()
-            }))
-        }
-    }
-}
 
 // Get broker connection status
 #[tauri::command]
