@@ -10,8 +10,6 @@ dependencies:
     - core.indicators.trend.sma  # Will be instantiated with different params
   signals:
     - core.signals.ma_crossover
-  orders:
-    - core.orders.market_order
 
 # Strategy parameters
 parameters:
@@ -36,16 +34,16 @@ signal_config:
       - name: ma_fast
         type: sma
         params: 
-          period: parameters.ma_fast_period
+          period: 10  # Use direct value instead of parameter reference
           source: close
       - name: ma_slow
         type: sma  
         params:
-          period: parameters.ma_slow_period
+          period: 30  # Use direct value instead of parameter reference
           source: close
     # Override signal parameters
     parameters:
-      min_separation: parameters.min_separation
+      min_separation: 0.0001  # Use direct value
       confirmation_bars: 1
 
 # Risk management rules
@@ -78,7 +76,7 @@ entry:
         crossover_type: golden_cross
         signal_strength: "> 0.1"  # Only strong crossovers
   action: buy
-  size: parameters.position_size
+  size: 0.02  # 2% of capital per trade
 
 # Exit conditions
 exit:
@@ -93,11 +91,11 @@ exit:
   # Risk-based exits
   stop_loss:
     type: percentage
-    value: parameters.stop_loss
+    value: 0.02  # 2% stop loss
     
   take_profit:
     type: percentage
-    value: parameters.take_profit
+    value: 0.04  # 4% take profit
     
   # Time-based exit
   max_holding_period: 20  # Exit after 20 days if no other exit triggered

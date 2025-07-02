@@ -21,7 +21,7 @@ import {
   IconDownload,
   IconArrowRight
 } from '@tabler/icons-react';
-import { useBuild } from '../contexts/BuildContext';
+import { useBuildStore } from '../stores/useBuildStore';
 import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { invoke } from '@tauri-apps/api/core';
@@ -39,7 +39,7 @@ interface FileNode {
 export const MonacoIDE = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { setLastOpenedComponent, addToRecentComponents } = useBuild();
+  const { addRecentComponent } = useBuildStore();
   
   const type = searchParams.get('type') || 'indicator';
   const fileName = searchParams.get('file') || 'new';
@@ -118,17 +118,29 @@ export const MonacoIDE = () => {
   
   // Initialize live data params with current chart selection
   useEffect(() => {
+    console.log('[MonacoIDE] Trading store changed - updating live params:', {
+      selectedPair,
+      selectedTimeframe,
+      currentLiveParams: liveDataParams
+    });
+    
     setLiveDataParams(prev => ({
       ...prev,
       symbol: selectedPair,
       timeframe: selectedTimeframe
     }));
+    
+    // Clear existing chart data when parameters change to avoid showing stale data
+    setChartData(null);
   }, [selectedPair, selectedTimeframe]);
   
   // Load data when live mode params change
   useEffect(() => {
     if (dataSourceMode === 'live') {
       loadLiveData();
+    } else {
+      // Clear chart data when switching to parquet mode
+      setChartData(null);
     }
   }, [liveDataParams, dataSourceMode, type]);
   
@@ -786,6 +798,33 @@ execution:
         );
         envVars['CACHE_KEY'] = cacheKey;
         
+        // Get cached candles and write to temp file
+        const cachedCandles = chartStore.getCachedCandles(cacheKey);
+        if (cachedCandles && cachedCandles.length > 0) {
+          setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📊 Writing ${cachedCandles.length} cached candles to temp file...`]);
+          
+          try {
+            // Prepare candle data for Rust
+            const candleData = {
+              time: cachedCandles.map(c => c.time),
+              open: cachedCandles.map(c => c.open),
+              high: cachedCandles.map(c => c.high),
+              low: cachedCandles.map(c => c.low),
+              close: cachedCandles.map(c => c.close)
+            };
+            
+            // Write to temp file
+            const tempFilePath = await invoke<string>('write_temp_candles', { candles: candleData });
+            envVars['CANDLE_DATA_FILE'] = tempFilePath;
+            setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Cached data written to: ${tempFilePath}`]);
+          } catch (error) {
+            setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Failed to write cached data: ${error}`]);
+            // Continue without the data file - Python will error appropriately
+          }
+        } else {
+          setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ No cached data found - component will need to fetch from database`]);
+        }
+        
         // Debug output
         console.log('[Run] Live mode environment variables:', envVars);
         setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📊 Running in Live mode: ${liveDataParams.symbol} ${liveDataParams.timeframe}`]);
@@ -1059,10 +1098,26 @@ execution:
       const toTimestamp = Math.floor(to.getTime() / 1000);
       const cacheKey = chartStore.getCacheKey(symbol, timeframe, fromTimestamp, toTimestamp);
       
+      console.log('[MonacoIDE] Loading live data with params:', {
+        symbol,
+        timeframe,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        cacheKey,
+        fromTimestamp,
+        toTimestamp
+      });
+      
       // Check cache first
       const cachedData = chartStore.getCachedCandles(cacheKey);
       if (cachedData) {
-        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Using cached data for ${symbol} ${timeframe}`]);
+        setTerminalOutput(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Using cached data for ${symbol} ${timeframe} (${cachedData.length} candles)`]);
+        console.log('[MonacoIDE] Found cached data:', {
+          cacheKey,
+          candleCount: cachedData.length,
+          firstCandle: cachedData[0],
+          lastCandle: cachedData[cachedData.length - 1]
+        });
         // Convert to chart format
         const chartData = {
           time: cachedData.map(c => new Date(c.time * 1000).toISOString()),
@@ -1237,13 +1292,11 @@ execution:
               }
               
               // Update context when file is selected
-              const componentInfo = {
-                type,
+              addRecentComponent({
+                type: type as 'indicator' | 'signal' | 'strategy',
                 name: node.name.replace(/\.(py|yaml|json)$/, ''),
                 path: node.path
-              };
-              setLastOpenedComponent(componentInfo);
-              addToRecentComponents(componentInfo);
+              });
             }}
             onContextMenu={(e) => {
               e.preventDefault();

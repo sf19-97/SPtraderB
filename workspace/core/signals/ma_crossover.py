@@ -13,6 +13,7 @@ __metadata__ = {
     'version': '1.0.0',
     'author': 'system',
     'status': 'ready',
+    'lookback_required': 100,  # Need 2x the slow MA period for proper warmup
     'required_indicators': [
         {
             'name': 'ma_fast',
@@ -87,7 +88,7 @@ class MAcrossover(Signal):
         
         # Calculate crossover points
         fast_above = fast > slow
-        fast_above_prev = fast_above.shift(1).fillna(False)
+        fast_above_prev = fast_above.shift(1).fillna(False).astype(bool)
         
         # Detect crossovers
         golden_cross = fast_above & ~fast_above_prev  # Fast crosses above slow
@@ -110,8 +111,8 @@ class MAcrossover(Signal):
             
             for i in range(1, self.confirmation_bars):
                 # Check if fast is still above/below slow after i bars
-                golden_cross_confirmed = golden_cross_confirmed & fast_above.shift(-i).fillna(False)
-                death_cross_confirmed = death_cross_confirmed & ~fast_above.shift(-i).fillna(True)
+                golden_cross_confirmed = golden_cross_confirmed & fast_above.shift(-i).fillna(False).astype(bool)
+                death_cross_confirmed = death_cross_confirmed & ~fast_above.shift(-i).fillna(True).astype(bool)
             
             golden_cross = golden_cross_confirmed
             death_cross = death_cross_confirmed
@@ -193,19 +194,21 @@ if __name__ == "__main__":
     # Find crossover points
     crossovers = results[results['signal']]
     
-    print(f"Signal triggered on {len(crossovers)} days")
-    print("\nCrossover events:")
-    for idx, row in crossovers.iterrows():
-        date = test_data.loc[idx, 'date']
-        cross_type = row['crossover_type']
-        strength = row['signal_strength']
-        print(f"{date.strftime('%Y-%m-%d')}: {cross_type} (strength: {strength:.3f})")
-    
-    # Print metadata
-    print(f"\nMetadata version: {__metadata_version__}")
-    print(f"Required indicators: {len(__metadata__['required_indicators'])}")
-    for req in __metadata__['required_indicators']:
-        print(f"  - {req['name']}: {req['type']} with params {req['params']}")
+    # Only print debug output if DEBUG_SIGNALS is set
+    if os.environ.get('DEBUG_SIGNALS') == 'true':
+        print(f"Signal triggered on {len(crossovers)} days")
+        print("\nCrossover events:")
+        for idx, row in crossovers.iterrows():
+            date = test_data.loc[idx, 'date']
+            cross_type = row['crossover_type']
+            strength = row['signal_strength']
+            print(f"{date.strftime('%Y-%m-%d')}: {cross_type} (strength: {strength:.3f})")
+        
+        # Print metadata
+        print(f"\nMetadata version: {__metadata_version__}")
+        print(f"Required indicators: {len(__metadata__['required_indicators'])}")
+        for req in __metadata__['required_indicators']:
+            print(f"  - {req['name']}: {req['type']} with params {req['params']}")
     
     # Output visualization data
     import json
@@ -213,18 +216,24 @@ if __name__ == "__main__":
     # Prepare data for visualization
     if has_ohlc:
         # Use real OHLC data
+        # Convert timestamps to strings
+        if 'date' in test_data.columns:
+            time_series = test_data['date'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist()
+        else:
+            time_series = test_data.index.strftime('%Y-%m-%d %H:%M:%S').tolist()
+            
         viz_data = {
-            "time": test_data['date'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist() if 'date' in test_data else test_data.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
+            "time": time_series,
             "open": test_data['open'].tolist(),
             "high": test_data['high'].tolist(),
             "low": test_data['low'].tolist(),
             "close": test_data['close'].tolist(),
             "indicators": {
-                "ma_fast": [v if not pd.isna(v) else None for v in ma_fast],
-                "ma_slow": [v if not pd.isna(v) else None for v in ma_slow]
+                "ma_fast": [float(v) if not pd.isna(v) else None for v in ma_fast],
+                "ma_slow": [float(v) if not pd.isna(v) else None for v in ma_slow]
             },
             "signals": {
-                "crossovers": crossovers.index.tolist(),
+                "crossovers": [int(idx) for idx in crossovers.index.tolist()],
                 "types": results.loc[crossovers.index, 'crossover_type'].tolist() if len(crossovers) > 0 else []
             }
         }
@@ -253,3 +262,58 @@ if __name__ == "__main__":
     print("\nCHART_DATA_START")
     print(json.dumps(viz_data))
     print("CHART_DATA_END")
+    
+    # Output signal events for orchestrator
+    signal_events = []
+    for idx, row in crossovers.iterrows():
+        # Get the timestamp
+        if hasattr(test_data.index, 'strftime'):
+            timestamp = test_data.index[idx].strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        else:
+            timestamp = test_data.loc[idx, 'date'].strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        
+        signal_events.append({
+            "timestamp": timestamp,
+            "signal_name": "ma_crossover",
+            "signal_type": row['crossover_type'],
+            "strength": float(row['signal_strength']),
+            "metadata": {
+                "ma_fast": float(ma_fast[idx]) if not pd.isna(ma_fast[idx]) else None,
+                "ma_slow": float(ma_slow[idx]) if not pd.isna(ma_slow[idx]) else None,
+                "close": float(test_data.loc[idx, 'close']),
+                "separation": float(abs(ma_fast[idx] - ma_slow[idx]) / ma_slow[idx]) if not pd.isna(ma_fast[idx]) and not pd.isna(ma_slow[idx]) else 0.0,
+                "symbol": os.environ.get('LIVE_SYMBOL', 'EURUSD')  # Include symbol from environment
+            }
+        })
+    
+    print("\nSIGNAL_START")
+    print(json.dumps(signal_events))
+    print("SIGNAL_END")
+    
+    # Check if we're in live mode and should publish to Redis
+    if os.environ.get('PUBLISH_LIVE') == 'true':
+        try:
+            from core.data.signal_publisher import SignalPublisher
+            publisher = SignalPublisher()
+            
+            # Publish the latest signal if any
+            if signal_events:
+                latest_signal = signal_events[-1]
+                success = publisher.publish_signal(
+                    signal_name='ma_crossover',
+                    signal_type=latest_signal['signal_type'],
+                    strength=latest_signal['strength'],
+                    metadata={
+                        **latest_signal['metadata'],
+                        'current_price': float(test_data['close'].iloc[-1])
+                    }
+                )
+                
+                if success:
+                    print(f"\nPublished live signal: {latest_signal['signal_type']}")
+                else:
+                    print("\nFailed to publish live signal")
+                    
+            publisher.close()
+        except Exception as e:
+            print(f"\nError publishing live signal: {e}")

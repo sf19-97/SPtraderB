@@ -8,8 +8,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use std::time::Instant;
 use tauri::Emitter;
 use std::fs::File;
+use std::io::Write;
 use arrow::array::{Array, Float64Array, StringArray, TimestampMillisecondArray};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use tempfile::NamedTempFile;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FileNode {
@@ -353,10 +355,12 @@ exit:
 
 #[derive(Debug, Serialize)]
 pub struct RunResult {
-    success: bool,
-    execution_time_ms: f64,
-    output_lines: usize,
-    error_lines: usize,
+    pub success: bool,
+    pub execution_time_ms: f64,
+    pub output_lines: usize,
+    pub error_lines: usize,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 #[tauri::command]
@@ -934,6 +938,8 @@ pub async fn run_component(
     
     let mut output_lines = 0;
     let mut error_lines = 0;
+    let mut stdout_content = String::new();
+    let mut stderr_content = String::new();
     
     // Create readers
     let stdout_reader = BufReader::new(stdout);
@@ -947,32 +953,38 @@ pub async fn run_component(
     let stdout_task = tokio::spawn(async move {
         let mut lines = stdout_reader.lines();
         let mut count = 0;
+        let mut content = String::new();
         
         while let Ok(Some(line)) = lines.next_line().await {
             window_stdout.emit("component-output", serde_json::json!({
                 "type": "stdout",
-                "line": line,
+                "line": line.clone(),
                 "timestamp": chrono::Local::now().format("%H:%M:%S%.3f").to_string()
             })).ok();
+            content.push_str(&line);
+            content.push('\n');
             count += 1;
         }
-        count
+        (count, content)
     });
     
     // Task to read stderr
     let stderr_task = tokio::spawn(async move {
         let mut lines = stderr_reader.lines();
         let mut count = 0;
+        let mut content = String::new();
         
         while let Ok(Some(line)) = lines.next_line().await {
             window_stderr.emit("component-output", serde_json::json!({
                 "type": "stderr", 
-                "line": line,
+                "line": line.clone(),
                 "timestamp": chrono::Local::now().format("%H:%M:%S%.3f").to_string()
             })).ok();
+            content.push_str(&line);
+            content.push('\n');
             count += 1;
         }
-        count
+        (count, content)
     });
     
     // Wait for process with timeout
@@ -1002,8 +1014,12 @@ pub async fn run_component(
     };
     
     // Wait for output tasks to complete
-    output_lines = stdout_task.await.unwrap_or(0);
-    error_lines = stderr_task.await.unwrap_or(0);
+    let (stdout_lines, stdout_str) = stdout_task.await.unwrap_or((0, String::new()));
+    let (stderr_lines, stderr_str) = stderr_task.await.unwrap_or((0, String::new()));
+    output_lines = stdout_lines;
+    error_lines = stderr_lines;
+    stdout_content = stdout_str;
+    stderr_content = stderr_str;
     
     let execution_time_ms = start_time.elapsed().as_millis() as f64;
     
@@ -1020,6 +1036,8 @@ pub async fn run_component(
         execution_time_ms,
         output_lines,
         error_lines,
+        stdout: stdout_content,
+        stderr: stderr_content,
     })
 }
 
@@ -1155,4 +1173,39 @@ pub async fn load_parquet_data(dataset_name: String) -> Result<ChartData, String
         low: lows,
         close: closes,
     })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CandleData {
+    time: Vec<i64>,
+    open: Vec<f64>,
+    high: Vec<f64>,
+    low: Vec<f64>,
+    close: Vec<f64>,
+}
+
+#[tauri::command]
+pub async fn write_temp_candles(candles: CandleData) -> Result<String, String> {
+    // Create a temporary file
+    let mut temp_file = NamedTempFile::new()
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    
+    // Get the path before we move the file
+    let _temp_path = temp_file.path().to_string_lossy().to_string();
+    
+    // Serialize the candle data to JSON
+    let json_data = serde_json::to_string(&candles)
+        .map_err(|e| format!("Failed to serialize candle data: {}", e))?;
+    
+    // Write to the temp file
+    temp_file.write_all(json_data.as_bytes())
+        .map_err(|e| format!("Failed to write candle data: {}", e))?;
+    
+    // Keep the file from being deleted by persisting it
+    let persisted_path = temp_file.into_temp_path();
+    let final_path = persisted_path.to_string_lossy().to_string();
+    persisted_path.keep()
+        .map_err(|e| format!("Failed to persist temp file: {}", e))?;
+    
+    Ok(final_path)
 }

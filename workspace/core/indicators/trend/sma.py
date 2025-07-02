@@ -18,6 +18,7 @@ __metadata__ = {
     'author': 'system',
     'inputs': ['close'],
     'outputs': ['sma'],
+    'lookback_required': 200,  # Default to 200, but ideally should be 2x period
     'parameters': {
         'period': {
             'type': 'int',

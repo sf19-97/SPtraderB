@@ -80,80 +80,64 @@ def load_data_from_env() -> pd.DataFrame:
     
     # Debug output
     print(f"DATA_SOURCE: {data_source}")
-    if data_source == 'live':
-        # Load from cache parameters
-        symbol = os.environ.get('LIVE_SYMBOL', 'EURUSD')
-        timeframe = os.environ.get('LIVE_TIMEFRAME', '1h')
-        from_ts = os.environ.get('LIVE_FROM')
-        to_ts = os.environ.get('LIVE_TO')
-        cache_key = os.environ.get('CACHE_KEY')
+    
+    if data_source == 'realtime':
+        # For live trading mode, this should connect to a real data feed
+        # No mock data allowed
+        raise NotImplementedError(
+            "Realtime mode requires connection to live data feed. "
+            "Use 'live' mode with cached data or 'parquet' mode with test files."
+        )
         
-        print(f"Using Live mode: {symbol} {timeframe}")
-        print(f"Cache key: {cache_key}")
+    elif data_source == 'live':
+        # Load from cached data file
+        candle_data_file = os.environ.get('CANDLE_DATA_FILE')
         
-        # For now, we'll create sample data with the correct parameters
-        # In the future, this would connect to the actual cache
-        # through a Tauri command or shared memory
+        if not candle_data_file:
+            raise ValueError(
+                "Live mode requires CANDLE_DATA_FILE environment variable. "
+                "No mock data will be generated. Ensure the IDE passes real cached data."
+            )
         
-        # Create realistic data for the requested symbol
-        if from_ts and to_ts:
-            start_date = pd.to_datetime(int(from_ts), unit='s')
-            end_date = pd.to_datetime(int(to_ts), unit='s')
+        print(f"Loading cached data from: {candle_data_file}")
+        
+        try:
+            # Read the JSON file
+            with open(candle_data_file, 'r') as f:
+                data = json.load(f)
             
-            # Calculate number of periods based on timeframe
-            freq_map = {
-                '5m': '5min',
-                '15m': '15min',
-                '1h': '1h',
-                '4h': '4h',
-                '12h': '12h'
-            }
-            freq = freq_map.get(timeframe, '1h')
+            # Convert to DataFrame
+            df = pd.DataFrame(data)
             
-            dates = pd.date_range(start=start_date, end=end_date, freq=freq)
-            periods = len(dates)
+            # Ensure time column is datetime
+            if 'time' in df.columns:
+                # Handle both timestamp and ISO string formats
+                try:
+                    # Try as Unix timestamp first
+                    df['time'] = pd.to_datetime(df['time'], unit='s')
+                except:
+                    # Fall back to ISO string
+                    df['time'] = pd.to_datetime(df['time'])
+                
+                df.set_index('time', inplace=True)
             
-            print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-            print(f"Generating {periods} candles")
-            
-            # Base price depends on symbol
-            base_prices = {
-                'EURUSD': 1.0850,
-                'USDJPY': 150.00,
-                'GBPUSD': 1.2700,
-                'AUDUSD': 0.6600
-            }
-            base_price = base_prices.get(symbol, 1.0000)
-            
-            # Generate realistic price movement
-            import numpy as np
-            np.random.seed(42)
-            returns = np.random.normal(0.0001, 0.002, periods)
-            close_prices = base_price * np.exp(np.cumsum(returns))
-            
-            # Generate OHLC
-            high_prices = close_prices * (1 + np.abs(np.random.normal(0, 0.001, periods)))
-            low_prices = close_prices * (1 - np.abs(np.random.normal(0, 0.001, periods)))
-            open_prices = np.roll(close_prices, 1)
-            open_prices[0] = close_prices[0]
-            
-            # Create DataFrame
-            df = pd.DataFrame({
-                'open': open_prices,
-                'high': high_prices,
-                'low': low_prices,
-                'close': close_prices,
-                'volume': np.random.poisson(1000000, periods)
-            }, index=dates)
-            
-            # Ensure high/low are correct
-            df['high'] = df[['open', 'high', 'low', 'close']].max(axis=1)
-            df['low'] = df[['open', 'high', 'low', 'close']].min(axis=1)
+            # Log what we loaded
+            symbol = os.environ.get('LIVE_SYMBOL', 'UNKNOWN')
+            timeframe = os.environ.get('LIVE_TIMEFRAME', 'UNKNOWN')
+            print(f"Loaded {len(df)} candles for {symbol} {timeframe}")
+            print(f"Date range: {df.index[0]} to {df.index[-1]}")
             
             return df
-        else:
-            # Fall back to default sample data
-            return create_sample_data()
+            
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Candle data file not found: {candle_data_file}. "
+                "The IDE must write cached data before running components."
+            )
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in candle data file: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load candle data: {e}")
             
     elif data_source == 'parquet':
         # Load from parquet file
@@ -208,9 +192,11 @@ def load_test_data(dataset: Optional[str] = None) -> pd.DataFrame:
                 break
         
         if dataset is None:
-            # If no cached data exists, create sample data
-            print("No cached test data found. Creating sample data...")
-            return create_sample_data()
+            # No fallback to mock data
+            raise FileNotFoundError(
+                "No test data found in workspace/data/. "
+                "Export data from the database using the IDE's export feature."
+            )
     
     # Load the specified dataset
     file_path = data_dir / dataset
@@ -223,8 +209,9 @@ def load_test_data(dataset: Optional[str] = None) -> pd.DataFrame:
                 f"Dataset '{dataset}' not found. Available datasets: {names}"
             )
         else:
-            print(f"Dataset '{dataset}' not found. Creating sample data...")
-            return create_sample_data()
+            raise FileNotFoundError(
+                f"Dataset '{dataset}' not found. No mock data will be generated."
+            )
     
     # Load based on file extension
     if file_path.suffix == '.parquet':
@@ -255,56 +242,6 @@ def load_test_data(dataset: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
-def create_sample_data(periods: int = 1000) -> pd.DataFrame:
-    """
-    Create sample OHLCV data for testing
-    
-    Args:
-        periods: Number of periods to generate
-        
-    Returns:
-        DataFrame with sample data
-    """
-    import numpy as np
-    
-    # Generate timestamps
-    dates = pd.date_range(end='2024-12-31', periods=periods, freq='1h')
-    
-    # Generate realistic price movement
-    np.random.seed(42)
-    returns = np.random.normal(0.0001, 0.002, periods)
-    close_prices = 1.0800 * np.exp(np.cumsum(returns))
-    
-    # Generate OHLC from close
-    high_prices = close_prices * (1 + np.abs(np.random.normal(0, 0.001, periods)))
-    low_prices = close_prices * (1 - np.abs(np.random.normal(0, 0.001, periods)))
-    open_prices = np.roll(close_prices, 1)
-    open_prices[0] = close_prices[0]
-    
-    # Add some gaps to make it realistic
-    for i in range(1, len(open_prices)):
-        if np.random.random() < 0.3:  # 30% chance of gap
-            gap = np.random.normal(0, 0.0005)
-            open_prices[i] = close_prices[i-1] * (1 + gap)
-    
-    # Generate volume
-    base_volume = 1000000
-    volume = np.random.poisson(base_volume, periods)
-    
-    # Create DataFrame
-    df = pd.DataFrame({
-        'open': open_prices,
-        'high': high_prices,
-        'low': low_prices,
-        'close': close_prices,
-        'volume': volume
-    }, index=dates)
-    
-    # Ensure high is highest and low is lowest
-    df['high'] = df[['open', 'high', 'low', 'close']].max(axis=1)
-    df['low'] = df[['open', 'high', 'low', 'close']].min(axis=1)
-    
-    return df
 
 
 def save_test_data(df: pd.DataFrame, name: str, format: str = 'parquet') -> str:

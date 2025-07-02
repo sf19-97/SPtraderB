@@ -11,7 +11,8 @@ import {
   IconHistory, 
   IconSettings,
   IconChevronLeft,
-  IconChevronRight 
+  IconChevronRight,
+  IconRobot 
 } from '@tabler/icons-react';
 
 export const AppLayout = () => {
@@ -25,6 +26,7 @@ export const AppLayout = () => {
     { path: '/build', label: 'Build', icon: IconCode },
     { path: '/data', label: 'Data Manager', icon: IconDatabase }, // Add this
     { path: '/history', label: 'History', icon: IconHistory },
+    { path: '/orchestrator', label: 'Orchestrator', icon: IconRobot },
     { path: '/orchestrator-test', label: 'Orch Test', icon: IconTestPipe },
   ];
 

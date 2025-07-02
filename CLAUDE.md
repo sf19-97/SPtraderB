@@ -1,802 +1,229 @@
 # SPtraderB Project Context
 
 ## Project Overview
-SPtraderB is a desktop trading application built with Tauri v2 that implements a fractal candlestick charting system. The application automatically adjusts chart timeframes based on zoom levels, providing a seamless multi-resolution viewing experience for forex trading data.
+SPtraderB is a desktop trading application built with Tauri v2 that implements a comprehensive trading system with fractal candlestick charting, component-based strategy development, and automated orchestration. The application features automatic timeframe adjustment based on zoom levels and a sophisticated backtesting/live trading orchestrator.
 
 ## Technology Stack
 - **Frontend**: React + TypeScript with TradingView Lightweight Charts v5
 - **Backend**: Rust + Tauri v2
+- **State Management**: Zustand (migrated from React Context)
 - **Database**: PostgreSQL 17 with TimescaleDB extension
+- **Cache**: Redis for live signal streams
 - **Data Source**: Dukascopy historical forex tick data
 - **Data Ingestion**: Python script for downloading and processing tick data
+- **Component Runtime**: Python for indicators/signals/strategies
+
+## Architecture Overview
+
+### State Management (January 2025)
+- **Zustand Stores**: All state management uses Zustand
+  - `useTradingStore`: Trading UI state (pair, timeframe, chart preferences)
+  - `useChartStore`: Chart data caching with LRU eviction
+  - `useBrokerStore`: Broker connections and credentials
+  - `useOrchestratorStore`: Orchestrator state and backtest results
+  - `useBuildStore`: Build center and IDE state
+- **No More Contexts**: Migrated away from React Context to avoid confusion
+
+### Data Flow
+```
+PostgreSQL (Historical) → Rust Backend → Frontend Cache → Charts
+Redis (Live Signals) → Orchestrator → Execution Engine → Broker API
+```
 
 ## Key Features
-1. **Fractal Zoom System**: Automatically switches between timeframes (5m, 15m, 1h, 4h, 12h) based on candle width
-2. **Matrix-themed Login**: Falling green characters with "redpill" password access
-3. **State Machine**: Prevents race conditions during timeframe transitions
-4. **Performance Optimized**: Smart data loading with TimescaleDB continuous aggregates
+
+### 1. Fractal Zoom System
+- Automatically switches between timeframes (15m, 1h, 4h, 12h) based on candle width
+- Candle width < 5 pixels: Switch to higher timeframe (zoom out)
+- Candle width > 30 pixels: Switch to lower timeframe (zoom in)
+- State machine prevents concurrent transitions
+- Note: 5m candles exist in database but are not used in chart display
+
+### 2. Component-Based Trading System
+- **Indicators**: Technical analysis calculations (SMA, RSI, etc.)
+- **Signals**: Trading signals based on indicators (crossovers, thresholds)
+- **Strategies**: YAML files that combine signals with risk rules
+- **Orchestrator**: Executes strategies in backtest or live mode
+
+### 3. Build Center & Monaco IDE
+- Full-featured code editor with syntax highlighting
+- Real-time component execution with chart preview
+- Parquet data export/import for offline testing
+- File tree with component type filtering
+- Resizable panels and integrated terminal
+
+### 4. Orchestrator
+- Unified system for backtesting and live trading
+- Executes real Python components (not mocks)
+- Chronological candle processing
+- Position tracking and P&L calculation
+- Risk management with drawdown limits
+- Redis integration for live signals
+
+### 5. Data Management
+- Automated tick data ingestion from Dukascopy
+- TimescaleDB continuous aggregates for performance
+- Support for multiple currency pairs (EURUSD, USDJPY)
+- Proper decimal handling (5 decimals for EUR, 3 for JPY)
 
 ## Project Structure
-- `/src/` - React/TypeScript frontend code
-  - `App.tsx` - Main trading interface
-  - `components/AdaptiveChart.tsx` - Fractal chart component
-  - `components/MatrixLogin.tsx` - Matrix-themed login screen
-- `/src-tauri/` - Rust/Tauri backend code
-  - Database queries and data serving
-- `/data-ingestion/` - Python scripts for data ingestion
-  - `dukascopy_ingester.py` - Downloads forex tick data
+```
+/src/                    # React/TypeScript frontend
+  /components/          
+    AdaptiveChart.tsx    # Fractal zoom chart
+    MonacoIDE.tsx       # Component editor
+    orchestrator/       # Orchestrator UI components
+  /stores/              # Zustand state management
+  /pages/               # Main application pages
+  
+/src-tauri/             # Rust/Tauri backend
+  /orchestrator/        # Strategy execution engine
+  /brokers/            # Broker API integrations
+  /execution/          # Order execution engine
+  
+/workspace/             # User trading components
+  /core/
+    /indicators/        # Technical indicators
+    /signals/          # Trading signals
+    /data/             # Data utilities
+  /strategies/         # Strategy YAML files
+  /data/              # Exported test datasets
+
+/data-ingestion/       # Python data pipeline
+  dukascopy_ingester.py # Tick data downloader
+```
 
 ## Development Commands
 ```bash
-# Start development server
-npm run dev
-
-# Run Tauri in development mode
+# Start development
 npm run tauri dev
 
 # Build for production
 npm run tauri build
 
-# Lint and type checking (if available)
-npm run lint
-npm run typecheck
+# Frontend only (for UI development)
+npm run dev
+
+# Run Python component tests
+cd workspace && python core/signals/ma_crossover.py
 ```
 
-## Database Setup
-The project requires PostgreSQL 17 with TimescaleDB extension. The database contains:
-- Tick data table (forex_ticks)
-- Continuous aggregates for 5m, 15m, 1h, 4h, 12h timeframes
-- Currently loaded with 5 months of EURUSD data (Jan 2 - May 31, 2024)
-- **IMPORTANT**: The "volume" field in candles represents tick count (number of price updates), NOT traded volume
-- Candles use bid prices only for OHLC calculations
-- See `/docs/DATABASE_SCHEMA.md` for complete schema documentation
-
-## Important Notes
-- The Matrix login uses "redpill" as the password
-- The fractal zoom switches timeframes when:
-  - Candle width < 5 pixels: Switch to higher timeframe (zoom out)
-  - Candle width > 30 pixels: Switch to lower timeframe (zoom in)
-- State machine prevents concurrent transitions to avoid oscillation
-
-## AdaptiveChart.tsx∙LatestCopyPublish🐛 
-Bug Fix: React Closure Issue in Adaptive Chart
-Problem:
-The adaptive timeframe switching feature was failing after the first transition due to a React closure bug. The setInterval callback was capturing the initial state value and never seeing updates.
-Root Cause
-
-setInterval in useEffect with empty dependency array creates a closure
-The interval callback always saw currentTimeframe as its initial value
-Even after state updates, the interval logic used stale data
-
-Solution
-Implemented useRef to mirror the state value:
-
-currentTimeframeRef maintains the current timeframe value
-All interval logic now uses currentTimeframeRef.current
-Both state and ref are updated together to keep them in sync
-
-Changes Made
-
-Added currentTimeframeRef to track current timeframe in real-time
-Updated all interval logic to use the ref instead of state
-Modified switchTimeframe to pass previousTimeframe for correct bar spacing calculations
-Fixed comparison logic in loadDataAndMaintainView
-
-Testing
-
-✅ Zoom in from 1h → switches to 15m
-✅ Zoom out from 15m → switches back to 1h
-✅ Multiple zoom transitions work correctly
-✅ Manual timeframe selection still works
-
-Lessons Learned
-This is a common React pattern that developers should watch for:
-
-Any callback in useEffect with [] dependencies will capture initial state
-Use useRef for values that need to be accessed in long-lived callbacks
-This applies to: intervals, timers, event listeners, WebSocket handlers
-
-## Recent Updates Log
-
-### Currency Pair Selection & USDJPY Integration
-**Date**: January 2025
-
-#### Problem
-The trading interface only supported EURUSD. We needed to add support for multiple currency pairs, starting with USDJPY which had been recently ingested.
-
-#### Key Discoveries
-1. **USDJPY Decimal Scaling Issue**: The Python ingester was dividing all forex prices by 100,000, which is correct for EUR pairs (5 decimal places) but wrong for JPY pairs which only use 3 decimal places. JPY pairs should be divided by 1,000.
-   - Fixed existing USDJPY data in database: `UPDATE forex_ticks SET bid = bid * 100, ask = ask * 100 WHERE symbol = 'USDJPY'`
-   - Updated ingester to check for JPY in symbol name
-
-2. **Data Ingestion Process Management**: Implemented cancel functionality for long-running downloads by tracking Python subprocess PIDs in Rust backend state.
-
-#### Implementation
-1. Created `PairSelector` component using Mantine Select
-2. Added to `MarketDataBar` for easy access
-3. Connected to `TradingContext` for state management
-4. Updated `AdaptiveChart` to react to symbol changes and reload data
-
-#### Debug Logging Enhancement
-Added comprehensive logging to track timeframe changes from the ResolutionTracker:
-- All resolution/timeframe logs now prefixed with `[ResolutionTracker]`
-- Tracks actual current timeframe using `currentTimeframeRef.current` instead of initial prop
-- Provides clear visibility into automatic timeframe transitions based on zoom level
-
-#### Technical Notes
-- EURUSD: 5 decimal places (divide by 100,000)
-- USDJPY: 3 decimal places (divide by 1,000)
-- Download process tracking using HashMap<String, Child> in Rust AppState
-- Continuous aggregates must be manually refreshed after bulk data inserts
-
-### Data Pipeline & Chart Improvements
-**Date**: January 15, 2025
-
-#### Major Fixes
-1. **Chunked Candle Generation**: Fixed "refresh window too small" TimescaleDB error by processing large date ranges in monthly chunks
-2. **Process Monitoring**: Added background task to monitor data ingestion completion with event emission
-3. **Chart Dynamic Date Loading**: Restored ability to fetch date ranges from database instead of hardcoded values
-4. **5m Candles Integration**: 
-   - Added 5m candles to UI count display (they were being generated but not shown)
-   - Note: 5m candles are generated in the data pipeline but NOT available for chart display (intentional)
-   - Chart timeframes remain: 15m, 1h, 4h, 12h only
-
-#### Technical Improvements
-- Fixed React closure issues in AdaptiveChart by using refs for stable references
-- Maintained smooth fade animations during timeframe transitions
-- Added caching for symbol date ranges to reduce API calls
-- Fixed useEffect dependency issue in DataIngestionPage causing infinite re-renders
-
-#### Known Issues
-- Data Manager query is slow (~13 seconds) due to multiple COUNT(*) operations on large tables
-- Suggested optimization: Use PostgreSQL statistics for approximate counts with exact date ranges
-
-## Live/Parquet Mode Toggle for BuildHub IDE
-**Date**: January 2025
-
-### Overview
-Implemented dual data source modes for component testing in the BuildHub IDE, eliminating the need for manual data export workflows.
-
-### Implementation Details
-1. **Live Mode**: 
-   - Pulls data directly from chart cache (useChartStore)
-   - No manual export step required
-   - Passes environment variables: DATA_SOURCE, LIVE_SYMBOL, LIVE_TIMEFRAME, LIVE_FROM, LIVE_TO, CACHE_KEY
-   - Falls back to backend fetch if cache miss
-
-2. **Parquet Mode**: 
-   - Traditional file-based testing with exported datasets
-   - Maintains backward compatibility
-   - Uses TEST_DATASET environment variable
-
-3. **Key Changes**:
-   - Added SegmentedControl toggle in preview panel
-   - Created `load_data_from_env()` in loader.py for unified data access
-   - Fixed `fetch_candles` API call to use `request` wrapper object
-   - Fixed TypeScript errors (removed await on cleanup, replaced navigator.platform)
-   - Components output CHART_DATA_START/END for visualization
-
-### Bug Fixes
-- Fixed fetch_candles expecting `request` parameter wrapper
-- Fixed response format (direct array, not object with candles property)
-- Fixed DatePickerInput type mismatches
-- Removed deprecated navigator.platform usage
-
-## BuildContext Consolidation
-**Date**: January 2025
-
-### Overview
-Migrated all trading-related state from TradingContext to BuildContext, simplifying state management into a single context provider.
-
-### Changes
-- Moved selectedPair, selectedTimeframe, chartType, chartVersion, indicators to BuildContext
-- Deleted TradingContext.tsx
-- Updated all components to use `useBuild()` instead of `useTrading()`
-- Maintained localStorage persistence and console logging
-
-## Data Ingestion Pipeline Fix
-**Date**: January 2025
-
-### Critical Bugs Fixed
-
-1. **Arc<Mutex> Process Tracking Issue**
-   - **Problem**: Process spawning used different Arc references for storage vs retrieval
-   - **Root Cause**: Stored process in `state.ingestion_processes` but tried to retrieve from cloned `ingestion_processes`
-   - **Fix**: Changed line 328 to use the cloned Arc consistently
-   ```rust
-   // Before (wrong):
-   let mut processes = state.ingestion_processes.lock().await;
-   // After (correct):
-   let mut processes = ingestion_processes.lock().await;
-   ```
-
-2. **"Refresh Window Too Small" Error**
-   - **Problem**: TimescaleDB error when generating candles for USDJPY
-   - **Root Cause**: Stale metadata created invalid date ranges (refresh_start > refresh_end)
-   - **Fix**: Added validation to detect and correct invalid ranges
-   ```rust
-   let refresh_start = if refresh_start > refresh_end {
-       oldest_tick  // Reset to full range if metadata is inconsistent
-   } else {
-       refresh_start
-   };
-   ```
-
-3. **Missing Process Completion Events**
-   - **Problem**: Downloads appeared frozen at 0% even when working
-   - **Fix**: Process monitoring now properly tracks completion and emits events
-
-### Successful Test Results
-- Downloaded USDJPY data from July 12, 2024 to December 31, 2024
-- 23.7M new ticks added (77.9M total)
-- All timeframe candles generated without duplicates
-- Weekend gaps handled correctly (no Saturday data, minimal Sunday data)
-- Both EURUSD and USDJPY now have complete data through end of 2024
-
-### Pipeline Architecture
-1. **Download**: Python script downloads tick data in hourly chunks with 0.1s delays
-2. **Storage**: PostgreSQL with ON CONFLICT upsert to handle duplicates
-3. **Candle Generation**: TimescaleDB continuous aggregates cascade from ticks → 5m → 15m → 1h → 4h → 12h
-4. **Metadata Tracking**: Stores last refresh and tick timestamps to enable incremental updates
-
-### TODO
-- Implement auto-generate candles after download completion (currently manual)
-- Add pause/resume functionality for downloads
-- Optimize Data Manager query performance
-
-## Component Metadata Architecture (Planned)
-
-A comprehensive metadata system where **code is the single source of truth** has been designed and documented in `/docs/COMPONENT_METADATA_ARCHITECTURE.md`. This architecture will:
-
-### Key Features
-- **Metadata in Code**: Components define their metadata using Python `__metadata__` dictionaries
-- **AST Parsing**: Extract metadata without executing code using Python AST parser
-- **SQLite Cache**: Fast queries for UI while maintaining code as truth
-- **Live Updates**: File watcher detects changes and updates metadata in real-time
-- **Component Discovery**: SQL queries to find components by performance, category, tags, etc.
-
-### Implementation Overview
-1. **Python Base Classes**: Components inherit from base classes with metadata validation
-2. **Rust Backend**: File watcher + AST parser + SQLite cache for performance
-3. **Frontend Integration**: Build page reads from cache with live updates
-4. **Developer Workflow**: Templates include metadata, IDE validates on save
-
-### Benefits
-- Cannot desync (metadata travels with code through git)
-- Enables powerful discovery ("find all fast momentum indicators")
-- Tracks real performance metrics, not estimates
-- Scales from 10 to 10,000 components
-
-**Status**: Architecture fully designed and ready for implementation when requested.
-
-## Build Center & IDE Implementation (January 2025)
-
-### Overview
-Implemented a complete component development environment with a Build Center for browsing trading components and a Monaco-based IDE for editing them.
-
-### Architecture Patterns
-
-#### 1. **Context-Based State Management**
-- **BuildContext** (`/src/contexts/BuildContext.tsx`): Maintains UI state across navigation
-  - Search terms, selected categories, scroll position persist
-  - LocalStorage integration for cross-session persistence
-  - Pattern: Similar to TradingContext, wraps components needing shared state
-
-#### 2. **File System Integration Pattern**
-```
-Frontend (React) → Tauri Command (invoke) → Rust Backend → File System
-                                          ↓
-                                    Response → Update UI
-```
-- Commands: `get_workspace_tree`, `read_component_file`, `save_component_file`
-- Security: Path validation prevents directory traversal
-- All file ops go through Rust for safety
-
-#### 3. **Component Visibility Architecture**
-Enforced in `renderFileTree` function:
-```typescript
-const allowedPaths: Record<string, string[]> = {
-  indicator: ['core/indicators'],
-  signal: ['core/indicators', 'core/signals'],
-  strategy: ['core', 'strategies']
-};
-```
-
-### Key Components
-
-1. **BuildPage** (`/src/pages/BuildPage.tsx`)
-   - Component library with search/filter
-   - Launches IDE with component context
-   - Uses BuildContext for state persistence
-
-2. **MonacoIDE** (`/src/components/MonacoIDE.tsx`)
-   - Full VS Code-like editing experience
-   - File tree with visibility filtering
-   - Save functionality integrated with Rust backend
-   - Terminal output panel (currently mock data)
-
-3. **IDEHelpModal** (`/src/components/IDEHelpModal.tsx`)
-   - Architecture documentation in-app
-   - Shows dependency rules per component type
-   - Best practices and tips
-
-4. **Workspace Module** (`/src-tauri/src/workspace.rs`)
-   - Rust backend for file operations
-   - Path security validation
-   - Template generation for new components
-
-### Maintenance Guidelines
-
-#### Adding New Component Types
-1. Update `allowedPaths` in MonacoIDE.tsx
-2. Add template in workspace.rs `create_component_file`
-3. Update IDEHelpModal with new type info
-4. Add to BuildPage component lists
-
-#### Debugging Common Issues
-1. **"Failed to load workspace"**: Check if running from `src-tauri` directory
-2. **Save not working**: Verify file permissions in workspace directory
-3. **File tree empty**: Ensure `.py` and `.yaml` files exist in workspace
-
-#### State Management Rules
-- Use contexts for cross-component state
-- Local state for component-specific UI
-- Persist important state to localStorage
-- Clean up event listeners in useEffect
-
-### Current Status
-
-#### ✅ Completed
-- Build Center with component browsing
-- IDE with real file loading/saving
-- State persistence across navigation
-- Architecture documentation modal
-- Component visibility enforcement
-
-#### ✅ Recently Completed
-1. **Run/Test Functionality**
-   - Execute Python code via Tauri command
-   - Capture stdout/stderr
-   - Display in terminal panel
-   - Measure execution time
-
-2. **Create New File**
-   - Wire up the "+" button
-   - Generate from templates
-   - Add to file tree dynamically
-   - Support custom categories for indicators
-
-3. **IDE Enhancements**
-   - Resizable terminal (drag to adjust height)
-   - Resizable file tree (drag to adjust width)
-   - Interactive chart with time axis and hover tooltips
-   - Flat disk reading with Parquet export/import
-
-#### 📋 Development Phases
-
-**Phase 1: Core IDE Features** ✅ COMPLETE!
-- ✅ File browsing/editing
-- ✅ Save functionality
-- ✅ Run/test execution with real-time output
-- ✅ New file creation with templates
-- ✅ Dataset selection and loading
-- ✅ Interactive chart preview with indicators
-
-**Phase 2: Enhanced Development** (In Progress)
-- ✅ Live Preview with chart visualization (DONE)
-- ✅ Component output parsing and display (DONE)
-- ⏳ Python linting integration
-- ⏳ Auto-completion for imports
-- ⏳ Inline metadata validation
-- ⏳ Git integration (diff view)
-
-**Phase 3: Advanced Features**
-- Signal trigger display with backtesting
-- Order execution simulation
-- Performance profiling
-- Multi-component orchestration
-
-**Phase 4: Component Metadata System**
-- See `/docs/COMPONENT_METADATA_ARCHITECTURE.md`
-- AST parsing for metadata extraction
-- SQLite cache for fast queries
-- Component discovery features
-- Performance tracking and analytics
-
-### Debugging Tips
-
-1. **Check Browser Console**: Most errors appear here first
-2. **Check Terminal**: Rust/Tauri errors show in terminal
-3. **Verify Paths**: Use `pwd` in Rust to check working directory
-4. **Hot Reload Issues**: Restart dev server if imports fail
-5. **State Issues**: Check React DevTools for context values
-
-### Code Organization
-```
-/src/
-  /components/
-    MonacoIDE.tsx       # Main IDE component
-    IDEHelpModal.tsx    # Architecture help
-  /contexts/
-    BuildContext.tsx    # State management
-  /pages/
-    BuildPage.tsx       # Component library
-    
-/src-tauri/src/
-  workspace.rs          # File operations
-  main.rs              # Command registration
-
-/workspace/             # User components live here
-  /core/
-    /indicators/
-    /signals/
-    /orders/
-    /data/              # Data utilities
-      loader.py         # Parquet/CSV data loader
-      csv_to_parquet.py # CSV to Parquet converter
-      export_utils.py   # Export helper functions
-  /strategies/
-  /data/                # Exported test datasets
-```
-
-## Flat Disk Reading Solution for IDE Preview (January 2025)
-
-### Overview
-Implemented a complete data export and loading system that allows components to test on real market data exported from the database. This enables rapid iteration without database dependencies.
-
-### Architecture
-1. **Database → Parquet Export Pipeline**
-   - `export_test_data` function in main.rs exports data directly to Parquet format
-   - Uses Arrow 54.2+ to avoid Chrono conflicts
-   - Exports to `/workspace/data/` directory
-   - Automatic filename generation: `symbol_timeframe_startdate_enddate.parquet`
-
-2. **Python Data Loader**
-   - `loader.py` handles Parquet and CSV file loading
-   - Automatically sets time column as DataFrame index
-   - Lists available datasets with metadata
-   - Falls back to sample data if no exports exist
-
-3. **IDE Integration**
-   - Database icon (📊) in preview panel opens export modal
-   - Export modal allows selection of:
-     - Symbol (EURUSD, USDJPY, etc.)
-     - Timeframe (5m, 15m, 1h, 4h, 12h)
-     - Date range with date pickers
-     - Optional custom filename
-   - Terminal shows export progress and success
-
-4. **Dataset Selection and Visualization**
-   - Dropdown shows all available Parquet files from `/workspace/data/`
-   - Selecting a dataset loads OHLC data into preview chart
-   - Chart displays candlesticks with proper scaling
-   - Components receive selected dataset via `TEST_DATASET` environment variable
-
-### Key Implementation Details
-
-#### Rust Commands
-- `export_test_data`: Exports from PostgreSQL to Parquet
-- `list_test_datasets`: Lists all .parquet files in workspace/data
-- `load_parquet_data`: Reads Parquet and returns chart-compatible format
-- Fixed timestamp type mismatch by using `DateTime<Utc>` instead of `NaiveDateTime`
-- Fixed volume field mapping to use `tick_count` from database
-- Resolved Arrow-Chrono conflict by upgrading to Arrow 54.2
-
-#### Python Components
-- Components can load test data with: `data = load_test_data('filename.parquet')`
-- Without arguments, loads first available dataset or creates sample data
-- Proper datetime indexing for time series operations
-- Environment variable `TEST_DATASET` automatically selects dataset in IDE
-
-### Usage Flow
-1. **Export Data**:
-   - Click database icon in preview panel
-   - Select symbol, timeframe, date range
-   - Click "Export Data"
-   - Creates Parquet file in `/workspace/data/`
-
-2. **Select Dataset**:
-   - Dropdown populates with available Parquet files
-   - Select dataset to load into chart
-   - Chart displays real OHLC candlesticks
-
-3. **Run Component**:
-   - Click Run button with dataset selected
-   - Component receives dataset name via environment
-   - Loads data and performs calculations
-   - Results display in terminal
-
-### Testing Results
-Successfully tested end-to-end with SMA indicator:
-- Exported 476 rows of EURUSD 1h data
-- Parquet file size: ~32KB (vs ~300KB for CSV)
-- Chart renders candlesticks correctly
-- Component loads data and calculates SMA values
-- Dataset dropdown works after fixing path resolution
-
-### Implementation Fixes
-- Fixed dataset dropdown not responding by creating dedicated `list_test_datasets` command
-- Added refresh button for dataset list
-- Debug output shows dataset count
-- Proper z-index and portal rendering for dropdown
-
-### Features Completed
-- ✅ Connect dataset dropdown to component execution
-- ✅ Add chart visualization in preview panel with full interactivity
-- ✅ Fixed dropdown responsiveness issue
-- ✅ Display real component output values (last value, signal, execution time, data points)
-- ✅ Parse component output for live updates and indicator overlays
-- ✅ Interactive chart with time axis labels and hover tooltips showing OHLC + indicator values
-- ✅ Resizable terminal (drag top edge) and file tree (drag right edge)
-
-### Bug Fixes
-- Fixed React Hooks order error in PreviewChart (useCallback after early return)
-- Fixed invalid DOM props (withinPortal, zIndex) in dataset selector
-
-## Project Organization
-
-### Active Scripts
-- `/data-ingestion/dukascopy_ingester.py` - Main forex data download script
-- `/data-ingestion/test_data.py` - Database verification tool
-
-### Deprecated Scripts
-Moved to `/depreciated/` folder:
-- Candle alignment check scripts (used during development for verification)
-- Old AdaptiveChart versions
-
-### Component Backups
-- `/src/components/backups/` - Working versions of components saved during major changes
-
-## Orchestrator Architecture (January 2025)
-
-### Overview
-The Orders IDE has been completely removed. Orders are now just data structures that will be generated by an orchestrator component. This simplifies the architecture and puts the focus on intelligent strategy-to-execution mapping.
-
-### New Architecture
-- **Strategies**: Emit signals only (no order creation)
-- **Orchestrator**: Maps signals to properly sized orders
-- **Risk Management**: Enforced at the orchestrator level
-- **Execution**: Direct broker API integration without component abstraction
-
-### Benefits
-- Simpler mental model (strategies don't worry about execution details)
-- Centralized risk management
-- Easier to test strategies without execution complexity
-- Position sizing logic in one place
-
-### Implementation Plan
-1. **Orchestrator Module**
-   - Signal subscription system
-   - Position sizing algorithms
-   - Risk parameter configuration
-   - Order generation based on account state
-
-2. **Risk Management**
-   - Per-strategy position limits
-   - Portfolio-wide exposure limits
-   - Drawdown controls
-   - Correlation analysis
-
-3. **Execution Profiles**
-   - Market impact minimization
-   - Smart order routing
-   - Execution algo selection
-   - Venue optimization
-
-### Current Status
-- ✅ Orders IDE removed
-- ✅ Order components deleted
-- ✅ UI updated to remove order references
-- ⏳ Orchestrator module pending implementation
-- ⏳ Risk management UI pending
-- ⏳ Execution profile editor pending
-
-### Security Considerations
-- Move from basic btoa/atob to proper encryption (AES-256)
-- Implement secure key storage in OS keychain
-- Add API request signing
-- Rate limiting and circuit breakers
-
-## Orchestrator Implementation (January 2025)
-
-### Overview
-The Orchestrator is a unified system that handles both backtesting and live trading. It replaces the Orders IDE with a simpler architecture where strategies emit signals and the orchestrator handles execution.
-
-### Current Status
-- ✅ **Chunk #1**: Basic orchestrator structure that loads strategy YAML files
-- ✅ **Chunk #2**: Backtest foundation with data source configuration (Live/Parquet)
-- ⏳ **Chunk #3**: Component execution (next step)
-- ⏳ **Chunk #4**: Signal processing through strategy rules
-- ⏳ **Chunk #5**: Position sizing and risk management
-- ⏳ **Chunk #6**: Performance tracking
-- ⏳ **Chunk #7**: Live mode with Redis signals
-- ⏳ **Chunk #8**: Unified UI for all modes
-
-### Architecture Flow
-```
-Indicators → Signals → Strategies → ORCHESTRATOR → Orders → Execution
-                                          ↓
-                                   [Backtest/Live Mode]
-```
-
-### Key Design Decisions
-1. **Environment Variable Pattern**: Components use the same data loading whether backtesting or live
-2. **Stateless Components**: Indicators/signals just process data, orchestrator maintains state
-3. **Orders as Data**: Orders are simple Rust structs, not components
-4. **Unified Interface**: Same UI and logic for backtest/paper/live trading
-
-See `/docs/ORCHESTRATOR_STATUS.md` for detailed implementation status.
-
-
-
-## Important Tauri-Specific Considerations
-
-### Browser API Limitations in Tauri
-**Date**: January 2025
-
-#### window.confirm() and window.alert() Don't Work
-- **Problem**: `window.confirm()`, `window.alert()`, and `window.prompt()` don't display dialogs in Tauri applications - they return default values without showing anything
-- **Solution**: Always use proper UI components (e.g., Mantine Modal) for user confirmations and alerts
-- **Example**: The file deletion confirmation was fixed by replacing `window.confirm()` with a Mantine Modal component
-
-#### Implementation Pattern for Confirmations
-Instead of:
-```javascript
-const confirmed = window.confirm("Are you sure?");
-if (confirmed) { /* proceed */ }
-```
-
-Use:
-```javascript
-// 1. Add state for modal
-const [deleteModalOpened, setDeleteModalOpened] = useState(false);
-const [itemToDelete, setItemToDelete] = useState(null);
-
-// 2. Show modal instead of confirm
-setItemToDelete(item);
-setDeleteModalOpened(true);
-
-// 3. Use Mantine Modal component
-<Modal opened={deleteModalOpened} onClose={() => setDeleteModalOpened(false)}>
-  <Text>Are you sure you want to delete {itemToDelete?.name}?</Text>
-  <Button onClick={handleDelete}>Delete</Button>
-</Modal>
-```
-
-This ensures proper user interaction in the Tauri desktop environment.
-
-## Enhanced Signal Metadata Architecture (v2)
-**Date**: January 2025
-
-### Overview
-Implemented a new metadata format that allows signals to declare parameterized indicator requirements. This enables complex multi-indicator signals without hardcoding configurations in Rust.
-
-### Key Features
-1. **Self-Contained Signals**: Signals declare exactly which indicators they need with specific parameters
-2. **No Rust Changes**: New indicator combinations work without touching the orchestration layer
-3. **Strategy Overrides**: Strategies can customize signal configurations
-4. **Visual Output**: Components can output JSON chart data between CHART_DATA_START/END markers
-
-### Example: Moving Average Crossover
-```python
-__metadata_version__ = 2  # New version
-__metadata__ = {
-    'required_indicators': [
-        {
-            'name': 'ma_fast',     # How signal references this
-            'type': 'sma',         # Which indicator to use
-            'params': {'period': 20, 'source': 'close'}  # Parameters
-        },
-        {
-            'name': 'ma_slow',
-            'type': 'sma',
-            'params': {'period': 50, 'source': 'close'}
-        }
-    ],
-    # ... rest of metadata
-}
-```
-
-### MA Crossover Signal Implementation
-The first signal using v2 metadata has been successfully implemented:
-- **Golden Cross Detection**: Fast MA crossing above slow MA (bullish)
-- **Death Cross Detection**: Fast MA crossing below slow MA (bearish)
-- **Real Data Support**: Loads parquet files via TEST_DATASET environment variable
-- **Visual Output**: Generates chart data with indicator overlays and signal markers
-- **Realistic Fallback**: Uses synthetic data starting at 1.0850 (realistic EURUSD price)
-
-### Component Testing with Real Data
-Components can now load real market data during testing:
-```python
-# Check for TEST_DATASET environment variable
-dataset_name = os.environ.get('TEST_DATASET')
-if dataset_name:
-    # Load real data from workspace/data/
-    table = pq.read_table(data_path)
-    test_data = table.to_pandas()
-```
-
-### Visual Output Format
-Components output chart data in JSON format for IDE preview:
-```python
-print("CHART_DATA_START")
-print(json.dumps({
-    "time": [...],
-    "open": [...],
-    "high": [...],
-    "low": [...],
-    "close": [...],
-    "indicators": {
-        "ma_fast": [...],
-        "ma_slow": [...]
-    },
-    "signals": {
-        "crossovers": [index1, index2],
-        "types": ["golden_cross", "death_cross"]
-    }
-}))
-print("CHART_DATA_END")
-```
-
-### Files Created
-- `/workspace/core/signals/ma_crossover.py` - First signal using v2 metadata
-- `/workspace/core/signals/test_ma_crossover.py` - Test file for the signal
-- `/workspace/strategies/ma_crossover_strategy.yaml` - Example strategy with parameter overrides
-- `/docs/ENHANCED_SIGNAL_METADATA_ARCHITECTURE.md` - Complete documentation
-- `/docs/MA_CROSSOVER_SIGNAL_IMPLEMENTATION.md` - Implementation details
-
-### Technical Notes
-- **Pandas FutureWarning**: The `.fillna()` method on boolean Series shows a deprecation warning. Can be fixed with `.infer_objects(copy=False)` or `.astype(bool)`
-- **Chart Integration**: MonacoIDE parses terminal output for chart data and updates PreviewChart component
-- **Signal Markers**: Vertical lines with arrows indicate crossover points on the chart
-
-### Next Steps
-- Implement Rust orchestration layer to parse enhanced metadata
-- Add more signals using the new format (RSI oversold/overbought, Bollinger Band squeeze, etc.)
-- Create UI support for viewing/editing enhanced metadata
-- Fix the pandas deprecation warning in ma_crossover.py
-
-## Recent Achievements (January 2025)
-
-### First Trading Signal Implementation
-Successfully implemented the MA Crossover signal as the first component using the v2 metadata architecture:
-- **Architecture Validation**: Proved the enhanced metadata design works in practice
-- **Real Data Integration**: Components can load and process actual market data
-- **Visual Feedback**: Chart preview shows indicators and signals in real-time
-- **Developer Experience**: Smooth workflow from code → run → visualize
-
-### Key Technical Accomplishments
-1. **Environment Variable Integration**: TEST_DATASET passes selected dataset to Python components
-2. **Chart Data Protocol**: JSON output between markers enables rich visualizations
-3. **Signal Detection**: Properly identifies golden/death crosses with configurable parameters
-4. **Error Handling**: Graceful fallback to synthetic data when no dataset selected
-
-### Bug Fixes and Improvements
-- Fixed synthetic test data to use realistic forex prices (1.0850 instead of 100)
-- Fixed JSON parsing issues when output is split across multiple lines
-- Fixed null value handling in chart tooltips
-- Added proper offset handling for indicators with warmup periods
-
-## TODO and Next Steps
-
-### Immediate Tasks
-1. **Fix Pandas Warning**: Update ma_crossover.py line 90 to use `.astype(bool)` or `.infer_objects(copy=False)`
-2. **Add More Signals**: 
-   - RSI oversold/overbought signal
-   - Bollinger Band squeeze signal
-   - MACD crossover signal
-3. **Improve Error Messages**: Better feedback when components fail to load data
-4. **Document Component Development**: Create guide for building indicators/signals
-5. **Component-Specific Previews**: Implement adaptive preview panels based on component type (orders don't need candle charts)
-
-### Near-term Goals
-1. **Orchestration Layer**: Implement Rust code to parse v2 metadata and run indicators automatically
-2. **Backtesting Integration**: Add performance metrics to signal output
-3. **Strategy Execution**: Enable running full strategies with multiple signals
-4. **Performance Optimization**: Cache indicator calculations across components
-
-### Long-term Vision
-1. **Live Trading**: Connect to broker APIs for real-time execution
-2. **ML Integration**: Support for machine learning based signals
-3. **Cloud Deployment**: Run strategies in the cloud with monitoring
-4. **Community Marketplace**: Share and discover trading components
+## Current UI Structure
+
+### Main Navigation
+1. **Trading Page**: Chart with fractal zoom, market data bar
+2. **Build Center**: Component library and Monaco IDE
+3. **Orchestrator**: Strategy backtesting and live trading
+4. **Data Ingestion**: Download and manage market data
+5. **Settings**: Broker configuration (encrypted storage)
+
+### Orchestrator Page Layout
+- **Left Panel**: Strategy list and selection
+- **Center Panel**: 
+  - Top tabs: Backtest, Live Trading, Performance, Risk, Orders
+  - Configuration and execution controls
+- **Right Panel**: Results with tabs
+  - Overview: Performance metrics
+  - Chart: Market data with trades
+  - Trades: Trade history
+  - Logs: System logs (no longer in footer)
+
+## Important Implementation Details
+
+### Backtest Cancellation (January 2025)
+- Stop button properly cancels running backtests
+- Uses AtomicBool cancellation tokens
+- Backtest ID emitted immediately on start
+- Frontend can cancel via `cancel_backtest` command
+
+### Component Execution
+- Components receive data via environment variables
+- `CANDLE_DATA`: JSON array of candles
+- `TEST_DATASET`: Selected parquet file for testing
+- Output parsed between START/END markers
+- Real-time streaming to UI terminal
+
+### Signal Metadata v2
+- Signals declare required indicators with parameters
+- No Rust changes needed for new indicator combinations
+- Example in `/workspace/core/signals/ma_crossover.py`
+- Strategies can override signal parameters
+
+### Database Schema
+- **forex_ticks**: Raw tick data (bid/ask prices)
+- **candles_***: Continuous aggregates for each timeframe
+- Volume field represents tick count, not traded volume
+- OHLC calculated from bid prices only
+
+## Recent Major Changes (January 2025)
+
+### State Management Migration
+- Migrated from React Context to Zustand
+- Removed `TradingContext` and `BuildContext`
+- Created `useTradingStore` and `useBuildStore`
+- Fixed scroll position persistence issue
+
+### Orchestrator UI Cleanup
+- Removed redundant nested tabs in BacktestPanel
+- Moved logs from footer to dedicated tab
+- Results panel always visible (no more disappearing)
+- Loading overlay only on Overview tab content
+
+### Component Output Control
+- Added `DEBUG_SIGNALS` environment variable
+- Suppresses debug output in normal runs
+- Essential markers (CHART_DATA, SIGNAL) preserved
+
+## Security Notes
+- Broker credentials encrypted with AES-256-GCM
+- Stored in Tauri secure storage (OS keychain)
+- Never logged or exposed in UI
+- API keys masked in settings display
+
+## Known Issues & Workarounds
+
+### Tauri-Specific
+- `window.confirm()` doesn't work - use Mantine Modal
+- `window.alert()` doesn't work - use notifications
+- File paths must be absolute in Rust commands
+
+### Performance
+- Data Manager query slow (~13s) - needs optimization
+- Large backtest datasets can take time to process
+- Chart may lag with >10k candles displayed
+
+## Deprecated Features
+The following have been removed:
+- Orders IDE (replaced by Orchestrator)
+- Order components (orders are now simple data structures)
+- TradingContext/BuildContext (replaced by Zustand)
+- Multiple component contexts (consolidated to stores)
+
+See `/depreciated/` folder for old implementations.
+
+## Quick Debugging Tips
+
+### Frontend Issues
+1. Check browser console for errors
+2. React DevTools for component state
+3. Network tab for API calls
+4. Zustand devtools for store state
+
+### Backend Issues
+1. Check terminal for Rust errors
+2. Add `emit_log` calls for debugging
+3. Database queries in `psql` for verification
+4. Redis CLI for live signal debugging
+
+### Common Fixes
+- Blank page: Check for null reference errors
+- Chart not updating: Verify cache key in store
+- Components not running: Check Python path and permissions
+- Backtest hanging: Verify cancellation token implementation
+
+## Next Development Priorities
+1. Connect orchestrator to real broker APIs
+2. Implement production-ready execution engine
+3. Add more built-in indicators and signals
+4. Performance profiling for components
+5. Cloud deployment architecture

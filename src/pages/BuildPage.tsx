@@ -1,7 +1,7 @@
 // src/pages/BuildPage.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useBuild } from '../contexts/BuildContext';
+import { useBuildStore } from '../stores/useBuildStore';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   Container, 
@@ -60,9 +60,8 @@ export const BuildPage = () => {
     setSelectedCategory,
     scrollPosition,
     setScrollPosition,
-    setLastOpenedComponent,
-    addToRecentComponents
-  } = useBuild();
+    addRecentComponent
+  } = useBuildStore();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [realComponents, setRealComponents] = useState<ComponentInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -145,13 +144,15 @@ export const BuildPage = () => {
   const launchIDE = (type: string, item: any) => {
     // Store component info before navigating
     if (item) {
-      const componentInfo = {
-        type,
+      addRecentComponent({
+        type: type as 'indicator' | 'signal' | 'strategy',
         name: item.name,
-        path: item.path || ''
-      };
-      setLastOpenedComponent(componentInfo);
-      addToRecentComponents(componentInfo);
+        path: item.path || '',
+        description: item.description,
+        category: item.category,
+        author: item.author,
+        version: item.version
+      });
     }
     
     const params = new URLSearchParams({

@@ -237,15 +237,7 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
           const x = xScale(idx);
           const crossType = data.signals.types[i];
           
-          // Draw vertical line
-          ctx.strokeStyle = crossType === 'golden_cross' ? '#00ff88' : '#ff4976';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 5]);
-          ctx.beginPath();
-          ctx.moveTo(x, topPadding);
-          ctx.lineTo(x, topPadding + chartHeight);
-          ctx.stroke();
-          ctx.setLineDash([]);
+          // Removed vertical line - keeping only arrow markers
           
           // Add arrow symbol
           ctx.fillStyle = crossType === 'golden_cross' ? '#00ff88' : '#ff4976';

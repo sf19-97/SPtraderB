@@ -1,13 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::env;
 use std::fs;
 use tokio::sync::{Mutex, RwLock};
-use tauri::{State, Builder, Manager, WindowEvent, Emitter};
+use tauri::{State, Builder, Manager, WindowEvent, Emitter, Window};
 use tokio::process::{Command, Child};
 use std::process::Stdio;
 use std::collections::HashMap;
@@ -27,7 +29,6 @@ use execution::ExecutionEngine;
 
 // Orders module still exists but not used directly anymore
 use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
-use rust_decimal::Decimal;
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -81,6 +82,8 @@ struct AppState {
     redis_client: Arc<Mutex<Option<RedisClient>>>,
     execution_engine: Arc<Mutex<Option<ExecutionEngine>>>,
     orders_db: Arc<Mutex<sqlx::SqlitePool>>,
+    // Backtest cancellation
+    active_backtests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 #[derive(Clone)]
@@ -1391,10 +1394,28 @@ async fn test_orchestrator_load(
 #[tauri::command]
 async fn run_orchestrator_backtest(
     strategy_name: String,
-    dataset: Option<String>,
+    symbol: String,
+    timeframe: String,
+    start_date: String,
+    end_date: String,
+    initial_capital: f64,
+    state: State<'_, AppState>,
     window: tauri::Window,
 ) -> Result<serde_json::Value, String> {
     emit_log(&window, "INFO", &format!("Starting backtest for strategy: {}", strategy_name));
+    
+    // Generate unique backtest ID
+    let backtest_id = uuid::Uuid::new_v4().to_string();
+    emit_log(&window, "DEBUG", &format!("Backtest ID: {}", backtest_id));
+    
+    // Create cancellation token
+    let cancel_token = Arc::new(AtomicBool::new(false));
+    
+    // Store the cancellation token
+    {
+        let mut active_backtests = state.active_backtests.lock().await;
+        active_backtests.insert(backtest_id.clone(), cancel_token.clone());
+    }
     
     // Load the strategy
     let current_dir = env::current_dir().map_err(|e| e.to_string())?;
@@ -1404,36 +1425,60 @@ async fn run_orchestrator_backtest(
         .join("strategies")
         .join(format!("{}.yaml", strategy_name));
     
-    let orchestrator = orchestrator::Orchestrator::load_strategy(workspace_path.to_str().unwrap())
+    let mut orchestrator = orchestrator::Orchestrator::load_strategy(workspace_path.to_str().unwrap())
         .map_err(|e| format!("Failed to load strategy: {}", e))?;
     
-    // Create data source
-    let data_source = if let Some(filename) = dataset {
-        emit_log(&window, "INFO", &format!("Using parquet dataset: {}", filename));
-        orchestrator::DataSource::Parquet { filename }
-    } else {
-        // Default to EURUSD 1h for last 30 days
-        let to = chrono::Utc::now();
-        let from = to - chrono::Duration::days(30);
-        emit_log(&window, "INFO", &format!("Using live data: EURUSD 1h from {} to {}", from.format("%Y-%m-%d"), to.format("%Y-%m-%d")));
-        orchestrator::DataSource::Live {
-            symbol: "EURUSD".to_string(),
-            timeframe: "1h".to_string(),
-            from,
-            to,
-        }
+    // Parse dates
+    let from = chrono::DateTime::parse_from_rfc3339(&start_date)
+        .map_err(|e| format!("Failed to parse start date: {}", e))?
+        .with_timezone(&chrono::Utc);
+    let to = chrono::DateTime::parse_from_rfc3339(&end_date)
+        .map_err(|e| format!("Failed to parse end date: {}", e))?
+        .with_timezone(&chrono::Utc);
+    
+    // Create data source - always use Live which will utilize cache/database intelligently
+    emit_log(&window, "INFO", &format!("Using {} {} data from {} to {}", 
+        symbol, timeframe, from.format("%Y-%m-%d"), to.format("%Y-%m-%d")));
+    
+    let data_source = orchestrator::DataSource::Live {
+        symbol,
+        timeframe,
+        from,
+        to,
     };
     
     // Run the backtest
-    let initial_capital = rust_decimal::Decimal::from(10000);
+    let initial_capital = rust_decimal::Decimal::from_str(&initial_capital.to_string())
+        .map_err(|_| "Invalid initial capital")?;
     emit_log(&window, "INFO", &format!("Running backtest with initial capital: ${}", initial_capital));
     
-    match orchestrator.run_backtest(data_source, initial_capital).await {
+    // Return the backtest ID immediately so the frontend can use it for cancellation
+    window.emit("backtest_started", serde_json::json!({
+        "backtest_id": backtest_id.clone()
+    })).ok();
+    
+    let backtest_id_clone = backtest_id.clone();
+    let result = match orchestrator.run_backtest_vectorized(data_source, initial_capital, &window, Some(cancel_token)).await {
         Ok(result) => {
+            // Debug: Log data sizes
+            emit_log(&window, "DEBUG", &format!("Signals: {}, Orders: {}, Trades: {}", 
+                result.signals_generated.len(),
+                result.executed_orders.len(),
+                result.completed_trades.len()
+            ));
             emit_log(&window, "SUCCESS", "Backtest completed successfully");
+            
+            // Limit the data sent to frontend to prevent UI freeze
+            let limited_signals = if result.signals_generated.len() > 100 {
+                emit_log(&window, "WARN", &format!("Limiting signals from {} to 100 for UI performance", result.signals_generated.len()));
+                result.signals_generated.into_iter().take(100).collect()
+            } else {
+                result.signals_generated
+            };
             
             Ok(serde_json::json!({
                 "success": true,
+                "backtest_id": backtest_id_clone,
                 "result": {
                     "total_trades": result.total_trades,
                     "winning_trades": result.winning_trades,
@@ -1443,7 +1488,12 @@ async fn run_orchestrator_backtest(
                     "sharpe_ratio": result.sharpe_ratio,
                     "start_capital": result.start_capital.to_string(),
                     "end_capital": result.end_capital.to_string(),
-                    "signals_generated": result.signals_generated.len()
+                    "signals_generated": limited_signals,
+                    "completed_trades": result.completed_trades.into_iter().take(100).collect::<Vec<_>>(),
+                    "executed_orders": result.executed_orders.into_iter().take(100).collect::<Vec<_>>(),
+                    "final_portfolio": result.final_portfolio,
+                    "daily_returns": result.daily_returns.into_iter().take(100).collect::<Vec<_>>(),
+                    "indicator_data": result.indicator_data
                 }
             }))
         }
@@ -1451,7 +1501,77 @@ async fn run_orchestrator_backtest(
             emit_log(&window, "ERROR", &format!("Backtest failed: {}", e));
             Err(format!("Backtest failed: {}", e))
         }
+    };
+    
+    // Clean up the cancellation token
+    {
+        let mut active_backtests = state.active_backtests.lock().await;
+        active_backtests.remove(&backtest_id);
     }
+    
+    result
+}
+
+// Cancel a running backtest
+#[tauri::command]
+async fn cancel_backtest(
+    backtest_id: String,
+    state: State<'_, AppState>,
+    window: Window,
+) -> Result<(), String> {
+    let active_backtests = state.active_backtests.lock().await;
+    
+    if let Some(cancel_token) = active_backtests.get(&backtest_id) {
+        cancel_token.store(true, Ordering::Relaxed);
+        emit_log(&window, "INFO", &format!("Cancelling backtest {}", backtest_id));
+        Ok(())
+    } else {
+        Err(format!("Backtest {} not found or already completed", backtest_id))
+    }
+}
+
+// Run orchestrator in live mode
+#[tauri::command]
+async fn run_orchestrator_live(
+    strategy_name: String,
+    initial_capital: Option<f64>,
+    state: State<'_, AppState>,
+    window: Window,
+) -> Result<serde_json::Value, String> {
+    emit_log(&window, "INFO", &format!("Starting orchestrator live mode for strategy: {}", strategy_name));
+    
+    // Load the strategy
+    let strategy_path = format!("workspace/strategies/{}.yaml", strategy_name);
+    let mut orchestrator = match orchestrator::Orchestrator::load_strategy(&strategy_path) {
+        Ok(o) => o,
+        Err(e) => {
+            emit_log(&window, "ERROR", &format!("Failed to load strategy: {}", e));
+            return Err(format!("Failed to load strategy: {}", e));
+        }
+    };
+    
+    let initial_capital = rust_decimal::Decimal::from_str(&initial_capital.unwrap_or(10000.0).to_string())
+        .unwrap_or(rust_decimal::Decimal::from(10000));
+    
+    emit_log(&window, "INFO", &format!("Starting live trading with initial capital: ${}", initial_capital));
+    
+    // Spawn the live trading task
+    let redis_url = state.redis_url.clone();
+    tokio::spawn(async move {
+        match orchestrator.run_live_mode(&redis_url, initial_capital, &window).await {
+            Ok(_) => {
+                emit_log(&window, "INFO", "Live trading stopped");
+            }
+            Err(e) => {
+                emit_log(&window, "ERROR", &format!("Live trading error: {}", e));
+            }
+        }
+    });
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "message": "Live trading started"
+    }))
 }
 
 // Get broker connection status
@@ -1891,6 +2011,7 @@ async fn main() {
         redis_client: Arc::new(Mutex::new(None)),
         execution_engine: Arc::new(Mutex::new(None)),
         orders_db: Arc::new(Mutex::new(orders_pool)),
+        active_backtests: Arc::new(Mutex::new(HashMap::new())),
     };
 
     Builder::default()
@@ -1915,6 +2036,7 @@ async fn main() {
             workspace::rename_component_folder,
             workspace::load_parquet_data,
             workspace::list_test_datasets,
+            workspace::write_temp_candles,
             get_ingestion_status,
             get_available_data,
             get_broker_connection_status,
@@ -1927,7 +2049,9 @@ async fn main() {
             get_symbol_metadata,
             export_test_data,
             test_orchestrator_load,
-            run_orchestrator_backtest
+            run_orchestrator_backtest,
+            cancel_backtest,
+            run_orchestrator_live
         ])
         .setup(|app| {
             // Get the main window handle
