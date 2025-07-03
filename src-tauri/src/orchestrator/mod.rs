@@ -619,7 +619,28 @@ impl Orchestrator {
     }
     
     /// Run a backtest with the given data source (chronological processing)
+    /// DEPRECATED: This method now redirects to run_backtest_vectorized for performance
     pub async fn run_backtest(
+        &mut self,
+        data_source: DataSource,
+        initial_capital: Decimal,
+        window: &Window,
+        cancel_token: Option<Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Result<BacktestResult, String> {
+        // Log deprecation warning
+        window.emit("log", serde_json::json!({
+            "level": "WARN",
+            "message": "DEPRECATED: run_backtest() called - redirecting to run_backtest_vectorized() for better performance"
+        })).ok();
+        
+        // Redirect to vectorized implementation
+        self.run_backtest_vectorized(data_source, initial_capital, window, cancel_token).await
+    }
+    
+    /// Original run_backtest implementation (preserved for reference)
+    /// This method processes candles one by one, calling Python for each candle
+    #[allow(dead_code)]
+    async fn run_backtest_original(
         &mut self,
         data_source: DataSource,
         initial_capital: Decimal,
