@@ -125,15 +125,6 @@ export const InteractiveTradeOverlay = ({
 
   // Draw the overlay
   useEffect(() => {
-    console.log('[InteractiveTradeOverlay] Drawing overlay:', {
-      hasCanas: !!canvasRef.current,
-      tradesCount: trades.length,
-      dimensions,
-      priceScale,
-      firstChartTime: times[0],
-      lastChartTime: times[times.length - 1],
-      sampleChartTimes: times.slice(0, 3)
-    });
     
     if (!canvasRef.current || trades.length === 0) return;
 
@@ -148,21 +139,17 @@ export const InteractiveTradeOverlay = ({
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    console.log('[InteractiveTradeOverlay] Canvas ready, drawing trades...');
 
     // Draw trades
     trades.forEach((trade, index) => {
       const normalizedTime = normalizeTime(trade.entryTime);
       const entryX = xScale(trade.entryTime);
-      console.log(`[InteractiveTradeOverlay] Trade ${index}: entryTime=${trade.entryTime}, normalized=${normalizedTime}, entryX=${entryX}`);
       
       if (entryX === -1) {
-        console.log(`[InteractiveTradeOverlay] Trade ${index} skipped - time not found in chart`);
         return;
       }
 
       const entryY = yScale(trade.entryPrice);
-      console.log(`[InteractiveTradeOverlay] Trade ${index}: entryPrice=${trade.entryPrice}, entryY=${entryY}`);
       const isLong = trade.side === 'long';
       const isHighlighted = trade.id === highlightedTradeId;
       const isHovered = trade.id === hoveredTrade;
