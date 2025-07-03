@@ -7,6 +7,10 @@ use tauri::Window;
 use rust_decimal::prelude::*;
 use std::time::Instant;
 
+// Constants for restart protection
+const MAX_RESTART_ATTEMPTS: u32 = 5;
+const RESTART_BACKOFF_MS: [u64; 5] = [1000, 2000, 4000, 8000, 16000];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentOutput {
     pub stdout: String,
@@ -34,6 +38,8 @@ pub struct ComponentExecutor {
     process: Child,
     request_counter: u64,
     reader: BufReader<std::process::ChildStdout>,
+    restart_count: u32,
+    last_restart: Option<Instant>,
 }
 
 impl ComponentExecutor {
@@ -110,7 +116,24 @@ impl ComponentExecutor {
             process,
             request_counter: 0,
             reader,
+            restart_count: 0,
+            last_restart: Some(Instant::now()),
         })
+    }
+    
+    /// Create a new executor with existing restart count
+    fn new_with_restart_count(restart_count: u32) -> Result<Self, String> {
+        let mut executor = Self::new()?;
+        executor.restart_count = restart_count;
+        Ok(executor)
+    }
+    
+    /// Reset restart count after successful operation
+    fn reset_restart_count(&mut self) {
+        if self.restart_count > 0 {
+            eprintln!("[ComponentExecutor] Resetting restart count after successful operation");
+            self.restart_count = 0;
+        }
     }
     
     /// Send a request to the component server and wait for response
@@ -385,6 +408,9 @@ impl Drop for ComponentExecutor {
 /// Global component executor instance
 pub static COMPONENT_EXECUTOR: Mutex<Option<ComponentExecutor>> = Mutex::new(None);
 
+/// Global restart counter (persists across executor instances)
+pub static RESTART_COUNT: Mutex<u32> = Mutex::new(0);
+
 /// Initialize the component executor
 pub fn initialize_component_executor() -> Result<(), String> {
     let mut executor_guard = COMPONENT_EXECUTOR.lock()
@@ -431,7 +457,29 @@ pub async fn run_component_for_candle(
         match executor.process.try_wait() {
             Ok(Some(_)) => {
                 // Process has exited, need to restart
-                eprintln!("[ComponentExecutor] Component server has died, restarting...");
+                let mut restart_guard = RESTART_COUNT.lock()
+                    .map_err(|e| format!("Failed to lock restart counter: {}", e))?;
+                
+                *restart_guard += 1;
+                let current_restart_count = *restart_guard;
+                drop(restart_guard);
+                
+                eprintln!("[ComponentExecutor] Component server has died, restart attempt {} of {}", 
+                    current_restart_count, MAX_RESTART_ATTEMPTS);
+                
+                if current_restart_count > MAX_RESTART_ATTEMPTS {
+                    return Err(format!(
+                        "Component server has crashed {} times, exceeded maximum restart attempts", 
+                        current_restart_count - 1
+                    ));
+                }
+                
+                // Apply exponential backoff
+                let backoff_index = (current_restart_count - 1).min(4) as usize;
+                let backoff_ms = RESTART_BACKOFF_MS[backoff_index];
+                eprintln!("[ComponentExecutor] Waiting {}ms before restart...", backoff_ms);
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                
                 *executor_guard = None;
             }
             Ok(None) => {
@@ -446,7 +494,12 @@ pub async fn run_component_for_candle(
     
     // Initialize if needed
     if executor_guard.is_none() {
-        *executor_guard = Some(ComponentExecutor::new()?);
+        let restart_guard = RESTART_COUNT.lock()
+            .map_err(|e| format!("Failed to lock restart counter: {}", e))?;
+        let current_restart_count = *restart_guard;
+        drop(restart_guard);
+        
+        *executor_guard = Some(ComponentExecutor::new_with_restart_count(current_restart_count)?);
     }
     
     let executor = executor_guard.as_mut()
@@ -476,6 +529,15 @@ pub async fn run_component_for_candle(
             // Execute indicator
             let values = executor.execute_indicator(component_path, relevant_candles, params)?;
             output.indicator_values = Some(values);
+            
+            // Reset restart counter on successful execution
+            executor.reset_restart_count();
+            if let Ok(mut restart_guard) = RESTART_COUNT.lock() {
+                if *restart_guard > 0 {
+                    eprintln!("[ComponentExecutor] Resetting global restart counter after successful operation");
+                    *restart_guard = 0;
+                }
+            }
         }
         "signal" => {
             // For signals, we need to calculate required indicators first
@@ -496,6 +558,15 @@ pub async fn run_component_for_candle(
                     strength: first_signal.strength,
                     metadata: first_signal.metadata.clone(),
                 });
+            }
+            
+            // Reset restart counter on successful execution
+            executor.reset_restart_count();
+            if let Ok(mut restart_guard) = RESTART_COUNT.lock() {
+                if *restart_guard > 0 {
+                    eprintln!("[ComponentExecutor] Resetting global restart counter after successful operation");
+                    *restart_guard = 0;
+                }
             }
         }
         _ => {

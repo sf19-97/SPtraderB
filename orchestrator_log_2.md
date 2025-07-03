@@ -12,11 +12,11 @@ Fixed MA crossover strategy not generating orders and created new indicators fol
 - **Fix**: Removed lines 614-619 in `/src-tauri/src/orchestrator/mod.rs`
 - **Result**: No more incorrect shutdown attempts
 
-### 2. **Hardcoded Signal Name** (Partially Addressed)
-- **Problem**: Signal name hardcoded to "ma_crossover" in mod.rs line 453
-- **Issue**: This affects all strategies, not just MA crossover
-- **Status**: Identified but not yet fixed - needs to extract signal name from strategy config
-- **Workaround**: Current hardcoding happens to match MA crossover strategy
+### 2. **Signal Name Field Addition** ✅
+- **Problem**: Signal events from Python weren't including the 'signal_name' field
+- **Root Cause**: vectorized_backtest_v2.py wasn't adding signal_name to events
+- **Fix**: Added line 181: `event['signal_name'] = signal_path.split('.')[-1]`
+- **Note**: mod.rs line 453 was already set up to read signal_name dynamically
 
 ### 3. **MA Crossover Strategy Not Generating Orders** ✅
 - **Initial Theory**: `signal_strength: "> 0.1"` condition filtering out signals
@@ -29,7 +29,13 @@ if (isinstance(signal_value, bool) and signal_value) or (signal_value != 0):
 ```
 - **Result**: Signals now properly detected, but test period only had death crosses
 
-### 4. **Component Architecture Expansion** ✅
+### 4. **Component Server Crash Protection** ❌ (Wrong Target)
+- **What was done**: Added restart limits and exponential backoff to component_runner.rs
+- **Problem**: Component server is NOT used by `run_backtest_vectorized()`
+- **Reality**: Only used by old `run_backtest()` and `run_live_mode()`
+- **Result**: Wasted effort - protection won't help during backtests
+
+### 5. **Component Architecture Expansion** ✅
 Created three new indicators following the established pattern:
 
 #### ADX (Average Directional Index)
@@ -70,7 +76,7 @@ The new `vectorized_backtest_v2.py` handles both formats:
 - Dynamically loads components with `importlib`
 - Supports both 'params' and 'parameters' keys
 - Handles class-based and function-based signals
-- No more hardcoded strategy logic
+- No more hardcoded strategy logiccan 
 
 ## Key Discoveries
 
@@ -92,26 +98,44 @@ The new `vectorized_backtest_v2.py` handles both formats:
 ## Remaining Issues (from Log #1)
 
 ### Still Need Fixing:
-1. **Component Server Crash Loop** - No restart limits, potential memory leak
+1. **Component Server Crash Loop** - ⚠️ Fixed but only affects live mode, not backtests
 2. **Hardcoded Strategy in vectorized_backtest.py** - Only handles MA crossover
-3. **Debug Logging Performance** - Console.logs in tight loops
+3. **Debug Logging Performance** - Console.logs in tight loops (partially cleaned)
 4. **Test Coverage** - No tests for vectorized execution
 
 ### Partially Fixed:
 1. **Dual Backtest Methods** - Cannot delete due to shared dependencies
-2. **Hardcoded Signal Name** - Identified but not fixed in this session
 
 ## Performance Metrics
 - MA crossover backtest: ~19ms for 1245 candles
 - Signal detection: Working correctly
 - Boolean signal handling: Fixed
 
+## Architecture Confusion Discovered
+
+### Component Server vs Direct Python Execution
+1. **Component Server** (`component_server.py`):
+   - Only used by old `run_backtest()` and `run_live_mode()`
+   - Persistent Python process with stdin/stdout communication
+   - Needed for per-candle execution in live mode
+
+2. **Direct Python** (`vectorized_backtest_v2.py`):
+   - Used by `run_backtest_vectorized()` (what we're actually using)
+   - Spawns new Python process for each backtest
+   - No persistent server, no crash loop risk
+
+### Implications
+- Component server crash protection was added to wrong part of system
+- Backtests don't use component server at all
+- Protection only helps live trading mode
+- No crash loop risk in current backtest implementation
+
 ## Next Steps
-1. Fix signal name extraction from strategy config
-2. Add restart limits to component server
-3. Make original vectorized_backtest.py dynamic like v2
-4. Add test coverage for critical paths
-5. Clean up debug logging
+1. Create wrapper to redirect old backtest to vectorized
+2. Delete old vectorized_backtest.py (v1)
+3. Add test coverage for vectorized execution
+4. Clean remaining console.log statements
+5. Consider if component server is even needed long-term
 
 ## Code Quality Improvements
 - All new indicators follow established patterns

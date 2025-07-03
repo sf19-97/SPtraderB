@@ -534,15 +534,6 @@ impl Orchestrator {
                     "message": format!("Evaluating {} signals for candle at {}", candle_signals.len(), candle.time)
                 })).ok();
                 
-                // Debug: Show signal details
-                for sig in &candle_signals {
-                    window.emit("log", serde_json::json!({
-                        "level": "DEBUG",
-                        "message": format!("Signal: name='{}', type='{}', strength={}", 
-                            sig.signal_name, sig.signal_type, sig.strength)
-                    })).ok();
-                }
-                
                 let decisions = self.evaluate_entry_conditions(
                     &candle_signals,
                     &position_tracker,
