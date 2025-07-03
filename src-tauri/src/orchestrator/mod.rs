@@ -388,7 +388,7 @@ impl Orchestrator {
         let script_path = workspace_dir
             .join("core")
             .join("utils")
-            .join("vectorized_backtest.py");
+            .join("vectorized_backtest_v2.py");
             
         window.emit("log", serde_json::json!({
             "level": "DEBUG",
@@ -450,7 +450,7 @@ impl Orchestrator {
                 
                 all_signals.push(SignalEvent {
                     timestamp,
-                    signal_name: "ma_crossover".to_string(),
+                    signal_name: signal["signal_name"].as_str().unwrap_or("unknown").to_string(),
                     signal_type: signal["signal_type"].as_str().unwrap_or("unknown").to_string(),
                     strength: signal["strength"].as_f64().unwrap_or(1.0),
                     metadata: signal["metadata"].as_object()
@@ -529,6 +529,20 @@ impl Orchestrator {
 
             // Evaluate entries
             if !candle_signals.is_empty() {
+                window.emit("log", serde_json::json!({
+                    "level": "DEBUG",
+                    "message": format!("Evaluating {} signals for candle at {}", candle_signals.len(), candle.time)
+                })).ok();
+                
+                // Debug: Show signal details
+                for sig in &candle_signals {
+                    window.emit("log", serde_json::json!({
+                        "level": "DEBUG",
+                        "message": format!("Signal: name='{}', type='{}', strength={}", 
+                            sig.signal_name, sig.signal_type, sig.strength)
+                    })).ok();
+                }
+                
                 let decisions = self.evaluate_entry_conditions(
                     &candle_signals,
                     &position_tracker,
@@ -609,14 +623,6 @@ impl Orchestrator {
             "level": "SUCCESS",
             "message": format!("Vectorized backtest completed. Total P&L: {}", result.total_pnl)
         })).ok();
-
-        // Shutdown component executor to prevent hanging processes
-        if let Err(e) = shutdown_component_executor() {
-            window.emit("log", serde_json::json!({
-                "level": "WARN",
-                "message": format!("Failed to shutdown component executor cleanly: {}", e)
-            })).ok();
-        }
 
         Ok(result)
     }

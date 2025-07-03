@@ -337,6 +337,9 @@ export const InteractiveTradeOverlay = ({
         width: dimensions.width,
         height: dimensions.height,
         cursor: 'default',
+        pointerEvents: 'auto',
+        backgroundColor: 'transparent',
+        zIndex: 10,
       }}
       onMouseMove={handleMouseMove}
       onClick={handleClick}

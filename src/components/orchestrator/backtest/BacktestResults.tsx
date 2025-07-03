@@ -64,6 +64,7 @@ export function BacktestResults() {
   } = useOrchestratorStore();
   const [marketData, setMarketData] = useState<any>(null);
   const [isLoadingChart, setIsLoadingChart] = useState(false);
+  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
 
   const getLogColor = (level: string) => {
     switch(level) {
@@ -429,6 +430,8 @@ export function BacktestResults() {
               chartMode="candles"
               showTrades={true}
               height={500}
+              isFullscreen={isChartFullscreen}
+              onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
             />
           </div>
         )}

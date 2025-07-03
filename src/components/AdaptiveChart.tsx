@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
 import { useChartStore } from '../stores/useChartStore';
+import { ActionIcon, Group, Text, Box } from '@mantine/core';
+import { IconMaximize, IconMinimize } from '@tabler/icons-react';
 
 interface ChartData {
   time: number;
@@ -15,6 +17,8 @@ interface AdaptiveChartProps {
   symbol?: string;
   timeframe?: string;
   onTimeframeChange?: (timeframe: string) => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 interface SymbolMetadata {
@@ -27,7 +31,9 @@ interface SymbolMetadata {
 const AdaptiveChart: React.FC<AdaptiveChartProps> = ({ 
   symbol = 'EURUSD',
   timeframe,
-  onTimeframeChange 
+  onTimeframeChange,
+  isFullscreen = false,
+  onToggleFullscreen
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -66,6 +72,19 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
   
   // Track if initial load has been done
   const initialLoadDoneRef = useRef(false);
+  
+  // Resize chart when fullscreen mode changes
+  useEffect(() => {
+    if (chartRef.current) {
+      // Small delay to allow DOM to update
+      setTimeout(() => {
+        chartRef.current?.applyOptions({
+          width: chartContainerRef.current?.clientWidth || 0,
+          height: chartContainerRef.current?.clientHeight || 0,
+        });
+      }, 50);
+    }
+  }, [isFullscreen]);
   
   // CRITICAL: Use bar spacing thresholds, not pixel widths
   const SWITCH_TO_15M_BAR_SPACING = 32;  // When 1h bars are spread this wide, switch to 15m
@@ -684,52 +703,182 @@ const AdaptiveChart: React.FC<AdaptiveChartProps> = ({
     }
   };
 
+  // Render fullscreen version
+  if (isFullscreen) {
+    return (
+      <>
+        {/* Fullscreen overlay */}
+        <Box
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#151515',
+            zIndex: 100,
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Header with close button */}
+          <Group justify="space-between" mb="sm">
+            <Text size="lg" fw={500} c="white">{symbol} - {currentTimeframe} Chart</Text>
+            {onToggleFullscreen && (
+              <ActionIcon
+                onClick={onToggleFullscreen}
+                variant="subtle"
+                color="gray"
+                size="md"
+                title="Exit fullscreen"
+              >
+                <IconMinimize size={20} />
+              </ActionIcon>
+            )}
+          </Group>
+          
+          {/* Chart container */}
+          <Box style={{ flex: 1, position: 'relative' }}>
+            <div 
+              ref={chartContainerRef} 
+              style={{ 
+                width: '100%',
+                height: '100%',
+                background: '#0a0a0a',
+                position: 'relative',
+                opacity: chartOpacity,
+                transition: 'opacity 300ms ease-in-out',
+                borderRadius: '4px'
+              }}
+            >
+              {isLoading && (
+                <div style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  background: 'rgba(0,0,0,0.7)',
+                  color: '#fff',
+                  padding: '5px 10px',
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}>
+                  Loading...
+                </div>
+              )}
+              
+              <div style={{
+                position: 'absolute',
+                top: '10px',
+                left: '10px',
+                background: 'rgba(0,0,0,0.7)',
+                color: '#00ff88',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontFamily: 'monospace'
+              }}>
+                {currentTimeframe}
+                {isShiftPressed && (
+                  <span style={{ marginLeft: '10px', color: '#ff9900' }}>
+                    [LOCK LEFT]
+                  </span>
+                )}
+              </div>
+            </div>
+          </Box>
+        </Box>
+        
+        {/* Dark overlay backdrop */}
+        <Box
+          onClick={onToggleFullscreen}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            zIndex: 99,
+            cursor: 'pointer',
+          }}
+        />
+      </>
+    );
+  }
+
+  // Regular mode with maximize button
   return (
-    <div 
-      ref={chartContainerRef} 
-      style={{ 
-        width: '100%',
-        height: '100%',
-        background: '#0a0a0a',
-        position: 'relative',
-        opacity: chartOpacity,
-        transition: 'opacity 300ms ease-in-out'
-      }}
-    >
-      {isLoading && (
+    <Box style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* Maximize button in top-right corner */}
+      {onToggleFullscreen && (
+        <ActionIcon
+          onClick={onToggleFullscreen}
+          variant="subtle"
+          color="gray"
+          size="sm"
+          style={{
+            position: 'absolute',
+            top: 40,
+            right: 8,
+            zIndex: 10,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            '&:hover': {
+              backgroundColor: 'rgba(0,0,0,0.9)'
+            }
+          }}
+          title="Fullscreen"
+        >
+          <IconMaximize size={16} />
+        </ActionIcon>
+      )}
+      
+      <div 
+        ref={chartContainerRef} 
+        style={{ 
+          width: '100%',
+          height: '100%',
+          background: '#0a0a0a',
+          position: 'relative',
+          opacity: chartOpacity,
+          transition: 'opacity 300ms ease-in-out'
+        }}
+      >
+        {isLoading && (
+          <div style={{
+            position: 'absolute',
+            top: '10px',
+            right: '10px',
+            background: 'rgba(0,0,0,0.7)',
+            color: '#fff',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            fontSize: '12px'
+          }}>
+            Loading...
+          </div>
+        )}
+        
         <div style={{
           position: 'absolute',
           top: '10px',
-          right: '10px',
+          left: '10px',
           background: 'rgba(0,0,0,0.7)',
-          color: '#fff',
+          color: '#00ff88',
           padding: '5px 10px',
           borderRadius: '4px',
-          fontSize: '12px'
+          fontSize: '12px',
+          fontFamily: 'monospace'
         }}>
-          Loading...
+          {currentTimeframe}
+          {isShiftPressed && (
+            <span style={{ marginLeft: '10px', color: '#ff9900' }}>
+              [LOCK LEFT]
+            </span>
+          )}
         </div>
-      )}
-      
-      <div style={{
-        position: 'absolute',
-        top: '10px',
-        left: '10px',
-        background: 'rgba(0,0,0,0.7)',
-        color: '#00ff88',
-        padding: '5px 10px',
-        borderRadius: '4px',
-        fontSize: '12px',
-        fontFamily: 'monospace'
-      }}>
-        {currentTimeframe}
-        {isShiftPressed && (
-          <span style={{ marginLeft: '10px', color: '#ff9900' }}>
-            [LOCK LEFT]
-          </span>
-        )}
       </div>
-    </div>
+    </Box>
   );
 };
 

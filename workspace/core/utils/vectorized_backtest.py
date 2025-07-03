@@ -54,8 +54,10 @@ def run_vectorized_backtest(candles: List[Dict], strategy_config: Dict) -> Dict:
     indicators = {}
     signals = []
     
-    # Calculate indicators (example for MA crossover)
-    if 'ma_crossover' in str(strategy_config):
+    # Calculate indicators based on signal dependencies
+    signal_deps = strategy_config.get('dependencies', {}).get('signals', [])
+    
+    if any('ma_crossover' in s and 'ema_crossover' not in s for s in signal_deps):
         # Calculate SMAs
         indicators['ma_fast'] = calculate_sma(df['close'], 20)
         indicators['ma_slow'] = calculate_sma(df['close'], 50)
@@ -76,11 +78,41 @@ def run_vectorized_backtest(candles: List[Dict], strategy_config: Dict) -> Dict:
             signals.append({
                 'timestamp': timestamp.isoformat(),
                 'signal_type': row['signal_type'],
+                'signal_name': 'ma_crossover',
                 'strength': 1.0,
                 'price': float(df.loc[idx, 'close']),
                 'metadata': {
                     'ma_fast': float(indicators['ma_fast'].loc[idx]),
                     'ma_slow': float(indicators['ma_slow'].loc[idx])
+                }
+            })
+    elif any('ema_crossover' in s for s in signal_deps):
+        # Calculate EMAs
+        indicators['ema_fast'] = df['close'].ewm(span=12, adjust=False).mean()
+        indicators['ema_slow'] = df['close'].ewm(span=26, adjust=False).mean()
+        
+        # Find crossovers
+        crossovers = find_crossovers(indicators['ema_fast'], indicators['ema_slow'])
+        
+        # Extract signal events
+        signal_df = crossovers[crossovers['signal'] != 0]
+        
+        for idx, row in signal_df.iterrows():
+            # Ensure timestamp has timezone info (UTC)
+            if idx.tz is None:
+                timestamp = idx.tz_localize('UTC')
+            else:
+                timestamp = idx.tz_convert('UTC')
+                
+            signals.append({
+                'timestamp': timestamp.isoformat(),
+                'signal_type': row['signal_type'],
+                'signal_name': 'ema_crossover',
+                'strength': 1.0,
+                'price': float(df.loc[idx, 'close']),
+                'metadata': {
+                    'ema_fast': float(indicators['ema_fast'].loc[idx]),
+                    'ema_slow': float(indicators['ema_slow'].loc[idx])
                 }
             })
     

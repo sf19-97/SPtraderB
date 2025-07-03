@@ -19,6 +19,7 @@ export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const { selectedPair, selectedTimeframe, chartVersion } = useTradingStore();
   const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
+  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>({
     connected: false,
     database_name: 'forex_trading',
@@ -63,6 +64,8 @@ export const TradingPage = () => {
             <AdaptiveChart 
               symbol={selectedPair}
               timeframe={selectedTimeframe}
+              isFullscreen={isChartFullscreen}
+              onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
             />
           ) : (
             <AdaptiveChartV2 

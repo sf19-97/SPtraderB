@@ -232,6 +232,7 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
     
     // Draw signal markers if present
     if (data.signals?.crossovers) {
+      console.log('[PreviewChart] Drawing signals:', data.signals);
       data.signals.crossovers.forEach((idx, i) => {
         if (idx >= 0 && idx < data.time.length) {
           const x = xScale(idx);
@@ -552,7 +553,7 @@ export const PreviewChart = ({ data, height = 200, isFullscreen = false, onToggl
             position: 'absolute',
             top: 8,
             right: 8,
-            zIndex: 10,
+            zIndex: 20,  // Increased to be above overlay canvas
           }}
           title="Fullscreen"
         >

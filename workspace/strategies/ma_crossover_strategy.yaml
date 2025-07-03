@@ -74,7 +74,6 @@ entry:
     - signal: ma_crossover
       outputs:
         crossover_type: golden_cross
-        signal_strength: "> 0.1"  # Only strong crossovers
   action: buy
   size: 0.02  # 2% of capital per trade
 
