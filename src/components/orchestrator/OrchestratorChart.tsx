@@ -141,10 +141,6 @@ export const OrchestratorChart = ({
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  // Log trades for debugging
-  console.log('[OrchestratorChart] Trades:', trades);
-  console.log('[OrchestratorChart] Chart mode:', chartMode);
-  console.log('[OrchestratorChart] Data available:', !!data);
 
   // If in candles mode with trades, use PreviewChart as base
   if (chartMode === 'candles' && data) {

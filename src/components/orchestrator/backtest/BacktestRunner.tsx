@@ -22,11 +22,9 @@ export function BacktestRunner() {
   // Listen for backtest started event
   useEffect(() => {
     const unlisten = listen('backtest_started', (event: any) => {
-      console.log('Backtest started event:', event.payload);
-      if (event.payload && event.payload.backtest_id) {
+            if (event.payload && event.payload.backtest_id) {
         setCurrentBacktestId(event.payload.backtest_id);
-        console.log('Set backtest ID from event:', event.payload.backtest_id);
-      }
+              }
     });
 
     return () => {
@@ -59,8 +57,7 @@ export function BacktestRunner() {
     // setBacktestResults(null);
     setCurrentBacktestId(null);
     clearLogs();
-    console.log('Starting backtest, cleared backtest ID');
-    
+        
     addLog({
       timestamp: new Date().toISOString(),
       level: 'INFO',
@@ -85,9 +82,7 @@ export function BacktestRunner() {
         initialCapital: backtestConfig.initialCapital,
       });
 
-      console.log('Backtest result received, size:', JSON.stringify(result).length, 'bytes');
-      console.time('setState');
-
+      
       // Map snake_case from Rust to camelCase for TypeScript
       const backtestResult = result.result as any;
       setBacktestResults({
@@ -106,8 +101,7 @@ export function BacktestRunner() {
         daily_returns: backtestResult.daily_returns,
         indicatorData: backtestResult.indicator_data || {},
       });
-      console.timeEnd('setState');
-      
+            
       addLog({
         timestamp: new Date().toISOString(),
         level: 'INFO',
@@ -143,8 +137,7 @@ export function BacktestRunner() {
   };
 
   const handleCancel = async () => {
-    console.log('handleCancel called, currentBacktestId:', currentBacktestId);
-    if (!currentBacktestId) {
+        if (!currentBacktestId) {
       console.error('No backtest ID to cancel');
       return;
     }

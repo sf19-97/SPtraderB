@@ -107,8 +107,7 @@ export function BacktestResults() {
     
     // Check if we have completed trades from the backtest
     if ('completed_trades' in backtestResults && Array.isArray(backtestResults.completed_trades)) {
-      console.log('Using completed trades:', backtestResults.completed_trades);
-      
+            
       return backtestResults.completed_trades.map((trade: any) => ({
         id: trade.id,
         symbol: trade.symbol,
@@ -127,8 +126,7 @@ export function BacktestResults() {
     
     // Fallback: Try to reconstruct from executed orders if no completed trades
     if (backtestResults.executedOrders && backtestResults.executedOrders.length > 0) {
-      console.log('No completed trades found, using executed orders');
-      return [];  // We can't properly reconstruct trades from orders alone
+            return [];  // We can't properly reconstruct trades from orders alone
     }
     
     return [];
@@ -138,8 +136,7 @@ export function BacktestResults() {
   const equityCurve = useMemo(() => {
     // Use daily returns if available
     if (backtestResults?.daily_returns && backtestResults.daily_returns.length > 0) {
-      console.log('Using actual daily returns for equity curve');
-      
+            
       const timestamps: string[] = [];
       const values: number[] = [];
       let currentValue = startCapital;
@@ -160,8 +157,7 @@ export function BacktestResults() {
     }
     
     // Fallback: Create a simple linear progression if no daily returns
-    console.log('No daily returns, using simple equity curve');
-    const timestamps = [
+        const timestamps = [
       new Date(backtestConfig.startDate).toISOString(),
       new Date(backtestConfig.endDate).toISOString()
     ];
@@ -203,8 +199,7 @@ export function BacktestResults() {
         }
       });
       
-      console.log('Loaded candles:', candles);
-      
+            
       // Convert to chart data format
       if (Array.isArray(candles) && candles.length > 0) {
         const chartData: any = {
