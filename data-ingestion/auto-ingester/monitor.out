@@ -1,0 +1,7 @@
+2025-07-05 11:37:58,459 - INFO - Starting auto ingester monitor...
+2025-07-05 11:37:58,459 - INFO - Poll interval: 900 seconds
+2025-07-05 11:37:58,459 - INFO - ============================================================
+2025-07-05 11:37:58,459 - INFO - Starting monitoring cycle
+2025-07-05 11:37:58,460 - INFO - 🔒 Forex market is closed (weekend). Skipping cycle.
+2025-07-05 11:37:58,460 - INFO - 
+Sleeping for 900 seconds until next check...
