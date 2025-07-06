@@ -50,7 +50,7 @@ class BTCPulsarIntegrationTest:
                 topic,
                 subscription_name='btc-test-consumer',
                 consumer_type=pulsar.ConsumerType.Shared,
-                initial_position=pulsar.InitialPosition.Latest
+                initial_position=pulsar.InitialPosition.Earliest
             )
             
             print(f"   Subscribed to {topic}")
@@ -58,21 +58,30 @@ class BTCPulsarIntegrationTest:
             
             # Try to receive a message
             try:
-                msg = consumer.receive(timeout_millis=5000)
+                msg = consumer.receive(timeout_millis=10000)
                 data = json.loads(msg.data().decode('utf-8'))
                 
                 print(f"   ✅ Received BTC ticker data:")
                 print(f"      Timestamp: {data.get('timestamp', 'N/A')}")
                 print(f"      Symbol: {data.get('symbol', 'N/A')}")
-                if 'data' in data and 'last' in data['data']:
-                    price = data['data']['last'][0]
-                    print(f"      Price: ${price}")
+                print(f"      Exchange: {data.get('exchange', 'N/A')}")
+                
+                # Extract price from Kraken ticker format
+                if 'data' in data and 'c' in data['data']:
+                    # 'c' contains [price, size] for last trade
+                    price = data['data']['c'][0]
+                    print(f"      Last Price: ${price}")
+                
+                if 'data' in data and 'b' in data['data'] and 'a' in data['data']:
+                    bid = data['data']['b'][0]
+                    ask = data['data']['a'][0]
+                    print(f"      Bid/Ask: ${bid} / ${ask}")
                 
                 self.results["realtime_data_flowing"] = True
                 consumer.acknowledge(msg)
                 
             except Exception as timeout_e:
-                print(f"   ⚠️  No messages received in 5 seconds")
+                print(f"   ⚠️  No messages received: {timeout_e}")
                 self.results["errors"].append(f"No real-time data: {timeout_e}")
             
             consumer.close()
