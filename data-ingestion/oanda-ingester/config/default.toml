@@ -1,0 +1,33 @@
+[service]
+name = "oanda-ingester"
+environment = "development"
+
+[oanda]
+api_url = "https://stream-fxpractice.oanda.com"
+account_id = ""  # Will be set via environment variable
+api_token = ""   # Will be set via environment variable
+
+[oanda.streaming]
+instruments = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD"]
+snapshot = true
+include_home_conversions = false
+
+[pulsar]
+broker_url = "pulsar://localhost:6650"
+producer_name = "oanda-ingester"
+compression = "lz4"
+
+[pulsar.topics]
+prices = "persistent://public/default/market-data/forex/prices"
+heartbeat = "persistent://public/default/market-data/forex/heartbeat"
+status = "persistent://public/default/market-data/forex/status"
+
+[monitoring]
+health_check_port = 8080
+metrics_port = 9090
+
+[retry]
+max_attempts = 5
+initial_delay_ms = 1000
+max_delay_ms = 60000
+exponential_base = 2

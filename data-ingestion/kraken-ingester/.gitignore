@@ -1,0 +1,27 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Logs
+*.log
+ingester.log
+
+# Environment files
+.env
+.env.local
+
+# Apache Pulsar installation
+tools/apache-pulsar-*/
+tools/*.tar.gz
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

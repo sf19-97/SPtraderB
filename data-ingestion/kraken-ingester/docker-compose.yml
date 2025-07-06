@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  pulsar:
+    image: apachepulsar/pulsar:3.2.0
+    container_name: kraken-pulsar
+    ports:
+      - "6650:6650"     # Binary protocol
+      - "8080:8080"     # HTTP admin API
+    command: >
+      bash -c "bin/pulsar standalone"
+    environment:
+      - PULSAR_MEM="-Xms512m -Xmx512m"
+    volumes:
+      - pulsar-data:/pulsar/data
+
+  pulsar-manager:
+    image: apachepulsar/pulsar-manager:latest
+    container_name: kraken-pulsar-manager
+    ports:
+      - "9527:9527"
+      - "7750:7750"
+    depends_on:
+      - pulsar
+    environment:
+      SPRING_CONFIGURATION_FILE: /pulsar-manager/pulsar-manager/application.properties
+
+volumes:
+  pulsar-data:
