@@ -12,6 +12,7 @@ import { OrdersPage } from './pages/OrdersPage';
 import { MonacoIDE } from './components/MonacoIDE';
 import { OrchestratorTestPage } from './pages/OrchestratorTestPage';
 import { OrchestratorPage } from './pages/OrchestratorPage';
+import BitcoinTest from './pages/BitcoinTest';
 import './App.css';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="orchestrator-test" element={<OrchestratorTestPage />} />
           <Route path="orchestrator" element={<OrchestratorPage />} />
+          <Route path="bitcoin-test" element={<BitcoinTest />} />
         </Route>
         
         {/* IDE route outside AppLayout for full screen */}

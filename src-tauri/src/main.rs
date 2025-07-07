@@ -24,6 +24,9 @@ mod brokers;
 mod execution;
 mod database;
 mod orchestrator;
+mod commands {
+    pub mod bitcoin_data;
+}
 
 use execution::ExecutionEngine;
 
@@ -2051,7 +2054,10 @@ async fn main() {
             test_orchestrator_load,
             run_orchestrator_backtest,
             cancel_backtest,
-            run_orchestrator_live
+            run_orchestrator_live,
+            // Bitcoin-specific commands (separate from forex)
+            commands::bitcoin_data::get_bitcoin_chart_data,
+            commands::bitcoin_data::get_bitcoin_realtime_data
         ])
         .setup(|app| {
             // Get the main window handle
