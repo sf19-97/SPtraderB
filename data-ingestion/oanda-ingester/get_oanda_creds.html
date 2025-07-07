@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Extract OANDA Credentials</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+        }
+        .output {
+            background: #000;
+            padding: 15px;
+            border: 1px solid #00ff00;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        button {
+            background: #00ff00;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: monospace;
+        }
+        button:hover {
+            background: #00cc00;
+        }
+    </style>
+</head>
+<body>
+    <h1>OANDA Credentials Extractor</h1>
+    <p>Open this file in the same browser where SPtraderB is running</p>
+    <button onclick="extractCredentials()">Extract OANDA Credentials</button>
+    <div id="output" class="output"></div>
+
+    <script>
+        function extractCredentials() {
+            const output = document.getElementById('output');
+            
+            try {
+                const brokerData = localStorage.getItem('broker-profiles');
+                
+                if (!brokerData) {
+                    output.textContent = 'No broker profiles found. Make sure you have saved OANDA credentials in the Settings page.';
+                    return;
+                }
+                
+                const parsed = JSON.parse(brokerData);
+                const profiles = parsed.state?.profiles || [];
+                
+                const oandaProfile = profiles.find(p => 
+                    p.broker === 'OANDA' || 
+                    p.broker === 'oanda' || 
+                    p.broker === 'Oanda'
+                );
+                
+                if (oandaProfile) {
+                    // Decrypt the credentials (simple base64)
+                    const apiKey = atob(oandaProfile.apiKey);
+                    const account = oandaProfile.account;
+                    
+                    let result = 'Found OANDA credentials!\n\n';
+                    result += `Account ID: ${account}\n`;
+                    result += `API Token: ${apiKey}\n`;
+                    result += `Environment: ${oandaProfile.environment || 'demo'}\n\n`;
+                    result += 'Copy these to your .env file:\n\n';
+                    result += `OANDA_ACCOUNT_ID=${account}\n`;
+                    result += `OANDA_API_TOKEN=${apiKey}\n`;
+                    
+                    output.textContent = result;
+                } else {
+                    output.textContent = 'No OANDA profile found.\n\nAvailable brokers: ' + 
+                        profiles.map(p => p.broker).join(', ');
+                }
+            } catch (e) {
+                output.textContent = 'Error: ' + e.message;
+            }
+        }
+    </script>
+</body>
+</html>
