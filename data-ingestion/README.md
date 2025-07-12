@@ -1,103 +1,111 @@
-# Data Ingestion - Unified Pipeline Architecture
+# Data Ingestion Pipeline
 
-## Vision
-Transform market data management from technical "ingestion tasks" to a seamless, integrated experience where users simply add symbols through the Settings page and the system handles everything automatically.
+## Overview
+This directory contains the data ingestion infrastructure for SPtraderB, handling both historical and real-time market data.
 
-## Current Architecture
+## Components
 
-### Real-Time Streaming (✅ Implemented)
-- **OANDA Ingester**: Forex data via SSE → Pulsar topics
-- **Kraken Ingester**: Crypto data via WebSocket → Pulsar topics
-- **Apache Pulsar**: Central message broker at localhost:6650
+### Forex Data
+- **`dukascopy_ingester.py`** - Downloads historical forex tick data from Dukascopy
+  - Supports EURUSD, USDJPY, etc.
+  - Stores in `forex_ticks` table
+  - Creates continuous aggregates automatically
 
-### Historical Data (🔄 Direct to DB - To Be Unified)
-- **Auto-Ingester**: Monitors Dukascopy availability
-- **Direct Writes**: Currently bypasses Pulsar, writes directly to TimescaleDB
-- **Cloud Monitor**: AWS Lambda checks data availability
+### Bitcoin Data
+- **`dukascopy_bitcoin_ingester.py`** - Downloads historical Bitcoin data from Dukascopy
+  - BTCUSD historical ticks
+  - Stores in `bitcoin_ticks` table
+  - Supports gap filling with `--fill-gaps` mode
+  
+- **`bitcoin-pulsar-consumer.py`** - Consumes real-time Bitcoin data from Pulsar
+  - Reads from Kraken topics
+  - Writes to `bitcoin_ticks` table
+  - Handles both ticker and trades data
 
-## Future Architecture: Everything Through Pulsar
+### Real-time Infrastructure
+- **`kraken-ingester/`** - Rust service that streams Kraken WebSocket data to Pulsar
+  - Connects to Kraken WebSocket API
+  - Publishes to Pulsar topics:
+    - `persistent://public/default/market-data/crypto/raw/kraken/btcusd/ticker`
+    - `persistent://public/default/market-data/crypto/raw/kraken/btcusd/trades`
+  - Contains Apache Pulsar installation in `tools/`
 
-```
-User adds symbol in Settings (e.g., AUDCAD, AAPL, TSLA)
-                    ↓
-         System automatically:
-    ┌───────────────┴───────────────┐
-    │  Creates Pulsar namespace/    │
-    │  topic structure              │
-    └───────────────┬───────────────┘
-                    ↓
-    ┌───────────────────────────────┐
-    │     Apache Pulsar             │
-    │  ┌─────────┬──────────────┐  │
-    │  │Historical│  Real-time   │  │
-    │  │Namespace │  Namespace   │  │
-    │  └────┬────┴──────┬───────┘  │
-    └───────┼───────────┼──────────┘
-            ↓           ↓
-     ┌──────┴────┐     No persistence
-     │JDBC Sink  │     (streaming only)
-     │to TimeDB  │
-     └───────────┘
-```
+- **`oanda-ingester/`** - Rust service for OANDA forex streaming (future use)
 
-## Directory Structure
+### Auto Ingestion
+- **`auto-ingester/`** - Automated forex data updates
+  - Monitors for new data availability
+  - Runs on schedule via cron
 
-```
-data-ingestion/
-├── oanda-ingester/        # Forex real-time streaming
-├── kraken-ingester/       # Crypto real-time streaming  
-├── auto-ingester/         # Historical data monitoring
-├── cloud-monitor/         # AWS Lambda for Dukascopy
-├── tests/                 # Integration tests (planned)
-└── dukascopy_ingester.py  # Historical tick downloader
-```
+## Starting the Bitcoin Real-time Pipeline
 
-## Key Benefits of Unified Pipeline
-
-1. **User Experience**: Add market data like installing apps - simple, no technical knowledge needed
-2. **Single Entry Point**: All data flows through Pulsar first
-3. **Flexible Routing**: Historical → Database, Real-time → Streaming only  
-4. **Easy Scaling**: New data sources just follow the pattern
-5. **Better Monitoring**: One pipeline to monitor instead of many
-
-## Quick Start
-
-### 1. Start Pulsar
 ```bash
-cd kraken-ingester/tools
-./apache-pulsar-3.2.0/bin/pulsar standalone
+# 1. Start Apache Pulsar
+cd kraken-ingester/tools/apache-pulsar-3.2.0
+./bin/pulsar standalone
+
+# 2. Start Kraken WebSocket ingester (new terminal)
+cd kraken-ingester
+RUST_LOG=kraken_ingester=info ./target/release/kraken-ingester
+
+# 3. Start Bitcoin Pulsar consumer (new terminal)
+cd data-ingestion
+python bitcoin-pulsar-consumer.py
+
+# Verify data flow
+psql -U sebastian -d forex_trading -c "SELECT COUNT(*) FROM bitcoin_ticks WHERE time > NOW() - INTERVAL '1 minute';"
 ```
 
-### 2. Start Real-Time Ingesters
+## Database Schema
+
+### Tables
+- `forex_ticks` - Raw forex tick data
+- `bitcoin_ticks` - Raw Bitcoin tick data
+- `candles_*` - Continuous aggregates for forex (5m, 15m, 1h, 4h, 12h)
+- `bitcoin_candles_*` - Continuous aggregates for Bitcoin
+
+### Key SQL Files
+- `bitcoin_schema_setup.sql` - Bitcoin table definitions
+
+## Troubleshooting
+
+### Pulsar Issues
+- If BookKeeper errors: Kill Pulsar, use `--wipe-data` flag
+- Connection refused: Wait 20-30 seconds for Pulsar to fully start
+- Check ports: `lsof -i :6650 -i :8080 | grep LISTEN`
+
+### Process Management
 ```bash
-# Terminal 1: Kraken (crypto - runs 24/7)
-cd kraken-ingester && cargo run
+# Check running processes
+ps aux | grep -E "(pulsar|kraken|bitcoin)"
 
-# Terminal 2: OANDA (forex - weekdays only)
-cd oanda-ingester && cargo run
+# Kill all processes
+pkill -f "pulsar standalone"
+pkill -f "kraken-ingester" 
+pkill -f "bitcoin-pulsar-consumer"
 ```
 
-### 3. Start Historical Monitoring
-```bash
-cd auto-ingester && python monitor.py
+### Logs
+- Kraken ingester: `kraken-ingester/kraken.log`
+- Bitcoin consumer: `consumer.log`
+- Pulsar: `kraken-ingester/tools/apache-pulsar-3.2.0/logs/pulsar-standalone.log`
+
+## Architecture Vision
+
+### Current State
+- Historical data: Direct database writes
+- Real-time data: Through Pulsar topics
+
+### Future State
+All data flows through Pulsar:
+```
+Data Sources → Pulsar Topics → Consumers → Database
+                           ↓
+                    Real-time Charts
 ```
 
-## Environment Variables
-- `OANDA_API_KEY`: Your OANDA API key
-- `OANDA_ACCOUNT_ID`: Your OANDA account ID
-- See individual service READMEs for more
-
-## Testing
-- Kraken provides 24/7 BTC data for testing
-- OANDA requires forex market hours (Sunday 21:00 UTC - Friday 21:00 UTC)
-- See `kraken-ingester/INTEGRATION_GUIDE.md` for BTC testing
-
-## Future Improvements
-1. Replace Data Ingestion page with Settings integration
-2. Route historical data through Pulsar with JDBC sinks
-3. Add more exchanges (Interactive Brokers, Alpaca, Binance)
-4. Deploy Pulsar cluster for production scale
-
----
-
-This unified pipeline architecture sets the foundation for a professional-grade trading platform where data management "just works" without manual intervention.
+This provides:
+- Unified pipeline for all data
+- Better reliability and monitoring
+- Easier to add new data sources
+- Scalable architecture

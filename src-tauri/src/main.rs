@@ -24,6 +24,7 @@ mod brokers;
 mod execution;
 mod database;
 mod orchestrator;
+mod candle_monitor;
 mod commands {
     pub mod bitcoin_data;
 }
@@ -87,6 +88,8 @@ struct AppState {
     orders_db: Arc<Mutex<sqlx::SqlitePool>>,
     // Backtest cancellation
     active_backtests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    // Candle update monitors
+    candle_monitors: Arc<Mutex<HashMap<String, Arc<candle_monitor::CandleUpdateMonitor>>>>,
 }
 
 #[derive(Clone)]
@@ -2015,6 +2018,8 @@ async fn main() {
         execution_engine: Arc::new(Mutex::new(None)),
         orders_db: Arc::new(Mutex::new(orders_pool)),
         active_backtests: Arc::new(Mutex::new(HashMap::new())),
+        // bitcoin_consumers: Arc::new(Mutex::new(HashMap::new())), // Removed - using direct DB ingestion
+        candle_monitors: Arc::new(Mutex::new(HashMap::new())),
     };
 
     Builder::default()
@@ -2057,7 +2062,13 @@ async fn main() {
             run_orchestrator_live,
             // Bitcoin-specific commands (separate from forex)
             commands::bitcoin_data::get_bitcoin_chart_data,
-            commands::bitcoin_data::get_bitcoin_realtime_data
+            commands::bitcoin_data::get_bitcoin_realtime_data,
+            commands::bitcoin_data::get_latest_bitcoin_tick,
+            commands::bitcoin_data::get_bitcoin_24h_stats,
+            // Candle monitor commands
+            candle_monitor::start_candle_monitor,
+            candle_monitor::stop_candle_monitor,
+            candle_monitor::trigger_candle_update
         ])
         .setup(|app| {
             // Get the main window handle
