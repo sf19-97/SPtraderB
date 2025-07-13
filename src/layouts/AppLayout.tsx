@@ -23,12 +23,10 @@ export const AppLayout = () => {
 
   const navItems = [
     { path: '/trading', label: 'Trading', icon: IconChartLine },
-    { path: '/backtest', label: 'Backtest', icon: IconTestPipe },
     { path: '/build', label: 'Build', icon: IconCode },
-    { path: '/data', label: 'Data Manager', icon: IconDatabase }, // Add this
+    { path: '/data', label: 'Data Manager', icon: IconDatabase },
     { path: '/history', label: 'History', icon: IconHistory },
     { path: '/orchestrator', label: 'Orchestrator', icon: IconRobot },
-    { path: '/orchestrator-test', label: 'Orch Test', icon: IconTestPipe },
     { path: '/bitcoin-test', label: 'Bitcoin Test', icon: IconCurrencyBitcoin },
   ];
 

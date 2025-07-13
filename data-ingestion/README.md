@@ -1,111 +1,69 @@
-# Data Ingestion Pipeline
+# Data Ingestion
 
-## Overview
-This directory contains the data ingestion infrastructure for SPtraderB, handling both historical and real-time market data.
+Clean, organized data ingestion for SPtraderB.
 
-## Components
+## Directory Structure
 
-### Forex Data
-- **`dukascopy_ingester.py`** - Downloads historical forex tick data from Dukascopy
-  - Supports EURUSD, USDJPY, etc.
-  - Stores in `forex_ticks` table
-  - Creates continuous aggregates automatically
+```
+data-ingestion/
+├── live/                    # Production ingestion (running 24/7)
+│   └── kraken/
+│       └── direct-bitcoin-ingester.py   # Real-time BTC/USD from Kraken WebSocket
+│
+├── backfill/               # Manual historical data tools
+│   └── dukascopy/
+│       ├── dukascopy_ingester.py         # Forex historical data
+│       └── dukascopy_bitcoin_ingester.py # Bitcoin historical data
+│
+├── sql/                    # Database setup and maintenance
+│   ├── bitcoin_schema_setup.sql          # Initial Bitcoin tables
+│   ├── create_bitcoin_1min_candles.sql   # 1-minute aggregate
+│   ├── bitcoin_cascade_refresh.sql       # Cascade refresh procedure
+│   └── [monitoring and setup scripts]
+│
+└── docs/                   # API documentation and references
+    └── oanda_api_info.py   # OANDA API structure reference
+```
 
-### Bitcoin Data
-- **`dukascopy_bitcoin_ingester.py`** - Downloads historical Bitcoin data from Dukascopy
-  - BTCUSD historical ticks
-  - Stores in `bitcoin_ticks` table
-  - Supports gap filling with `--fill-gaps` mode
-  
-- **`bitcoin-pulsar-consumer.py`** - Consumes real-time Bitcoin data from Pulsar
-  - Reads from Kraken topics
-  - Writes to `bitcoin_ticks` table
-  - Handles both ticker and trades data
+## Live Ingestion
 
-### Real-time Infrastructure
-- **`kraken-ingester/`** - Rust service that streams Kraken WebSocket data to Pulsar
-  - Connects to Kraken WebSocket API
-  - Publishes to Pulsar topics:
-    - `persistent://public/default/market-data/crypto/raw/kraken/btcusd/ticker`
-    - `persistent://public/default/market-data/crypto/raw/kraken/btcusd/trades`
-  - Contains Apache Pulsar installation in `tools/`
-
-- **`oanda-ingester/`** - Rust service for OANDA forex streaming (future use)
-
-### Auto Ingestion
-- **`auto-ingester/`** - Automated forex data updates
-  - Monitors for new data availability
-  - Runs on schedule via cron
-
-## Starting the Bitcoin Real-time Pipeline
-
+### Bitcoin (Kraken)
 ```bash
-# 1. Start Apache Pulsar
-cd kraken-ingester/tools/apache-pulsar-3.2.0
-./bin/pulsar standalone
-
-# 2. Start Kraken WebSocket ingester (new terminal)
-cd kraken-ingester
-RUST_LOG=kraken_ingester=info ./target/release/kraken-ingester
-
-# 3. Start Bitcoin Pulsar consumer (new terminal)
-cd data-ingestion
-python bitcoin-pulsar-consumer.py
-
-# Verify data flow
-psql -U sebastian -d forex_trading -c "SELECT COUNT(*) FROM bitcoin_ticks WHERE time > NOW() - INTERVAL '1 minute';"
+cd live/kraken
+python3 direct-bitcoin-ingester.py
 ```
+- Connects to Kraken WebSocket
+- Writes directly to PostgreSQL `bitcoin_ticks` table
+- Auto-reconnects on failure
+- Runs via macOS launchd service
 
-## Database Schema
+## Historical Backfill
 
-### Tables
-- `forex_ticks` - Raw forex tick data
-- `bitcoin_ticks` - Raw Bitcoin tick data
-- `candles_*` - Continuous aggregates for forex (5m, 15m, 1h, 4h, 12h)
-- `bitcoin_candles_*` - Continuous aggregates for Bitcoin
-
-### Key SQL Files
-- `bitcoin_schema_setup.sql` - Bitcoin table definitions
-
-## Troubleshooting
-
-### Pulsar Issues
-- If BookKeeper errors: Kill Pulsar, use `--wipe-data` flag
-- Connection refused: Wait 20-30 seconds for Pulsar to fully start
-- Check ports: `lsof -i :6650 -i :8080 | grep LISTEN`
-
-### Process Management
+### Dukascopy Forex
 ```bash
-# Check running processes
-ps aux | grep -E "(pulsar|kraken|bitcoin)"
-
-# Kill all processes
-pkill -f "pulsar standalone"
-pkill -f "kraken-ingester" 
-pkill -f "bitcoin-pulsar-consumer"
+cd backfill/dukascopy
+python3 dukascopy_ingester.py --symbol EURUSD --start 2024-01-01 --end 2024-01-31
 ```
 
-### Logs
-- Kraken ingester: `kraken-ingester/kraken.log`
-- Bitcoin consumer: `consumer.log`
-- Pulsar: `kraken-ingester/tools/apache-pulsar-3.2.0/logs/pulsar-standalone.log`
-
-## Architecture Vision
-
-### Current State
-- Historical data: Direct database writes
-- Real-time data: Through Pulsar topics
-
-### Future State
-All data flows through Pulsar:
-```
-Data Sources → Pulsar Topics → Consumers → Database
-                           ↓
-                    Real-time Charts
+### Dukascopy Bitcoin
+```bash
+cd backfill/dukascopy
+python3 dukascopy_bitcoin_ingester.py --symbol BTCUSD --start 2024-01-01 --end 2024-01-31
 ```
 
-This provides:
-- Unified pipeline for all data
-- Better reliability and monitoring
-- Easier to add new data sources
-- Scalable architecture
+## Database Setup
+
+Run SQL scripts in order:
+1. `sql/bitcoin_schema_setup.sql` - Create tables
+2. `sql/create_bitcoin_1min_candles.sql` - Add 1m aggregates
+3. `sql/bitcoin_cascade_refresh.sql` - Setup refresh policies
+
+## Pattern for New Assets
+
+1. Copy `live/kraken/direct-bitcoin-ingester.py`
+2. Modify connection (broker WebSocket/API)
+3. Adjust parsing for broker's data format
+4. Keep same table structure
+5. That's it
+
+No Pulsar. No Docker. Direct connections only.

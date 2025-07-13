@@ -1,5 +1,8 @@
 # SPtraderB - What You Need to Know
 
+## CRITICAL DOCUMENT - READ FIRST
+**`data-ingestion/BITCOIN_CASCADE_PATTERN.md`** - This is THE MOST IMPORTANT document in the entire codebase. It contains the ONLY working solution for real-time data with hierarchical aggregates. This pattern runs 24/7 in production. DO NOT deviate from it.
+
 ## The Working Pattern
 Study these three files - they show the complete Bitcoin implementation that works:
 - `data-ingestion/direct-bitcoin-ingester.py` - WebSocket → PostgreSQL ingestion
