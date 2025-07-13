@@ -4,7 +4,6 @@ import { Box, Indicator } from '@mantine/core';
 import { MarketDataBar } from '../components/MarketDataBar';
 import { TradingRightSidebar } from '../components/TradingRightSidebar';
 import AdaptiveChart from '../components/AdaptiveChart';
-import { AdaptiveChartV2 } from '../components/AdaptiveChartV2';
 import { useTradingStore } from '../stores/useTradingStore';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -17,8 +16,7 @@ interface DatabaseStatus {
 
 export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const { selectedPair, selectedTimeframe, chartVersion } = useTradingStore();
-  const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
+  const { selectedPair, selectedTimeframe } = useTradingStore();
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>({
     connected: false,
@@ -60,20 +58,12 @@ export const TradingPage = () => {
 
         {/* Chart area */}
         <Box style={{ flex: 1, background: '#0a0a0a', position: 'relative' }}>
-          {chartVersion === 'v1' ? (
-            <AdaptiveChart 
-              symbol={selectedPair}
-              timeframe={selectedTimeframe}
-              isFullscreen={isChartFullscreen}
-              onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
-            />
-          ) : (
-            <AdaptiveChartV2 
-              symbol={selectedPair}
-              timeframe={selectedTimeframe}
-              onDetailLevelChange={setV2DetailLevel}
-            />
-          )}
+          <AdaptiveChart 
+            symbol={selectedPair}
+            timeframe={selectedTimeframe}
+            isFullscreen={isChartFullscreen}
+            onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
+          />
         </Box>
 
         {/* Bottom status bar */}

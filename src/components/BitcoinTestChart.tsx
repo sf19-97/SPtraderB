@@ -356,7 +356,7 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
     chartContainerRef.current.appendChild(toolTip);
 
     // Subscribe to crosshair move
-    chart.subscribeCrosshairMove(param => {
+    const crosshairUnsubscribe = chart.subscribeCrosshairMove(param => {
       if (!param.time || !param.seriesData.has(candlestickSeries)) {
         toolTip.style.display = 'none';
         return;
@@ -462,6 +462,10 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
       if (checkIntervalRef.current) {
         clearInterval(checkIntervalRef.current);
       }
+      // Unsubscribe from crosshair
+      if (crosshairUnsubscribe) {
+        crosshairUnsubscribe();
+      }
       // Remove tooltip
       if (toolTip && toolTip.parentNode) {
         toolTip.parentNode.removeChild(toolTip);
@@ -561,28 +565,18 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
   // Real-time data streaming effect
   useEffect(() => {
     console.log('[BitcoinChart] Real-time streaming effect triggered');
-    let unlistenTick: (() => void) | undefined;
+    let mounted = true;
     let unlistenStatus: (() => void) | undefined;
     let unlistenCandle: (() => void) | undefined;
 
     const startStreaming = async () => {
       try {
-        // Start the Bitcoin stream
-        console.log('[BitcoinChart] Starting Bitcoin stream...');
-        await invoke('start_bitcoin_stream');
-        console.log('[BitcoinChart] Bitcoin stream started successfully');
         
         // Start the candle update monitor
         console.log('[BitcoinChart] Starting candle update monitor...');
         await invoke('start_candle_monitor');
         console.log('[BitcoinChart] Candle monitor started successfully');
         
-        // Listen for tick updates (only for status display)
-        unlistenTick = await listen<BitcoinTick>('bitcoin-tick', (event) => {
-          const tick = event.payload;
-          setLastTick(tick);
-          // No candle updates - just track the latest tick for display
-        });
         
         // Listen for candle update events specific to current timeframe
         const updateListener = async () => {
@@ -596,6 +590,7 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
           console.log(`[BitcoinChart] Listening for ${eventName} events`);
           
           unlistenCandle = await listen<{symbol: string, timeframe: string, timestamp: string}>(eventName, (event) => {
+            if (!mounted) return;
             console.log('[BitcoinChart] Candle update received:', event.payload);
             
             // Invalidate cache and reload chart data when our timeframe updates
@@ -620,6 +615,7 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
               
               fetchChartData(symbolRef.current, currentTimeframeRef.current, from, to)
                 .then(({ data }) => {
+                  if (!mounted) return;
                   if (data.length > 0 && seriesRef.current) {
                     seriesRef.current.setData(data);
                     // Update cache with new key
@@ -637,13 +633,16 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
         
         // Listen for connection status
         unlistenStatus = await listen<StreamStatus>('bitcoin-stream-status', (event) => {
+          if (!mounted) return;
           console.log('[BitcoinChart] Stream status:', event.payload);
           setStreamStatus(event.payload);
         });
         
       } catch (error) {
         console.error('[BitcoinChart] Failed to start Bitcoin stream:', error);
-        setStreamStatus({ connected: false, message: `Error: ${error}` });
+        if (mounted) {
+          setStreamStatus({ connected: false, message: `Error: ${error}` });
+        }
       }
     };
 
@@ -651,13 +650,12 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
 
     // Cleanup
     return () => {
-      if (unlistenTick) unlistenTick();
+      mounted = false;
       if (unlistenStatus) unlistenStatus();
       if (unlistenCandle) unlistenCandle();
       
-      // Stop the stream and monitor when component unmounts
-      console.log('[BitcoinChart] Stopping stream and monitor on unmount');
-      invoke('stop_bitcoin_stream').catch(console.error);
+      // Stop the candle monitor when component unmounts
+      console.log('[BitcoinChart] Stopping candle monitor on unmount');
       invoke('stop_candle_monitor').catch(console.error);
     };
   }, []); // Only run once on mount
@@ -709,7 +707,7 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
     }, 30000); // Every 30 seconds
 
     return () => clearInterval(intervalId);
-  }, [isLoading]); // Re-create interval if loading state changes
+  }, []); // Only create interval once
 
   // Add the checkTimeframeSwitch function
   const checkTimeframeSwitch = (barSpacing: number) => {

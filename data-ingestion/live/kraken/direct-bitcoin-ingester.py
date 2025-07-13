@@ -99,25 +99,37 @@ class DirectBitcoinIngester:
             # Keep the batch to retry on next flush
             logger.info(f"Keeping {len(self.batch)} ticks to retry later")
     
-    async def process_ticker(self, data):
-        """Process Kraken ticker data"""
-        tick_data = data[1]
+    async def process_trade(self, data):
+        """Process Kraken trade data"""
+        # Trade format: [channelID, [[price, volume, time, side, orderType, misc]], channelName, pair]
+        trades = data[1]
+        logger.debug(f"Received {len(trades)} trades")
         
-        # Extract bid/ask
-        bid = float(tick_data['b'][0])  # Best bid price
-        ask = float(tick_data['a'][0])  # Best ask price
-        last = float(tick_data['c'][0])  # Last trade price
-        volume = float(tick_data['v'][0])  # Volume today
-        
-        timestamp = datetime.now(timezone.utc)
-        
-        # Add to batch
-        self.batch.append((
-            timestamp,
-            'BTCUSD',
-            bid,
-            ask
-        ))
+        for trade in trades:
+            price = float(trade[0])
+            volume = float(trade[1])
+            timestamp = float(trade[2])
+            side = trade[3]  # 'b' for buy, 's' for sell
+            
+            # Convert timestamp to datetime
+            trade_time = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            
+            # For trades, we use the same price for bid and ask
+            # Add small spread based on side
+            if side == 'b':  # Buy trade - price is ask
+                bid = price - 0.10  # Small spread
+                ask = price
+            else:  # Sell trade - price is bid
+                bid = price
+                ask = price + 0.10  # Small spread
+            
+            # Add to batch
+            self.batch.append((
+                trade_time,
+                'BTCUSD',
+                bid,
+                ask
+            ))
         
         # Flush if batch is full or time elapsed
         if len(self.batch) >= self.batch_size or \
@@ -135,11 +147,11 @@ class DirectBitcoinIngester:
                     self.ws = ws
                     logger.info("Connected to Kraken")
                     
-                    # Subscribe to BTC/USD ticker
+                    # Subscribe to BTC/USD trades (not just ticker)
                     subscribe_msg = {
                         "event": "subscribe",
                         "pair": ["XBT/USD"],
-                        "subscription": {"name": "ticker"}
+                        "subscription": {"name": "trade"}
                     }
                     await ws.send(json.dumps(subscribe_msg))
                     
@@ -163,11 +175,11 @@ class DirectBitcoinIngester:
                                 logger.info(f"Subscription: {data}")
                             continue
                         
-                        # Process ticker data
+                        # Process trade data
                         if isinstance(data, list) and len(data) == 4:
                             channel_name = data[2]
-                            if channel_name == 'ticker':
-                                await self.process_ticker(data)
+                            if channel_name == 'trade':
+                                await self.process_trade(data)
                                 
             except websockets.exceptions.ConnectionClosed:
                 logger.warning("WebSocket connection closed")
