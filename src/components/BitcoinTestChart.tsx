@@ -9,7 +9,7 @@
  * - Connected to bitcoin_ticks/bitcoin_candles_* tables
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -75,6 +75,12 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
   const [streamStatus, setStreamStatus] = useState<StreamStatus>({ connected: false, message: 'Not connected' });
   const [lastTick, setLastTick] = useState<BitcoinTick | null>(null);
   
+  // Countdown timer state
+  const [countdown, setCountdown] = useState<string>('00:00');
+  const [countdownColor, setCountdownColor] = useState<string>('#999');
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastCountdownUpdateRef = useRef<number>(0);
+  
   // Zustand store
   const { 
     getCachedCandles, 
@@ -138,6 +144,62 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
       default: return 60 * 60; // Default to 1h
     }
   };
+  
+  // Update countdown timer
+  const updateCountdown = useCallback(() => {
+    const now = Date.now();
+    
+    // Throttle updates to exactly 1 second intervals
+    if (now - lastCountdownUpdateRef.current < 950) return;
+    lastCountdownUpdateRef.current = now;
+    
+    const date = new Date(now);
+    const seconds = date.getSeconds();
+    const minutes = date.getMinutes();
+    const hours = date.getHours();
+    
+    let secondsRemaining = 0;
+    
+    // Calculate seconds until next candle boundary
+    switch (currentTimeframeRef.current) {
+      case '1m':
+        secondsRemaining = 60 - seconds;
+        break;
+      case '5m':
+        secondsRemaining = (5 - (minutes % 5)) * 60 - seconds;
+        break;
+      case '15m':
+        secondsRemaining = (15 - (minutes % 15)) * 60 - seconds;
+        break;
+      case '1h':
+        secondsRemaining = (60 - minutes) * 60 - seconds;
+        break;
+      case '4h':
+        secondsRemaining = (4 - (hours % 4)) * 3600 + (60 - minutes) * 60 - seconds;
+        break;
+      case '12h':
+        secondsRemaining = (12 - (hours % 12)) * 3600 + (60 - minutes) * 60 - seconds;
+        break;
+    }
+    
+    // Format countdown
+    const totalSeconds = Math.max(0, secondsRemaining);
+    const displayMinutes = Math.floor(totalSeconds / 60);
+    const displaySeconds = totalSeconds % 60;
+    const formattedTime = `${displayMinutes.toString().padStart(2, '0')}:${displaySeconds.toString().padStart(2, '0')}`;
+    
+    // Update countdown display
+    setCountdown(formattedTime);
+    
+    // Color coding based on time remaining
+    if (totalSeconds <= 10) {
+      setCountdownColor('#ffae00'); // Yellow warning
+    } else if (totalSeconds <= 30) {
+      setCountdownColor('#ccc'); // Brighter gray
+    } else {
+      setCountdownColor('#999'); // Dimmed gray
+    }
+  }, []);
   
   // Resize chart when fullscreen mode changes
   useEffect(() => {
@@ -709,6 +771,55 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
     return () => clearInterval(intervalId);
   }, []); // Only create interval once
 
+  // Countdown timer lifecycle management
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    
+    const startCountdown = () => {
+      // Clear any existing interval
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      
+      // Initial update
+      updateCountdown();
+      
+      // Start new interval
+      intervalId = setInterval(updateCountdown, 1000);
+      countdownIntervalRef.current = intervalId;
+    };
+    
+    const stopCountdown = () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+    
+    // Handle visibility changes to save resources
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopCountdown();
+      } else {
+        startCountdown();
+      }
+    };
+    
+    // Start countdown if page is visible
+    if (!document.hidden) {
+      startCountdown();
+    }
+    
+    // Listen for visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      stopCountdown();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentTimeframe, updateCountdown]); // Restart when timeframe changes
+
   // Add the checkTimeframeSwitch function
   const checkTimeframeSwitch = (barSpacing: number) => {
     if (isTransitioning) {
@@ -1105,6 +1216,33 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
               [LOCK LEFT]
             </span>
           )}
+        </div>
+        
+        {/* Countdown timer - centered at top */}
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.7)',
+          padding: '5px 10px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          pointerEvents: 'none', // Don't interfere with chart interaction
+          zIndex: 5
+        }}>
+          <span style={{ color: '#666', fontSize: '11px' }}>Next:</span>
+          <span style={{ 
+            color: countdownColor,
+            fontWeight: countdownColor === '#ffae00' ? 500 : 400,
+            transition: 'color 0.3s ease'
+          }}>
+            {countdown}
+          </span>
         </div>
         
         {/* Stream status indicator in bottom-right */}
