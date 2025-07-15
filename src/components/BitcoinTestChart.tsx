@@ -80,6 +80,7 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
   const [countdownColor, setCountdownColor] = useState<string>('#999');
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastCountdownUpdateRef = useRef<number>(0);
+  const hasTriggeredNewCandleRef = useRef<boolean>(false);
   
   // Zustand store
   const { 
@@ -198,6 +199,44 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
       setCountdownColor('#ccc'); // Brighter gray
     } else {
       setCountdownColor('#999'); // Dimmed gray
+      // Reset the trigger flag when we're safely past the boundary
+      if (totalSeconds > 5) {
+        hasTriggeredNewCandleRef.current = false;
+      }
+    }
+    
+    // CRITICAL: Trigger refresh when new candle forms
+    // When countdown hits 0, wait 2 seconds for cascade to process, then refresh
+    if (totalSeconds <= 0 && totalSeconds > -1 && !hasTriggeredNewCandleRef.current) {
+      hasTriggeredNewCandleRef.current = true;
+      console.log(`[BitcoinChart] New candle period started (totalSeconds: ${totalSeconds}), scheduling refresh...`);
+      setTimeout(() => {
+        console.log('[BitcoinChart] Triggering post-candle refresh');
+        // Invalidate cache and fetch fresh data
+        invalidateCache(`${symbolRef.current}-${currentTimeframeRef.current}`);
+        
+        const now = Math.floor(Date.now() / 1000);
+        const to = now + (60 * 60);
+        let from;
+        if (currentTimeframeRef.current === '1m') {
+          from = now - (7 * 24 * 60 * 60);
+        } else if (currentTimeframeRef.current === '5m') {
+          from = now - (30 * 24 * 60 * 60);
+        } else {
+          from = now - (90 * 24 * 60 * 60);
+        }
+        
+        fetchChartData(symbolRef.current, currentTimeframeRef.current, from, to)
+          .then(({ data }) => {
+            if (data.length > 0 && seriesRef.current) {
+              seriesRef.current.setData(data);
+              const cacheKey = getCacheKey(symbolRef.current, currentTimeframeRef.current, from, to);
+              setCachedCandles(cacheKey, data);
+              console.log('[BitcoinChart] New candle loaded successfully');
+            }
+          })
+          .catch(error => console.error('[BitcoinChart] Failed to load new candle:', error));
+      }, 2000); // Wait 2 seconds for cascade refresh to complete
     }
   }, []);
   
@@ -725,8 +764,8 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
   // Simple periodic refresh to catch aggregate updates
   useEffect(() => {
     const intervalId = setInterval(() => {
-      // Only refresh if we have a chart and not loading
-      if (chartRef.current && !isLoading) {
+      // Only refresh if we have a chart and not loading or transitioning
+      if (chartRef.current && !isLoading && !isTransitioning) {
         console.log('[BitcoinChart] Periodic refresh check');
         
         // Use fresh sliding window for each refresh
@@ -766,10 +805,10 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
           })
           .catch(error => console.error('[BitcoinChart] Periodic refresh error:', error));
       }
-    }, 30000); // Every 30 seconds
+    }, 3000); // Every 3 seconds to balance real-time updates with performance
 
     return () => clearInterval(intervalId);
-  }, []); // Only create interval once
+  }, [isTransitioning]); // Re-create interval when transitioning state changes
 
   // Countdown timer lifecycle management
   useEffect(() => {

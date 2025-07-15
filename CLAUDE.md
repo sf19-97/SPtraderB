@@ -45,3 +45,11 @@ To add a new asset:
 
 When in doubt, ask the user. They know more than this file.
 
+## Development Setup
+Rust-analyzer is configured with:
+- **checkOnSave disabled** - Run checks manually with Ctrl+Shift+P → "rust-analyzer: Run flycheck"
+- **Readonly stdlib paths** - Prevents accidental edits to Rust standard library
+- **Faster saves** - No waiting for cargo check after each save
+
+See `.vscode/settings.json` for the configuration.
+
