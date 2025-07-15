@@ -81,6 +81,7 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastCountdownUpdateRef = useRef<number>(0);
   const hasTriggeredNewCandleRef = useRef<boolean>(false);
+  const placeholderTimeRef = useRef<number | null>(null);
   
   // Zustand store
   const { 
@@ -205,13 +206,57 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
       }
     }
     
-    // CRITICAL: Trigger refresh when new candle forms
-    // When countdown hits 0, wait 2 seconds for cascade to process, then refresh
+    // CRITICAL: Create placeholder candle at minute boundary
     if (totalSeconds <= 0 && totalSeconds > -1 && !hasTriggeredNewCandleRef.current) {
       hasTriggeredNewCandleRef.current = true;
-      console.log(`[BitcoinChart] New candle period started (totalSeconds: ${totalSeconds}), scheduling refresh...`);
+      console.log(`[BitcoinChart] New candle period started (totalSeconds: ${totalSeconds})`);
+      
+      // Create placeholder candle immediately
+      if (seriesRef.current) {
+        const currentData = seriesRef.current.data();
+        if (currentData.length > 0) {
+          const lastCandle = currentData[currentData.length - 1];
+          const now = Math.floor(Date.now() / 1000);
+          
+          // Calculate the new candle time based on timeframe
+          let newCandleTime;
+          const tf = currentTimeframeRef.current;
+          if (tf === '1m') {
+            newCandleTime = Math.floor(now / 60) * 60;
+          } else if (tf === '5m') {
+            newCandleTime = Math.floor(now / 300) * 300;
+          } else if (tf === '15m') {
+            newCandleTime = Math.floor(now / 900) * 900;
+          } else if (tf === '1h') {
+            newCandleTime = Math.floor(now / 3600) * 3600;
+          } else if (tf === '4h') {
+            newCandleTime = Math.floor(now / 14400) * 14400;
+          } else {
+            newCandleTime = Math.floor(now / 43200) * 43200;
+          }
+          
+          // Create placeholder with previous close as all values
+          const placeholderCandle = {
+            time: newCandleTime as Time,
+            open: lastCandle.close,
+            high: lastCandle.close,
+            low: lastCandle.close,
+            close: lastCandle.close
+          };
+          
+          // Add placeholder to chart
+          const newData = [...currentData, placeholderCandle];
+          seriesRef.current.setData(newData);
+          console.log('[BitcoinChart] Placeholder candle created at', new Date(newCandleTime * 1000).toLocaleTimeString());
+          
+          // Store placeholder time for later update
+          placeholderTimeRef.current = newCandleTime;
+        }
+      }
+      
+      // Schedule fetch for real data
       setTimeout(() => {
-        console.log('[BitcoinChart] Triggering post-candle refresh');
+        console.log('[BitcoinChart] Fetching real candle data...');
         // Invalidate cache and fetch fresh data
         invalidateCache(`${symbolRef.current}-${currentTimeframeRef.current}`);
         
@@ -232,7 +277,8 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
               seriesRef.current.setData(data);
               const cacheKey = getCacheKey(symbolRef.current, currentTimeframeRef.current, from, to);
               setCachedCandles(cacheKey, data);
-              console.log('[BitcoinChart] New candle loaded successfully');
+              console.log('[BitcoinChart] Real candle data loaded');
+              placeholderTimeRef.current = null;
             }
           })
           .catch(error => console.error('[BitcoinChart] Failed to load new candle:', error));
@@ -786,8 +832,18 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
         fetchChartData(symbolRef.current, currentTimeframeRef.current, from, to)
           .then(({ data }) => {
             if (data.length > 0 && seriesRef.current) {
-              // Only update if data actually changed
               const currentData = seriesRef.current.data();
+              
+              // Check if we have a placeholder that needs updating
+              if (placeholderTimeRef.current && data.length > 0) {
+                const realCandle = data.find(c => c.time === placeholderTimeRef.current);
+                if (realCandle) {
+                  console.log('[BitcoinChart] Updating placeholder with real data');
+                  placeholderTimeRef.current = null;
+                }
+              }
+              
+              // Only update if data actually changed
               if (currentData.length === 0 || 
                   data[data.length - 1].time !== currentData[currentData.length - 1].time ||
                   data.length !== currentData.length) {
