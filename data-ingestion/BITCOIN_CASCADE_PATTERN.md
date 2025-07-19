@@ -52,12 +52,27 @@ Critical code sections:
 ```python
 # Connection with proper cleanup
 def connect_db(self):
-    if self.cursor:
-        self.cursor.close()
+    """Connect to PostgreSQL"""
+    try:
+        # Close existing connection and cursor
+        if self.cursor:
+            self.cursor.close()
+            self.cursor = None
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+            
+        # Create new connection
+        self.conn = psycopg2.connect(**self.db_config)
+        self.conn.autocommit = False
+        self.cursor = self.conn.cursor()
+        logger.info("Connected to PostgreSQL")
+        return True
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
         self.cursor = None
-    if self.conn:
-        self.conn.close()
         self.conn = None
+        return False
         
 # Batch flushing
 if len(self.batch) >= self.batch_size or \
@@ -72,17 +87,31 @@ CREATE OR REPLACE PROCEDURE cascade_bitcoin_aggregate_refresh()
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Refresh in order from lowest to highest timeframe
     RAISE NOTICE 'Starting cascade refresh at %', NOW();
     
-    -- CRITICAL: Must refresh in order for hierarchical aggregates
-    -- 1m and 5m refresh from raw ticks
+    -- 1m candles (from raw ticks)
+    RAISE NOTICE 'Refreshing 1m candles...';
     CALL refresh_continuous_aggregate('bitcoin_candles_1m', NULL, NULL);
+    
+    -- 5m candles (from raw ticks)
+    RAISE NOTICE 'Refreshing 5m candles...';
     CALL refresh_continuous_aggregate('bitcoin_candles_5m', NULL, NULL);
     
-    -- Higher timeframes refresh from lower timeframes
+    -- 15m candles (from 5m)
+    RAISE NOTICE 'Refreshing 15m candles...';
     CALL refresh_continuous_aggregate('bitcoin_candles_15m', NULL, NULL);
+    
+    -- 1h candles (from 15m)
+    RAISE NOTICE 'Refreshing 1h candles...';
     CALL refresh_continuous_aggregate('bitcoin_candles_1h', NULL, NULL);
+    
+    -- 4h candles (from 1h)
+    RAISE NOTICE 'Refreshing 4h candles...';
     CALL refresh_continuous_aggregate('bitcoin_candles_4h', NULL, NULL);
+    
+    -- 12h candles (from 4h)
+    RAISE NOTICE 'Refreshing 12h candles...';
     CALL refresh_continuous_aggregate('bitcoin_candles_12h', NULL, NULL);
     
     RAISE NOTICE 'Cascade refresh complete at %', NOW();
@@ -94,30 +123,94 @@ $$;
 **File**: `sql/cascade_refresh_cron.sh`
 ```bash
 #!/bin/bash
-# Bitcoin cascade refresh script
-# Runs every 30 seconds to refresh all aggregates in order
+# Bitcoin cascade refresh script with clock alignment
+# Runs every 5 seconds with clock alignment at :01, :06, :11, :16, :21, :26, :31, :36, :41, :46, :51, :56
 
 # Database connection
 DB_NAME="forex_trading"
 DB_USER="postgres"
 PSQL="/opt/homebrew/opt/postgresql@17/bin/psql"
 
-# Log with timestamp
+# Log with timestamp including milliseconds for precise timing verification
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S.%3N')] $1"
 }
 
-log "Starting Bitcoin cascade refresh"
+# Calculate seconds to wait until next target time
+calculate_wait_time() {
+    local current_second=$(date +%S)
+    # Remove leading zero to prevent octal interpretation
+    current_second=$((10#$current_second))
+    
+    # Target times: 1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56
+    local targets=(1 6 11 16 21 26 31 36 41 46 51 56)
+    
+    # Find next target
+    local next_target=-1
+    for target in "${targets[@]}"; do
+        if [ $current_second -lt $target ]; then
+            next_target=$target
+            break
+        fi
+    done
+    
+    # If no target found in current minute, wrap to next minute
+    if [ $next_target -eq -1 ]; then
+        next_target=61  # This will give us :01 of next minute
+    fi
+    
+    # Calculate wait time
+    local wait_seconds=$((next_target - current_second))
+    
+    # If we're wrapping to next minute
+    if [ $wait_seconds -gt 60 ]; then
+        wait_seconds=$((61 - current_second))
+    fi
+    
+    echo $wait_seconds
+}
+
+# Main execution
+log "Script invoked"
+
+# Calculate and wait for alignment
+wait_time=$(calculate_wait_time)
+current_time=$(date '+%H:%M:%S')
+
+if [ $wait_time -gt 0 ]; then
+    log "Current time: $current_time - Waiting $wait_time seconds for clock alignment"
+    sleep $wait_time
+fi
+
+# Log execution start
+log "Starting Bitcoin cascade refresh at aligned time"
+start_time=$(date +%s.%N)
 
 # Run the cascade procedure
-$PSQL -U "$DB_USER" -d "$DB_NAME" -c "CALL cascade_bitcoin_aggregate_refresh();" 2>&1 | while read line; do
+# Use -q flag for quieter output and redirect stderr to filter NOTICEs
+$PSQL -U "$DB_USER" -d "$DB_NAME" -q -c "CALL cascade_bitcoin_aggregate_refresh();" 2>&1 | while read line; do
     # Filter out NOTICE lines for cleaner logs, but keep errors
-    if [[ ! "$line" =~ ^NOTICE: ]]; then
-        log "$line"
+    if [[ ! "$line" =~ ^NOTICE: ]] && [[ ! -z "$line" ]]; then
+        log "DB: $line"
     fi
 done
 
-log "Cascade refresh complete"
+# Check exit status
+if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    # Calculate execution time
+    end_time=$(date +%s.%N)
+    duration=$(echo "$end_time - $start_time" | bc)
+    
+    log "Cascade refresh completed successfully (duration: ${duration}s)"
+    
+    # Warn if execution took too long
+    if (( $(echo "$duration > 5" | bc -l) )); then
+        log "WARNING: Execution took longer than 5 seconds!"
+    fi
+else
+    log "ERROR: Cascade refresh failed!"
+    exit 1
+fi
 ```
 
 **Make executable**: `chmod +x sql/cascade_refresh_cron.sh`
@@ -186,7 +279,7 @@ log "Cascade refresh complete"
     <true/>
     
     <key>StartInterval</key>
-    <integer>30</integer>
+    <integer>5</integer>
     
     <key>StandardOutPath</key>
     <string>/Users/sebastian/Projects/SPtraderB/data-ingestion/cascade-refresh.log</string>
@@ -197,8 +290,14 @@ log "Cascade refresh complete"
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/opt/homebrew/bin:/opt/homebrew/opt/postgresql@17/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
+    
+    <key>KeepAlive</key>
+    <false/>
+    
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
 </dict>
 </plist>
 ```
@@ -320,7 +419,7 @@ ORDER BY timeframe;"
 
 **4. Large lag on higher timeframes**
 - Normal on startup - hierarchical aggregates need multiple cascades to catch up
-- Each 30-second cascade moves data up one level
+- Each 5-second cascade (at clock-aligned times) moves data up one level
 - Full propagation from 1m to 12h takes ~3 minutes
 
 **5. Python ingester crashes**
@@ -348,8 +447,12 @@ cp live/kraken/direct-bitcoin-ingester.py live/oanda/direct-forex-ingester.py
 CREATE TABLE forex_ticks (
     time TIMESTAMPTZ NOT NULL,
     symbol VARCHAR(10) NOT NULL,
-    bid DECIMAL(10,5) NOT NULL,
-    ask DECIMAL(10,5) NOT NULL
+    bid DECIMAL(12,5) NOT NULL,
+    ask DECIMAL(12,5) NOT NULL,
+    bid_size INTEGER DEFAULT 0,
+    ask_size INTEGER DEFAULT 0,
+    spread DECIMAL(10,5) GENERATED ALWAYS AS (ask - bid) STORED,
+    mid_price DECIMAL(12,5) GENERATED ALWAYS AS ((bid + ask) / 2) STORED
 );
 SELECT create_hypertable('forex_ticks', 'time');
 

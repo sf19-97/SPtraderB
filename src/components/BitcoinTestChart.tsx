@@ -150,13 +150,16 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
   // Update countdown timer
   const updateCountdown = useCallback(() => {
     const now = Date.now();
-    
-    // Throttle updates to exactly 1 second intervals
-    if (now - lastCountdownUpdateRef.current < 950) return;
-    lastCountdownUpdateRef.current = now;
-    
     const date = new Date(now);
     const seconds = date.getSeconds();
+    
+    // Near boundary (last 2 seconds), update more frequently to catch the transition
+    const nearBoundary = seconds >= 58 || seconds <= 2;
+    const throttleMs = nearBoundary ? 100 : 950;
+    
+    // Throttle updates based on proximity to boundary
+    if (now - lastCountdownUpdateRef.current < throttleMs) return;
+    lastCountdownUpdateRef.current = now;
     const minutes = date.getMinutes();
     const hours = date.getHours();
     
@@ -184,32 +187,102 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
         break;
     }
     
-    // Format countdown
-    const totalSeconds = Math.max(0, secondsRemaining);
-    const displayMinutes = Math.floor(totalSeconds / 60);
-    const displaySeconds = totalSeconds % 60;
-    const formattedTime = `${displayMinutes.toString().padStart(2, '0')}:${displaySeconds.toString().padStart(2, '0')}`;
+    // Keep raw seconds for boundary detection
+    const totalSeconds = secondsRemaining;
+    
+    // Debug logging every second when close to boundary
+    if (totalSeconds <= 5 && totalSeconds >= -5) {
+      console.log(`[BitcoinChart] Countdown: ${totalSeconds}s, triggered: ${hasTriggeredNewCandleRef.current}, time: ${date.toISOString()}`);
+    }
+    
+    // Schedule precise placeholder creation when we're 1 second away
+    if (totalSeconds > 0 && totalSeconds <= 1 && !hasTriggeredNewCandleRef.current && !placeholderTimeRef.current) {
+      const msToWait = totalSeconds * 1000;
+      console.log(`[BitcoinChart] Scheduling placeholder in ${msToWait}ms`);
+      
+      // Mark that we've scheduled it
+      placeholderTimeRef.current = -1; // Use -1 as a flag that we've scheduled
+      
+      setTimeout(() => {
+        console.log(`[BitcoinChart] PRECISE PLACEHOLDER TRIGGER at ${new Date().toISOString()}`);
+        hasTriggeredNewCandleRef.current = true;
+        
+        if (seriesRef.current) {
+          const currentData = seriesRef.current.data();
+          if (currentData.length > 0) {
+            const lastCandle = currentData[currentData.length - 1];
+            const now = Math.floor(Date.now() / 1000);
+            
+            // Calculate the new candle time based on timeframe
+            let newCandleTime;
+            const tf = currentTimeframeRef.current;
+            if (tf === '1m') {
+              newCandleTime = Math.floor(now / 60) * 60;
+            } else if (tf === '5m') {
+              newCandleTime = Math.floor(now / 300) * 300;
+            } else if (tf === '15m') {
+              newCandleTime = Math.floor(now / 900) * 900;
+            } else if (tf === '1h') {
+              newCandleTime = Math.floor(now / 3600) * 3600;
+            } else if (tf === '4h') {
+              newCandleTime = Math.floor(now / 14400) * 14400;
+            } else {
+              newCandleTime = Math.floor(now / 43200) * 43200;
+            }
+            
+            // Create placeholder with previous close as all values
+            const placeholderCandle = {
+              time: newCandleTime as Time,
+              open: lastCandle.close,
+              high: lastCandle.close,
+              low: lastCandle.close,
+              close: lastCandle.close
+            };
+            
+            // Add placeholder to chart
+            const newData = [...currentData, placeholderCandle];
+            seriesRef.current.setData(newData);
+            console.log('[BitcoinChart] Placeholder candle created precisely at', new Date(newCandleTime * 1000).toLocaleTimeString());
+            
+            // Store placeholder time for later update
+            placeholderTimeRef.current = newCandleTime;
+          }
+        }
+      }, msToWait);
+    }
+    
+    // Format countdown (but don't show negative numbers)
+    const displaySeconds = Math.max(0, totalSeconds);
+    const displayMinutes = Math.floor(displaySeconds / 60);
+    const displaySecondsRemainder = displaySeconds % 60;
+    const formattedTime = `${displayMinutes.toString().padStart(2, '0')}:${displaySecondsRemainder.toString().padStart(2, '0')}`;
     
     // Update countdown display
     setCountdown(formattedTime);
     
     // Color coding based on time remaining
-    if (totalSeconds <= 10) {
+    if (displaySeconds <= 10) {
       setCountdownColor('#ffae00'); // Yellow warning
-    } else if (totalSeconds <= 30) {
+    } else if (displaySeconds <= 30) {
       setCountdownColor('#ccc'); // Brighter gray
     } else {
       setCountdownColor('#999'); // Dimmed gray
       // Reset the trigger flag when we're safely past the boundary
       if (totalSeconds > 5) {
         hasTriggeredNewCandleRef.current = false;
+        // Also reset placeholder scheduling flag if it was -1
+        if (placeholderTimeRef.current === -1) {
+          placeholderTimeRef.current = null;
+        }
       }
     }
     
     // CRITICAL: Create placeholder candle at minute boundary
+    // Check if we just crossed the boundary (was positive, now negative)
     if (totalSeconds <= 0 && totalSeconds > -1 && !hasTriggeredNewCandleRef.current) {
       hasTriggeredNewCandleRef.current = true;
-      console.log(`[BitcoinChart] New candle period started (totalSeconds: ${totalSeconds})`);
+      const exactTime = new Date();
+      console.log(`[BitcoinChart] PLACEHOLDER TRIGGER at ${exactTime.toISOString()} (totalSeconds: ${totalSeconds}, ms: ${exactTime.getMilliseconds()})`);
       
       // Create placeholder candle immediately
       if (seriesRef.current) {
@@ -809,23 +882,47 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
 
   // Simple periodic refresh to catch aggregate updates
   useEffect(() => {
-    const intervalId = setInterval(() => {
-      // Only refresh if we have a chart and not loading or transitioning
-      if (chartRef.current && !isLoading && !isTransitioning) {
-        console.log('[BitcoinChart] Periodic refresh check');
+    let intervalId: NodeJS.Timeout | null = null;
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    // Calculate initial delay to sync with clock
+    const now = new Date();
+    const currentSecond = now.getSeconds();
+    // Target times: 1 second after cascade runs (:01, :06, :11, etc)
+    const targets = [2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57];
+    
+    let nextTarget = targets.find(t => t > currentSecond);
+    if (!nextTarget) {
+      nextTarget = targets[0] + 60; // Wrap to next minute
+    }
+    
+    let delaySeconds = nextTarget - currentSecond;
+    if (delaySeconds > 60) {
+      delaySeconds -= 60;
+    }
+    
+    console.log(`[BitcoinChart] Syncing periodic refresh - current: :${currentSecond}, next: :${nextTarget % 60}, delay: ${delaySeconds}s`);
+    
+    // Initial delay to sync with clock
+    timeoutId = setTimeout(() => {
+      // Now start the interval, properly aligned
+      intervalId = setInterval(() => {
+        // Only refresh if we have a chart and not loading or transitioning
+        if (chartRef.current && !isLoading && !isTransitioning) {
+          console.log('[BitcoinChart] Periodic refresh check at', new Date().toLocaleTimeString());
         
-        // Use fresh sliding window for each refresh
+        // For periodic updates, only fetch recent data
         const now = Math.floor(Date.now() / 1000);
-        const to = now + (60 * 60);
+        const to = now;
         
-        // Use appropriate window based on timeframe
+        // Only fetch last few minutes for updates
         let from;
         if (currentTimeframeRef.current === '1m') {
-          from = now - (7 * 24 * 60 * 60); // 7 days for 1m
+          from = now - (10 * 60); // Last 10 minutes only
         } else if (currentTimeframeRef.current === '5m') {
-          from = now - (30 * 24 * 60 * 60); // 30 days for 5m
+          from = now - (60 * 60); // Last 1 hour
         } else {
-          from = now - (90 * 24 * 60 * 60); // 90 days for others
+          from = now - (24 * 60 * 60); // Last 1 day
         }
         
         // Reload data
@@ -843,27 +940,68 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
                 }
               }
               
-              // Only update if data actually changed
-              if (currentData.length === 0 || 
-                  data[data.length - 1].time !== currentData[currentData.length - 1].time ||
-                  data.length !== currentData.length) {
-                console.log('[BitcoinChart] New data detected, updating chart');
+              // Merge new data with existing data
+              if (currentData.length > 0 && data.length > 0) {
+                // Find the overlap point
+                const firstNewTime = data[0].time;
+                const existingIndex = currentData.findIndex(c => c.time >= firstNewTime);
+                
+                let mergedData;
+                if (existingIndex >= 0) {
+                  // Check if we have a placeholder that would be removed
+                  const placeholderTime = placeholderTimeRef.current;
+                  let preservedPlaceholder = null;
+                  
+                  if (placeholderTime && placeholderTime > 0) {
+                    // Check if the placeholder exists in current data but not in new data
+                    const placeholderInCurrent = currentData.find(c => c.time === placeholderTime);
+                    const placeholderInNew = data.find(c => c.time === placeholderTime);
+                    
+                    if (placeholderInCurrent && !placeholderInNew) {
+                      // Preserve the placeholder
+                      preservedPlaceholder = placeholderInCurrent;
+                      console.log('[BitcoinChart] Preserving placeholder candle at', new Date(placeholderTime * 1000).toLocaleTimeString());
+                    }
+                  }
+                  
+                  // Keep old data before the overlap, use new data from overlap point
+                  mergedData = [...currentData.slice(0, existingIndex), ...data];
+                  
+                  // Add back the placeholder if it was removed
+                  if (preservedPlaceholder) {
+                    // Find the correct position to insert the placeholder
+                    const insertIndex = mergedData.findIndex(c => c.time > preservedPlaceholder.time);
+                    if (insertIndex >= 0) {
+                      mergedData.splice(insertIndex, 0, preservedPlaceholder);
+                    } else {
+                      mergedData.push(preservedPlaceholder);
+                    }
+                  }
+                } else {
+                  // New data is all after existing data
+                  mergedData = [...currentData, ...data];
+                }
+                
+                console.log(`[BitcoinChart] Merging data: ${currentData.length} existing + ${data.length} new = ${mergedData.length} total`);
+                seriesRef.current.setData(mergedData);
+                
+                // Don't update cache for partial refreshes
+              } else if (data.length > 0) {
+                // No existing data, just set new data
+                console.log('[BitcoinChart] Setting initial data');
                 seriesRef.current.setData(data);
-                
-                // Update cache with new key
-                const cacheKey = getCacheKey(symbolRef.current, currentTimeframeRef.current, from, to);
-                setCachedCandles(cacheKey, data);
-                
-                // Update dateRangeRef for other functions
-                dateRangeRef.current = { from, to };
               }
             }
           })
           .catch(error => console.error('[BitcoinChart] Periodic refresh error:', error));
       }
-    }, 3000); // Every 3 seconds to balance real-time updates with performance
-
-    return () => clearInterval(intervalId);
+      }, 5000); // Every 5 seconds, aligned with cascade schedule
+    }, delaySeconds * 1000);
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [isTransitioning]); // Re-create interval when transitioning state changes
 
   // Countdown timer lifecycle management
@@ -880,8 +1018,8 @@ const BitcoinTestChart: React.FC<BitcoinTestChartProps> = ({
       // Initial update
       updateCountdown();
       
-      // Start new interval
-      intervalId = setInterval(updateCountdown, 1000);
+      // Start new interval - run more frequently to catch boundary transitions
+      intervalId = setInterval(updateCountdown, 100);
       countdownIntervalRef.current = intervalId;
     };
     
