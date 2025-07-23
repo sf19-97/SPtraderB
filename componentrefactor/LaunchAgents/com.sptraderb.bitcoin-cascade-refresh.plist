@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sptraderb.bitcoin-cascade-refresh</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/sebastian/Projects/SPtraderB/data-ingestion/sql/cascade_refresh_cron.sh</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/sebastian/Projects/SPtraderB/data-ingestion</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>StartInterval</key>
+    <integer>5</integer>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/sebastian/Projects/SPtraderB/data-ingestion/cascade-refresh.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/sebastian/Projects/SPtraderB/data-ingestion/cascade-refresh.error.log</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/opt/homebrew/opt/postgresql@17/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    
+    <key>KeepAlive</key>
+    <false/>
+    
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+</dict>
+</plist>

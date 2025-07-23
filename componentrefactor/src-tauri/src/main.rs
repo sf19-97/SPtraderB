@@ -25,13 +25,11 @@ mod execution;
 mod database;
 mod orchestrator;
 mod candle_monitor;
-mod market_data;
 mod commands {
     pub mod bitcoin_data;
 }
 
 use execution::ExecutionEngine;
-use market_data::commands::*;
 
 // Orders module still exists but not used directly anymore
 use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
@@ -92,8 +90,6 @@ struct AppState {
     active_backtests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     // Candle update monitors
     candle_monitors: Arc<Mutex<HashMap<String, Arc<candle_monitor::CandleUpdateMonitor>>>>,
-    // Market data pipelines
-    market_data: market_data::commands::MarketDataState,
 }
 
 #[derive(Clone)]
@@ -2011,9 +2007,6 @@ async fn main() {
     
     let redis_url = "redis://127.0.0.1:6379";
     
-    // Initialize market data engine
-    let market_data_state = market_data::commands::init_market_data_engine(pool.clone());
-    
     let app_state = AppState { 
         db_pool: Arc::new(Mutex::new(pool)),
         ingestion_processes: Arc::new(Mutex::new(HashMap::new())),
@@ -2027,12 +2020,10 @@ async fn main() {
         active_backtests: Arc::new(Mutex::new(HashMap::new())),
         // bitcoin_consumers: Arc::new(Mutex::new(HashMap::new())), // Removed - using direct DB ingestion
         candle_monitors: Arc::new(Mutex::new(HashMap::new())),
-        market_data: market_data_state.clone(),
     };
 
     Builder::default()
         .manage(app_state)
-        .manage(market_data_state)
         .invoke_handler(tauri::generate_handler![
             fetch_candles, 
             fetch_candles_v2, 
@@ -2077,13 +2068,7 @@ async fn main() {
             // Candle monitor commands
             candle_monitor::start_candle_monitor,
             candle_monitor::stop_candle_monitor,
-            candle_monitor::trigger_candle_update,
-            // Market data commands
-            search_assets,
-            add_market_asset,
-            get_pipeline_status,
-            list_active_pipelines,
-            stop_pipeline
+            candle_monitor::trigger_candle_update
         ])
         .setup(|app| {
             // Get the main window handle

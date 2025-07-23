@@ -25,7 +25,6 @@ export const AppLayout = () => {
     { path: '/trading', label: 'Trading', icon: IconChartLine },
     { path: '/build', label: 'Build', icon: IconCode },
     { path: '/data', label: 'Data Manager', icon: IconDatabase },
-    { path: '/market-data', label: 'Market Data', icon: IconDatabase },
     { path: '/history', label: 'History', icon: IconHistory },
     { path: '/orchestrator', label: 'Orchestrator', icon: IconRobot },
     { path: '/bitcoin-test', label: 'Bitcoin Test', icon: IconCurrencyBitcoin },
