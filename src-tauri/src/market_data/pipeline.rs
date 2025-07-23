@@ -57,6 +57,13 @@ impl AssetPipeline {
                         tokio::time::sleep(Duration::from_secs(5)).await;
                         if let Err(reconnect_err) = ingester.connect().await {
                             eprintln!("[Pipeline] Reconnection failed: {}", reconnect_err);
+                        } else {
+                            // Re-subscribe after successful reconnection
+                            if let Err(sub_err) = ingester.subscribe(vec![symbol.clone()]).await {
+                                eprintln!("[Pipeline] Re-subscription failed: {}", sub_err);
+                            } else {
+                                eprintln!("[Pipeline] Reconnected and subscribed to {}", symbol);
+                            }
                         }
                     }
                 }
