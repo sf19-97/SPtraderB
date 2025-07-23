@@ -150,6 +150,39 @@ CASCADE_forex_aggregate_refresh()
    SELECT COUNT(*), MAX(time) FROM forex_candles_5m WHERE symbol = 'GBPUSD';
    ```
 
+## Architectural Refactoring: Candles Module
+
+### The Problem
+Candle logic is scattered across multiple files:
+- `main.rs` - fetch_candles, fetch_candles_v2 commands  
+- `bitcoin_data.rs` - BitcoinCandle type and get_bitcoin_chart_data
+- `market_data/` - Will need its own candle fetching
+- Frontend has multiple candle representations
+
+This violates DRY and makes the codebase hard to maintain.
+
+### The Solution: Dedicated Candles Module
+```
+src-tauri/src/candles/
+├── mod.rs       # Unified Candle type and core logic
+├── commands.rs  # All candle fetching commands  
+└── cache.rs     # Centralized cache management
+```
+
+### Benefits
+1. **Single Source of Truth** - One Candle type for all assets
+2. **Discoverability** - Candle logic in one obvious place
+3. **Maintainability** - Changes in one place affect all assets
+4. **Testability** - Isolated module with clear boundaries
+
+### Implementation Notes
+- Move existing fetch_candles from main.rs
+- Generalize bitcoin_data.rs logic for all assets
+- Create routing based on symbol patterns
+- Consolidate cache logic from multiple sources
+
+**This refactoring should happen BEFORE adding more candle-fetching commands to prevent further fragmentation.**
+
 ## References
 - Bitcoin Pattern: `componentrefactor/data-ingestion/BITCOIN_CASCADE_PATTERN.md`
 - Original Schema: `componentrefactor/docs/BITCOIN_DATABASE_SCHEMA.md`
