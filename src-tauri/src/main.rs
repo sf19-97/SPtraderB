@@ -26,12 +26,14 @@ mod database;
 mod orchestrator;
 mod candle_monitor;
 mod market_data;
+mod candles;
 mod commands {
     pub mod bitcoin_data;
 }
 
 use execution::ExecutionEngine;
 use market_data::commands::*;
+use market_data::{PipelineStatus, DataSource};
 
 // Orders module still exists but not used directly anymore
 use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
@@ -255,6 +257,17 @@ struct AvailableDataItem {
     size_mb: f64,
     candles_up_to_date: bool,
     last_candle_refresh: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AvailableSymbol {
+    symbol: String,
+    label: String,
+    has_data: bool,
+    is_active: bool,
+    last_tick: Option<String>,
+    tick_count: Option<i64>,
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -777,6 +790,136 @@ async fn get_available_data(
     
     emit_log(&window, "INFO", &format!("Found {} symbols with data", result.len()));
     Ok(result)
+}
+
+#[tauri::command]
+async fn get_all_available_symbols(
+    state: State<'_, AppState>,
+    market_data_state: State<'_, MarketDataState>,
+) -> Result<Vec<AvailableSymbol>, String> {
+    let mut symbols_map = std::collections::HashMap::new();
+    
+    // Get symbols from database
+    let pool = state.db_pool.lock().await;
+    
+    // Query forex_ticks
+    let forex_query = r#"
+        SELECT DISTINCT symbol, COUNT(*) as tick_count, MAX(time) as last_tick
+        FROM forex_ticks
+        GROUP BY symbol
+        ORDER BY symbol
+    "#;
+    
+    let forex_rows = sqlx::query(forex_query)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| format!("Failed to query forex symbols: {}", e))?;
+    
+    for row in forex_rows {
+        let symbol: String = row.try_get("symbol").unwrap_or_default();
+        let tick_count: i64 = row.try_get("tick_count").unwrap_or(0);
+        let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
+        
+        symbols_map.insert(symbol.clone(), AvailableSymbol {
+            symbol: symbol.clone(),
+            label: format_symbol_label(&symbol),
+            has_data: true,
+            is_active: false,
+            last_tick: last_tick.map(|t| t.to_rfc3339()),
+            tick_count: Some(tick_count),
+            source: Some("forex".to_string()),
+        });
+    }
+    
+    // Query bitcoin_ticks
+    let bitcoin_query = r#"
+        SELECT DISTINCT symbol, COUNT(*) as tick_count, MAX(time) as last_tick
+        FROM bitcoin_ticks
+        GROUP BY symbol
+        ORDER BY symbol
+    "#;
+    
+    if let Ok(bitcoin_rows) = sqlx::query(bitcoin_query).fetch_all(&*pool).await {
+        for row in bitcoin_rows {
+            let symbol: String = row.try_get("symbol").unwrap_or_default();
+            let tick_count: i64 = row.try_get("tick_count").unwrap_or(0);
+            let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
+            
+            symbols_map.insert(symbol.clone(), AvailableSymbol {
+                symbol: symbol.clone(),
+                label: format_symbol_label(&symbol),
+                has_data: true,
+                is_active: false,
+                last_tick: last_tick.map(|t| t.to_rfc3339()),
+                tick_count: Some(tick_count),
+                source: Some("bitcoin".to_string()),
+            });
+        }
+    }
+    
+    // Get active pipelines from market data engine
+    let engine = market_data_state.engine.lock().await;
+    for (symbol, pipeline) in &engine.pipelines {
+        let is_active = matches!(&pipeline.status, PipelineStatus::Running { connected: true, .. });
+        let last_tick = match &pipeline.status {
+            PipelineStatus::Running { last_tick, .. } => last_tick.map(|t| t.to_rfc3339()),
+            _ => None,
+        };
+        
+        let source_name = match &pipeline.config.source {
+            DataSource::Kraken { .. } => "kraken",
+            DataSource::Oanda { .. } => "oanda",
+            DataSource::Alpaca { .. } => "alpaca",
+            DataSource::Dukascopy => "dukascopy",
+            _ => "unknown",
+        };
+        
+        if let Some(existing) = symbols_map.get_mut(symbol) {
+            existing.is_active = is_active;
+            if existing.last_tick.is_none() {
+                existing.last_tick = last_tick;
+            }
+        } else {
+            symbols_map.insert(symbol.clone(), AvailableSymbol {
+                symbol: symbol.clone(),
+                label: format_symbol_label(symbol),
+                has_data: false,
+                is_active,
+                last_tick,
+                tick_count: None,
+                source: Some(source_name.to_string()),
+            });
+        }
+    }
+    
+    // Convert to sorted vector
+    let mut result: Vec<AvailableSymbol> = symbols_map.into_values().collect();
+    result.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    
+    Ok(result)
+}
+
+fn format_symbol_label(symbol: &str) -> String {
+    match symbol {
+        "EURUSD" => "EUR/USD".to_string(),
+        "GBPUSD" => "GBP/USD".to_string(),
+        "USDJPY" => "USD/JPY".to_string(),
+        "AUDUSD" => "AUD/USD".to_string(),
+        "USDCAD" => "USD/CAD".to_string(),
+        "NZDUSD" => "NZD/USD".to_string(),
+        "USDCHF" => "USD/CHF".to_string(),
+        "EURJPY" => "EUR/JPY".to_string(),
+        "EURGBP" => "EUR/GBP".to_string(),
+        "BTCUSD" => "BTC/USD".to_string(),
+        _ => {
+            // Try to format forex pairs
+            if symbol.len() == 6 {
+                format!("{}/{}", &symbol[0..3], &symbol[3..6])
+            } else {
+                symbol.to_string()
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -2056,6 +2199,7 @@ async fn main() {
             workspace::write_temp_candles,
             get_ingestion_status,
             get_available_data,
+            get_all_available_symbols,
             get_broker_connection_status,
             get_recent_orders,
             cancel_order,
@@ -2083,7 +2227,9 @@ async fn main() {
             add_market_asset,
             get_pipeline_status,
             list_active_pipelines,
-            stop_pipeline
+            stop_pipeline,
+            // Candles module commands
+            candles::commands::get_market_candles
         ])
         .setup(|app| {
             // Get the main window handle

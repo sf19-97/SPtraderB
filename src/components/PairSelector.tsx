@@ -1,10 +1,21 @@
 import { Select } from '@mantine/core';
 import { useTradingStore } from '../stores/useTradingStore';
+import { useState } from 'react';
 
 export const PairSelector = () => {
   const { selectedPair, setPair } = useTradingStore();
+  const [isLoading, setIsLoading] = useState(false);
 
-  console.log('[PairSelector] Current selectedPair:', selectedPair);
+  // Simple hardcoded list for now
+  const symbols = [
+    { value: 'EURUSD', label: 'EUR/USD' },
+    { value: 'USDJPY', label: 'USD/JPY' },
+    { value: 'GBPUSD', label: 'GBP/USD' },
+    { value: 'AUDUSD', label: 'AUD/USD' },
+    { value: 'USDCHF', label: 'USD/CHF' },
+    { value: 'BTCUSD', label: 'BTC/USD' },
+    { value: 'ETHUSD', label: 'ETH/USD' }
+  ];
 
   const handlePairChange = (value: string | null) => {
     console.log('[PairSelector] onChange triggered with value:', value);
@@ -14,18 +25,16 @@ export const PairSelector = () => {
     }
   };
 
+  // Simple data without indicators
+
   return (
     <Select
       value={selectedPair}
       onChange={handlePairChange}
-      data={[
-        { value: 'EURUSD', label: 'EUR/USD' },
-        { value: 'USDJPY', label: 'USD/JPY' },
-        { value: 'GBPUSD', label: 'GBP/USD' },
-        { value: 'AUDUSD', label: 'AUD/USD' },
-        { value: 'USDCHF', label: 'USD/CHF' }
-      ]}
+      data={symbols}
       searchable
+      placeholder="Select pair"
+      disabled={isLoading}
       size="sm"
       styles={{
         input: {
