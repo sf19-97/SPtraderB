@@ -61,11 +61,118 @@ export function AssetManager() {
   const [isLoadingPipelines, setIsLoadingPipelines] = useState(false);
   const [selectedSource, setSelectedSource] = useState<Record<string, string>>({});
   
-  const { getActiveProfile } = useBrokerStore();
+  const { getActiveProfile, profiles } = useBrokerStore();
+
+  // Helper to get profile for a specific source
+  const getProfileForSource = (source: string): BrokerProfile | null => {
+    return profiles.find(p => 
+      p.broker.toLowerCase() === source.toLowerCase() && p.isActive
+    ) || null;
+  };
+
+  // Restore pipelines from saved config
+  const restorePipelines = async () => {
+    console.log('[AssetManager] Starting pipeline restore...');
+    console.log('[AssetManager] Current profiles:', profiles);
+    console.log('[AssetManager] Active profile:', getActiveProfile());
+    
+    try {
+      const configFile = await invoke<{
+        version: number;
+        pipelines: Array<{
+          symbol: string;
+          source: string;
+          asset_class: string;
+          added_at: string;
+          last_tick: string | null;
+        }>;
+        saved_at: string;
+        clean_shutdown: boolean;
+      }>('load_pipeline_config');
+      
+      if (configFile.pipelines.length === 0) {
+        console.log('[AssetManager] No saved pipelines to restore');
+        return;
+      }
+      
+      console.log(`[AssetManager] Restoring ${configFile.pipelines.length} pipelines`);
+      console.log('[AssetManager] Pipelines to restore:', configFile.pipelines);
+      
+      const results = await Promise.allSettled(
+        configFile.pipelines.map(async (config) => {
+          console.log(`[AssetManager] Processing ${config.symbol} with source ${config.source}`);
+          const profile = getProfileForSource(config.source);
+          
+          if (!profile) {
+            console.warn(`[AssetManager] No active ${config.source} profile for ${config.symbol}`);
+            console.log('[AssetManager] Available profiles:', profiles.map(p => ({ broker: p.broker, isActive: p.isActive })));
+            return Promise.reject({
+              symbol: config.symbol,
+              reason: `No active ${config.source} profile`
+            });
+          }
+          
+          try {
+            await invoke('add_market_asset', {
+              request: {
+                symbol: config.symbol,
+                source: config.source,
+                account_id: profile.account,
+                api_token: profile.apiKey,
+              }
+            });
+            
+            console.log(`[AssetManager] Restored ${config.symbol}`);
+            return { symbol: config.symbol, success: true };
+          } catch (e) {
+            return Promise.reject({
+              symbol: config.symbol,
+              reason: e?.toString() || 'Unknown error'
+            });
+          }
+        })
+      );
+      
+      // Report results
+      const succeeded = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected');
+      
+      if (succeeded > 0) {
+        notifications.show({
+          title: 'Pipelines Restored',
+          message: `Restored ${succeeded} of ${configFile.pipelines.length} pipelines`,
+          color: failed.length > 0 ? 'yellow' : 'green',
+          icon: <IconCheck />,
+        });
+      }
+      
+      // Log failures
+      failed.forEach(f => {
+        if (f.status === 'rejected') {
+          const reason = (f as any).reason;
+          console.error(`[AssetManager] Failed to restore ${reason.symbol}: ${reason.reason}`);
+        }
+      });
+      
+    } catch (error) {
+      console.error('[AssetManager] Pipeline restore failed:', error);
+      notifications.show({
+        title: 'Restore Failed',
+        message: 'Could not restore previous pipelines',
+        color: 'red',
+        icon: <IconAlertCircle />,
+      });
+    }
+  };
 
   // Load active pipelines on mount
   useEffect(() => {
     loadActivePipelines();
+    
+    // Restore saved pipelines after a short delay to ensure broker profiles are loaded
+    const restoreTimer = setTimeout(() => {
+      restorePipelines();
+    }, 1000);
     
     // Listen for asset events
     const unlistenAdded = listen('asset-added', (event) => {
@@ -84,6 +191,7 @@ export function AssetManager() {
     });
 
     return () => {
+      clearTimeout(restoreTimer);
       unlistenAdded.then(fn => fn());
       unlistenProgress.then(fn => fn());
     };

@@ -860,8 +860,9 @@ async fn get_all_available_symbols(
     // Get active pipelines from market data engine
     let engine = market_data_state.engine.lock().await;
     for (symbol, pipeline) in &engine.pipelines {
-        let is_active = matches!(&pipeline.status, PipelineStatus::Running { connected: true, .. });
-        let last_tick = match &pipeline.status {
+        let status = pipeline.status.lock().await;
+        let is_active = matches!(&*status, PipelineStatus::Running { connected: true, .. });
+        let last_tick = match &*status {
             PipelineStatus::Running { last_tick, .. } => last_tick.map(|t| t.to_rfc3339()),
             _ => None,
         };
@@ -2228,6 +2229,8 @@ async fn main() {
             get_pipeline_status,
             list_active_pipelines,
             stop_pipeline,
+            save_pipeline_config,
+            load_pipeline_config,
             // Candles module commands
             candles::commands::get_market_candles
         ])

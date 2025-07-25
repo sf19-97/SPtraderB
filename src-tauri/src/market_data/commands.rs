@@ -188,6 +188,14 @@ pub async fn add_market_asset(
                 ).await;
             }
             
+            // Trigger immediate save - extract Arc before spawning
+            let engine_arc = state.engine.clone();
+            tokio::spawn(async move {
+                if let Err(e) = save_engine_state(engine_arc).await {
+                    eprintln!("[Command] Failed to save config after add: {}", e);
+                }
+            });
+            
             Ok(format!("Successfully added {}", request.symbol))
         }
         Err(e) => {
@@ -205,7 +213,8 @@ pub async fn get_pipeline_status(
     let engine = state.engine.lock().await;
     
     if let Some(pipeline) = engine.pipelines.get(&symbol) {
-        let (status_str, connected, last_tick) = match &pipeline.status {
+        let status = pipeline.status.lock().await;
+        let (status_str, connected, last_tick) = match &*status {
             PipelineStatus::Stopped => ("stopped".to_string(), false, None),
             PipelineStatus::Starting => ("starting".to_string(), false, None),
             PipelineStatus::Running { connected, last_tick } => {
@@ -243,7 +252,8 @@ pub async fn list_active_pipelines(
     let mut results = Vec::new();
     
     for (symbol, pipeline) in &engine.pipelines {
-        let (status_str, connected, last_tick) = match &pipeline.status {
+        let status = pipeline.status.lock().await;
+        let (status_str, connected, last_tick) = match &*status {
             PipelineStatus::Stopped => ("stopped".to_string(), false, None),
             PipelineStatus::Starting => ("starting".to_string(), false, None),
             PipelineStatus::Running { connected, last_tick } => {
@@ -288,7 +298,10 @@ pub async fn stop_pipeline(
             }
         }
         
-        pipeline.status = PipelineStatus::Stopped;
+        {
+            let mut status = pipeline.status.lock().await;
+            *status = PipelineStatus::Stopped;
+        }
         
         Ok(format!("Stopped pipeline for {}", symbol))
     } else {
@@ -296,9 +309,181 @@ pub async fn stop_pipeline(
     }
 }
 
+// Pipeline persistence structures
+#[derive(Serialize, Deserialize)]
+pub struct PipelineConfigFile {
+    pub version: u32,
+    pub pipelines: Vec<PipelineConfig>,
+    pub saved_at: String,
+    pub clean_shutdown: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PipelineConfig {
+    pub symbol: String,
+    pub source: String,
+    pub asset_class: String,
+    pub added_at: String,
+    pub last_tick: Option<String>,
+}
+
+#[tauri::command]
+pub async fn save_pipeline_config(
+    state: State<'_, MarketDataState>,
+) -> Result<(), String> {
+    let engine = state.engine.lock().await;
+    
+    // Extract current pipeline configurations
+    let mut configs = Vec::new();
+    for (symbol, pipeline) in engine.pipelines.iter() {
+        let source_name = match &pipeline.config.source {
+            DataSource::Oanda { .. } => "oanda",
+            DataSource::Kraken { .. } => "kraken",
+            DataSource::Alpaca { .. } => "alpaca",
+            DataSource::Dukascopy => "dukascopy",
+            DataSource::IBKR { .. } => "ibkr",
+            DataSource::Coinbase { .. } => "coinbase",
+        };
+        
+        let status = pipeline.status.lock().await;
+        let last_tick_str = match &*status {
+            PipelineStatus::Running { last_tick, .. } => 
+                last_tick.map(|t| t.to_rfc3339()),
+            _ => None,
+        };
+        
+        configs.push(PipelineConfig {
+            symbol: symbol.clone(),
+            source: source_name.to_string(),
+            asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
+            added_at: chrono::Utc::now().to_rfc3339(),
+            last_tick: last_tick_str,
+        });
+    }
+    
+    let config_file = PipelineConfigFile {
+        version: 1,
+        pipelines: configs,
+        saved_at: chrono::Utc::now().to_rfc3339(),
+        clean_shutdown: false,  // Will be set to true on graceful shutdown
+    };
+    
+    // Get app config directory using dirs crate
+    let config_dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("sptraderb");
+    
+    // Ensure directory exists
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    
+    let config_path = config_dir.join("active_pipelines.json");
+    let json = serde_json::to_string_pretty(&config_file)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    
+    std::fs::write(&config_path, json)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+    
+    println!("[MarketData] Saved {} pipeline configs to {:?}", config_file.pipelines.len(), config_path);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn load_pipeline_config() -> Result<PipelineConfigFile, String> {
+    // Note: This needs app handle but we can't get it without State
+    // Will need to pass config path from frontend or refactor
+    let config_path = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("sptraderb")
+        .join("active_pipelines.json");
+    
+    if !config_path.exists() {
+        return Ok(PipelineConfigFile {
+            version: 1,
+            pipelines: vec![],
+            saved_at: chrono::Utc::now().to_rfc3339(),
+            clean_shutdown: true,  // No previous file means clean start
+        });
+    }
+    
+    let json = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config file: {}", e))?;
+    
+    let config_file: PipelineConfigFile = serde_json::from_str(&json)
+        .map_err(|e| format!("Failed to parse config file: {}", e))?;
+    
+    println!("[MarketData] Loaded {} pipeline configs", config_file.pipelines.len());
+    Ok(config_file)
+}
+
+// Helper function to save engine state (works with Arc directly)
+async fn save_engine_state(engine: Arc<Mutex<MarketDataEngine>>) -> Result<(), String> {
+    let configs = {
+        let engine_lock = engine.lock().await;
+        let mut configs = Vec::new();
+        for (symbol, pipeline) in engine_lock.pipelines.iter() {
+            let source_name = match &pipeline.config.source {
+                DataSource::Oanda { .. } => "oanda",
+                DataSource::Kraken { .. } => "kraken",
+                DataSource::Alpaca { .. } => "alpaca",
+                DataSource::Dukascopy => "dukascopy",
+                DataSource::IBKR { .. } => "ibkr",
+                DataSource::Coinbase { .. } => "coinbase",
+            };
+            
+            let status = pipeline.status.lock().await;
+            let last_tick_str = match &*status {
+                PipelineStatus::Running { last_tick, .. } => 
+                    last_tick.map(|t| t.to_rfc3339()),
+                _ => None,
+            };
+            
+            configs.push(PipelineConfig {
+                symbol: symbol.clone(),
+                source: source_name.to_string(),
+                asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
+                added_at: chrono::Utc::now().to_rfc3339(),
+                last_tick: last_tick_str,
+            });
+        }
+        configs
+    }; // Lock released here
+    
+    save_configs_to_file(configs).await
+}
+
+// Standalone function to save configs to file
+async fn save_configs_to_file(configs: Vec<PipelineConfig>) -> Result<(), String> {
+    let config_dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("sptraderb");
+    
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    
+    let config_file = PipelineConfigFile {
+        version: 1,
+        pipelines: configs,
+        saved_at: chrono::Utc::now().to_rfc3339(),
+        clean_shutdown: false,  // Will be set to true on graceful shutdown
+    };
+    
+    let config_path = config_dir.join("active_pipelines.json");
+    let json = serde_json::to_string_pretty(&config_file)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    
+    std::fs::write(&config_path, json)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+    
+    Ok(())
+}
+
 // Initialize market data engine in main.rs
 pub fn init_market_data_engine(pool: PgPool) -> MarketDataState {
-    MarketDataState {
-        engine: Arc::new(Mutex::new(MarketDataEngine::new(pool))),
-    }
+    let engine = Arc::new(Mutex::new(MarketDataEngine::new(pool)));
+    
+    // Start auto-save task
+    MarketDataEngine::start_auto_save(engine.clone());
+    
+    MarketDataState { engine }
 }

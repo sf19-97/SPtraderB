@@ -9,6 +9,8 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AssetClass {
@@ -91,7 +93,7 @@ pub trait Ingester: Send + Sync {
 pub struct AssetPipeline {
     pub config: PipelineConfig,
     pub ingester: Option<Box<dyn Ingester>>,
-    pub status: PipelineStatus,
+    pub status: Arc<Mutex<PipelineStatus>>,
     pub db_pool: PgPool,
 }
 
@@ -125,6 +127,89 @@ impl MarketDataEngine {
         }
     }
     
+    pub fn start_auto_save(engine: Arc<Mutex<Self>>) {
+        tokio::spawn(async move {
+            // CRITICAL: Wait before first save to allow restore
+            eprintln!("[AutoSave] Delaying first save by 10 seconds for restore window...");
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            interval.tick().await; // Consume the immediate tick
+            
+            loop {
+                interval.tick().await;
+                
+                // Extract configs directly without needing State
+                let configs = {
+                    let engine_lock = engine.lock().await;
+                    eprintln!("[AutoSave] Found {} pipelines in engine", engine_lock.pipelines.len());
+                    for (sym, pipe) in &engine_lock.pipelines {
+                        let status = pipe.status.lock().await;
+                        eprintln!("[AutoSave] Pipeline {}: has_ingester={}, status={:?}", 
+                            sym, pipe.ingester.is_some(), *status);
+                    }
+                    let mut configs = Vec::new();
+                    for (symbol, pipeline) in engine_lock.pipelines.iter() {
+                        let source_name = match &pipeline.config.source {
+                            DataSource::Oanda { .. } => "oanda",
+                            DataSource::Kraken { .. } => "kraken",
+                            DataSource::Alpaca { .. } => "alpaca",
+                            DataSource::Dukascopy => "dukascopy",
+                            DataSource::IBKR { .. } => "ibkr",
+                            DataSource::Coinbase { .. } => "coinbase",
+                        };
+                        
+                        let status = pipeline.status.lock().await;
+                        let last_tick_str = match &*status {
+                            PipelineStatus::Running { last_tick, .. } => 
+                                last_tick.map(|t| t.to_rfc3339()),
+                            _ => None,
+                        };
+                        
+                        configs.push(commands::PipelineConfig {
+                            symbol: symbol.clone(),
+                            source: source_name.to_string(),
+                            asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
+                            added_at: chrono::Utc::now().to_rfc3339(),
+                            last_tick: last_tick_str,
+                        });
+                    }
+                    configs
+                };
+                
+                // Save directly
+                let config_file = commands::PipelineConfigFile {
+                    version: 1,
+                    pipelines: configs,
+                    saved_at: chrono::Utc::now().to_rfc3339(),
+                    clean_shutdown: false,  // Always false for auto-save
+                };
+                
+                let config_dir = dirs::config_dir()
+                    .map(|d| d.join("sptraderb"));
+                    
+                if let Some(dir) = config_dir {
+                    if let Err(e) = std::fs::create_dir_all(&dir) {
+                        eprintln!("[MarketData] Failed to create config dir: {}", e);
+                        continue;
+                    }
+                    
+                    let config_path = dir.join("active_pipelines.json");
+                    match serde_json::to_string_pretty(&config_file) {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(&config_path, json) {
+                                eprintln!("[MarketData] Auto-save write failed: {}", e);
+                            } else {
+                                println!("[MarketData] Auto-saved {} pipelines", config_file.pipelines.len());
+                            }
+                        }
+                        Err(e) => eprintln!("[MarketData] Auto-save serialization failed: {}", e),
+                    }
+                }
+            }
+        });
+    }
+    
     pub async fn add_asset(&mut self, symbol: String, source: Option<DataSource>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 1. Discover asset info
         let asset_info = AssetDiscovery::identify(&symbol).await?;
@@ -150,15 +235,21 @@ impl MarketDataEngine {
         let mut pipeline = AssetPipeline {
             config,
             ingester: Some(ingester),
-            status: PipelineStatus::Stopped,
+            status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             db_pool: self.db_pool.clone(),
         };
         
         // 6. Start it
+        eprintln!("[AddAsset] Before start - Pipeline {} has ingester: {}", 
+            symbol, pipeline.ingester.is_some());
         pipeline.start().await?;
+        eprintln!("[AddAsset] After start - Pipeline {} has ingester: {}", 
+            symbol, pipeline.ingester.is_some());
         
         // 7. Store it
         self.pipelines.insert(symbol.clone(), pipeline);
+        eprintln!("[AddAsset] Stored pipeline {}. Total pipelines: {}", 
+            symbol, self.pipelines.len());
         
         Ok(())
     }

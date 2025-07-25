@@ -10,7 +10,10 @@ impl AssetPipeline {
         println!("[Pipeline] Starting pipeline for {}", self.config.symbol);
         
         // Update status
-        self.status = PipelineStatus::Starting;
+        {
+            let mut status = self.status.lock().await;
+            *status = PipelineStatus::Starting;
+        }
         
         // Connect ingester
         if let Some(ref mut ingester) = self.ingester {
@@ -26,6 +29,7 @@ impl AssetPipeline {
         let symbol = self.config.symbol.clone();
         let tick_table = self.config.tick_table.clone();
         let db_pool = self.db_pool.clone();
+        let status_arc = self.status.clone();
         let mut ingester = self.ingester.take().ok_or("Ingester already taken")?;
         
         tokio::spawn(async move {
@@ -37,6 +41,13 @@ impl AssetPipeline {
             loop {
                 match ingester.next_tick().await {
                     Ok(tick) => {
+                        // Update last tick time in status
+                        if let Ok(mut status) = status_arc.lock().await {
+                            if let PipelineStatus::Running { ref mut last_tick, .. } = *status {
+                                *last_tick = Some(tick.time);
+                            }
+                        }
+                        
                         batch.push(tick);
                         
                         // Flush if batch is full or time elapsed
@@ -70,10 +81,13 @@ impl AssetPipeline {
             }
         });
         
-        self.status = PipelineStatus::Running { 
-            connected: true, 
-            last_tick: Some(Utc::now()) 
-        };
+        {
+            let mut status = self.status.lock().await;
+            *status = PipelineStatus::Running { 
+                connected: true, 
+                last_tick: Some(Utc::now()) 
+            };
+        }
         
         Ok(())
     }
@@ -284,9 +298,9 @@ impl CascadeScheduler {
                 .unwrap_or(targets[0] + 60);
             
             let delay_seconds = if next_target > 60 {
-                next_target - 60 - current_second
+                (next_target - 60).saturating_sub(current_second)
             } else {
-                next_target - current_second
+                next_target.saturating_sub(current_second)
             };
             
             println!("[Cascade] Waiting {} seconds for clock alignment", delay_seconds);
