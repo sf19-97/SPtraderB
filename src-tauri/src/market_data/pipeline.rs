@@ -42,7 +42,8 @@ impl AssetPipeline {
                 match ingester.next_tick().await {
                     Ok(tick) => {
                         // Update last tick time in status
-                        if let Ok(mut status) = status_arc.lock().await {
+                        {
+                            let mut status = status_arc.lock().await;
                             if let PipelineStatus::Running { ref mut last_tick, .. } = *status {
                                 *last_tick = Some(tick.time);
                             }
