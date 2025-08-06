@@ -18,6 +18,7 @@ pub struct AddAssetRequest {
     pub account_id: Option<String>,
     pub api_token: Option<String>,
     pub profile_id: Option<String>, // Specific broker profile to use
+    pub catchup_from: Option<String>, // ISO timestamp to catch up from
 }
 
 #[derive(Serialize, Deserialize)]
@@ -198,6 +199,28 @@ pub async fn add_market_asset(
                     procedure,
                     5 // Every 5 seconds
                 ).await;
+            }
+            
+            // Handle catchup if requested
+            if let Some(catchup_from) = request.catchup_from {
+                eprintln!("[Command] Initiating catchup for {} from {}", request.symbol, catchup_from);
+                
+                // Parse the timestamp
+                if let Ok(from_time) = chrono::DateTime::parse_from_rfc3339(&catchup_from) {
+                    let from_utc = from_time.with_timezone(&chrono::Utc);
+                    let now = chrono::Utc::now();
+                    let gap_minutes = (now - from_utc).num_minutes();
+                    
+                    eprintln!("[Command] Gap detected: {} minutes for {}", gap_minutes, request.symbol);
+                    
+                    // TODO: Implement actual historical data fetch
+                    // For now, just log the gap
+                    window.emit("catchup-status", serde_json::json!({
+                        "symbol": request.symbol,
+                        "gap_minutes": gap_minutes,
+                        "status": "Gap detected, catchup not yet implemented"
+                    })).ok();
+                }
             }
             
             // Trigger immediate save - extract Arc before spawning

@@ -17,6 +17,7 @@ use serde_json;
 use chrono::{Datelike, DateTime, Utc};
 use tokio::io::BufReader;
 use redis::Client as RedisClient;
+use dirs;
 
 mod workspace;
 mod orders;
@@ -34,6 +35,66 @@ mod commands {
 use execution::ExecutionEngine;
 use market_data::commands::*;
 use market_data::{PipelineStatus, DataSource};
+
+// Helper function to save pipeline state on shutdown
+async fn save_final_state(engine: Arc<Mutex<market_data::MarketDataEngine>>) -> Result<(), String> {
+    let configs = {
+        let engine_lock = engine.lock().await;
+        let mut configs = Vec::new();
+        for (symbol, pipeline) in engine_lock.pipelines.iter() {
+            let source_name = match &pipeline.config.source {
+                DataSource::Oanda { .. } => "oanda",
+                DataSource::Kraken { .. } => "kraken",
+                DataSource::Alpaca { .. } => "alpaca",
+                DataSource::Dukascopy => "dukascopy",
+                DataSource::IBKR { .. } => "ibkr",
+                DataSource::Coinbase { .. } => "coinbase",
+            };
+            
+            let status = pipeline.status.lock().await;
+            let last_tick_str = match &*status {
+                PipelineStatus::Running { last_tick, .. } => 
+                    last_tick.map(|t| t.to_rfc3339()),
+                _ => None,
+            };
+            
+            configs.push(market_data::commands::PipelineConfig {
+                symbol: symbol.clone(),
+                source: source_name.to_string(),
+                asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
+                added_at: chrono::Utc::now().to_rfc3339(),
+                last_tick: last_tick_str,
+                profile_id: pipeline.config.profile_id.clone(),
+                profile_name: pipeline.config.profile_name.clone(),
+            });
+        }
+        configs
+    };
+    
+    // Save with clean_shutdown flag set to true
+    let config_dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("sptraderb");
+    
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    
+    let config_file = market_data::commands::PipelineConfigFile {
+        version: 1,
+        pipelines: configs,
+        saved_at: chrono::Utc::now().to_rfc3339(),
+        clean_shutdown: true,  // Mark as clean shutdown
+    };
+    
+    let config_path = config_dir.join("active_pipelines.json");
+    let json = serde_json::to_string_pretty(&config_file)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    
+    std::fs::write(&config_path, json)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+    
+    Ok(())
+}
 
 // Orders module still exists but not used directly anymore
 use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
@@ -2264,6 +2325,22 @@ async fn main() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 window.hide().unwrap();
                 api.prevent_close();
+                
+                // Save market data pipelines with clean shutdown flag
+                let app_handle = window.app_handle();
+                if let Some(market_data_state) = app_handle.try_state::<MarketDataState>() {
+                    let engine = market_data_state.engine.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = save_final_state(engine).await {
+                            eprintln!("[Shutdown] Failed to save pipeline state: {}", e);
+                        } else {
+                            println!("[Shutdown] Pipeline state saved successfully");
+                        }
+                    });
+                }
+                
+                // Give async save a moment to complete
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 std::process::exit(0);
             }
         })

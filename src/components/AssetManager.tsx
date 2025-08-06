@@ -107,7 +107,28 @@ export function AssetManager() {
       }
 
       console.log(`[AssetManager] Restoring ${configFile.pipelines.length} pipelines`);
+      console.log('[AssetManager] Clean shutdown:', configFile.clean_shutdown);
       console.log('[AssetManager] Pipelines to restore:', configFile.pipelines);
+
+      // Check for data gaps
+      const now = new Date();
+      const hasDataGap = !configFile.clean_shutdown || configFile.pipelines.some((pipeline) => {
+        if (!pipeline.last_tick) return true;
+        const lastTick = new Date(pipeline.last_tick);
+        const gapMinutes = (now.getTime() - lastTick.getTime()) / (1000 * 60);
+        // Consider it a gap if more than 5 minutes have passed
+        return gapMinutes > 5;
+      });
+
+      if (hasDataGap) {
+        console.log('[AssetManager] Data gap detected, will need to catch up');
+        notifications.show({
+          title: 'Data Gap Detected',
+          message: 'Restoring pipelines with historical data catchup',
+          color: 'blue',
+          icon: <IconAlertCircle />,
+        });
+      }
 
       const results = await Promise.allSettled(
         configFile.pipelines.map(async (config) => {
@@ -146,6 +167,13 @@ export function AssetManager() {
             }
           }
 
+          // Calculate gap for this specific pipeline
+          let catchupFrom = null;
+          if (hasDataGap && config.last_tick) {
+            catchupFrom = config.last_tick;
+            console.log(`[AssetManager] Will catchup ${config.symbol} from ${catchupFrom}`);
+          }
+
           try {
             await invoke('add_market_asset', {
               request: {
@@ -154,6 +182,7 @@ export function AssetManager() {
                 account_id: profile.account,
                 api_token: decryptSensitiveData(profile.apiKey),
                 profile_id: profile.id,
+                catchup_from: catchupFrom,
               },
             });
 
@@ -246,9 +275,24 @@ export function AssetManager() {
       }
     );
 
+    const unlistenCatchup = listen<{ symbol: string; gap_minutes: number; status: string }>(
+      'catchup-status',
+      (event) => {
+        console.log('Catchup status:', event.payload);
+        if (event.payload.gap_minutes > 0) {
+          notifications.show({
+            title: `Data Gap: ${event.payload.symbol}`,
+            message: `${event.payload.gap_minutes} minute gap detected. ${event.payload.status}`,
+            color: 'yellow',
+          });
+        }
+      }
+    );
+
     return () => {
       unlistenAdded.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
+      unlistenCatchup.then((fn) => fn());
     };
   }, []);
 
