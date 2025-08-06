@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useBuildStore } from '../stores/useBuildStore';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  Container,
   Title,
   Text,
   Paper,
@@ -23,16 +22,13 @@ import {
   Center,
 } from '@mantine/core';
 import {
-  IconCode,
   IconBolt,
-  IconTrendingUp,
   IconGitBranch,
   IconClock,
   IconSearch,
   IconPlus,
   IconPlayerPlay,
   IconGitCommit,
-  IconCircleCheck,
   IconArrowRight,
   IconFileCode,
   IconBox,

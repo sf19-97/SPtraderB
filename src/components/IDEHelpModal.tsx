@@ -13,7 +13,6 @@ import {
 import {
   IconStack3,
   IconBolt,
-  IconTrendingUp,
   IconBox,
   IconArrowDown,
   IconCheck,

@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries, Time } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useChartStore } from '../stores/useChartStore';

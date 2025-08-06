@@ -6,7 +6,6 @@ import { IconDatabase } from '@tabler/icons-react';
 
 import {
   IconChartLine,
-  IconTestPipe,
   IconCode,
   IconHistory,
   IconSettings,

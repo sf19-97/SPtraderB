@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { Box, Text, ActionIcon, Group, SegmentedControl, Paper } from '@mantine/core';
-import { IconMaximize, IconMinimize, IconChartCandle, IconChartLine } from '@tabler/icons-react';
+import { useEffect, useRef, useState } from 'react';
+import { Box, Text, Group, SegmentedControl, Paper } from '@mantine/core';
 import { PreviewChart } from '../PreviewChart';
 import { InteractiveTradeOverlay } from './charts/InteractiveTradeOverlay';
 import { useOrchestratorStore } from '../../stores/useOrchestratorStore';

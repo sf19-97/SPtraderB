@@ -201,7 +201,138 @@ pub async fn add_market_asset(
                 ).await;
             }
             
-            // Handle catchup if requested
+            // Check for existing data gaps even if catchup_from is not provided
+            let symbol_for_gap_check = request.symbol.clone();
+            let db_pool_clone = engine.db_pool.clone();
+            let window_for_gap_check = window.clone();
+            
+            tokio::spawn(async move {
+                // Query to detect historical gaps when adding a pipeline
+                // If we have recent data, look for the last tick before any major gap
+                match sqlx::query_as::<_, (Option<chrono::DateTime<chrono::Utc>>,)>(
+                    r#"
+                    WITH recent_data AS (
+                        -- Check if we have data in the last 5 minutes
+                        SELECT COUNT(*) > 0 as has_recent
+                        FROM forex_ticks
+                        WHERE symbol = $1 
+                            AND time > NOW() - INTERVAL '5 minutes'
+                    ),
+                    gap_boundaries AS (
+                        -- Find all gaps > 1 hour
+                        SELECT 
+                            time,
+                            time - LAG(time) OVER (ORDER BY time) as gap_from_previous
+                        FROM forex_ticks 
+                        WHERE symbol = $1
+                            AND time > NOW() - INTERVAL '90 days'
+                    ),
+                    last_before_gap AS (
+                        -- Find the last tick before the most recent gap
+                        SELECT MAX(time) as tick_time
+                        FROM forex_ticks
+                        WHERE symbol = $1
+                            AND time < (
+                                SELECT MIN(time)
+                                FROM gap_boundaries
+                                WHERE time >= COALESCE(
+                                    (SELECT MAX(time) FROM gap_boundaries WHERE gap_from_previous > INTERVAL '1 hour'),
+                                    '1900-01-01'::timestamp
+                                )
+                            )
+                    )
+                    SELECT 
+                        CASE 
+                            WHEN (SELECT has_recent FROM recent_data) THEN
+                                -- If we have recent data, check for historical gaps
+                                (SELECT tick_time FROM last_before_gap)
+                            ELSE
+                                -- If no recent data, just get the most recent tick
+                                (SELECT MAX(time) FROM forex_ticks WHERE symbol = $1)
+                        END as last_tick
+                    "#
+                )
+                .bind(&symbol_for_gap_check)
+                .bind(&symbol_for_gap_check)
+                .bind(&symbol_for_gap_check)
+                .bind(&symbol_for_gap_check)
+                .fetch_one(&db_pool_clone)
+                .await
+                {
+                    Ok((last_tick,)) => {
+                        if let Some(last_tick) = last_tick {
+                            let now = chrono::Utc::now();
+                            let gap_minutes = (now - last_tick).num_minutes();
+                            
+                            eprintln!("[Command] Found existing data for {}, last tick: {}, gap: {} minutes", 
+                                symbol_for_gap_check, last_tick, gap_minutes);
+                            
+                            // If there's a significant gap, run catchup
+                            if gap_minutes > 5 {
+                                eprintln!("[Catchup] Auto-detected gap for {}, initiating catchup from {}", 
+                                    symbol_for_gap_check, last_tick);
+                                
+                                // Get path to catchup script
+                                let script_path = std::env::current_dir()
+                                    .unwrap()
+                                    .join("src")
+                                    .join("market_data")
+                                    .join("historical")
+                                    .join("catchup_ingester.py");
+                                
+                                // Run Python catchup script
+                                match tokio::process::Command::new("python3")
+                                    .arg(&script_path)
+                                    .arg("--symbol")
+                                    .arg(&symbol_for_gap_check)
+                                    .arg("--from")
+                                    .arg(&last_tick.to_rfc3339())
+                                    .output()
+                                    .await
+                                {
+                                    Ok(output) => {
+                                        if output.status.success() {
+                                            let stdout = String::from_utf8_lossy(&output.stdout);
+                                            eprintln!("[Catchup] Success: {}", stdout);
+                                            
+                                            window_for_gap_check.emit("catchup-status", serde_json::json!({
+                                                "symbol": symbol_for_gap_check,
+                                                "gap_minutes": gap_minutes,
+                                                "status": "completed",
+                                                "message": stdout.trim()
+                                            })).ok();
+                                        } else {
+                                            let stderr = String::from_utf8_lossy(&output.stderr);
+                                            eprintln!("[Catchup] Failed: {}", stderr);
+                                            
+                                            window_for_gap_check.emit("catchup-status", serde_json::json!({
+                                                "symbol": symbol_for_gap_check,
+                                                "gap_minutes": gap_minutes,
+                                                "status": "failed",
+                                                "error": stderr.trim()
+                                            })).ok();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[Catchup] Error running script: {}", e);
+                                        window_for_gap_check.emit("catchup-status", serde_json::json!({
+                                            "symbol": symbol_for_gap_check,
+                                            "gap_minutes": gap_minutes,
+                                            "status": "error",
+                                            "error": e.to_string()
+                                        })).ok();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Command] No existing data for {} (error: {})", symbol_for_gap_check, e);
+                    }
+                }
+            });
+            
+            // Handle explicit catchup if requested (for restore scenarios)
             if let Some(catchup_from) = request.catchup_from {
                 eprintln!("[Command] Initiating catchup for {} from {}", request.symbol, catchup_from);
                 
@@ -213,8 +344,8 @@ pub async fn add_market_asset(
                     
                     eprintln!("[Command] Gap detected: {} minutes for {}", gap_minutes, request.symbol);
                     
-                    // Only catchup if gap is significant (>1 minute) and not too large (<24 hours)
-                    if gap_minutes > 1 && gap_minutes < 1440 {
+                    // Only catchup if gap is significant (>1 minute)
+                    if gap_minutes > 1 {
                         // Spawn catchup task
                         let symbol_clone = request.symbol.clone();
                         let window_clone = window.clone();
@@ -275,13 +406,6 @@ pub async fn add_market_asset(
                                 }
                             }
                         });
-                    } else if gap_minutes >= 1440 {
-                        window.emit("catchup-status", serde_json::json!({
-                            "symbol": request.symbol,
-                            "gap_minutes": gap_minutes,
-                            "status": "skipped",
-                            "message": "Gap too large (>24 hours), manual intervention required"
-                        })).ok();
                     }
                 }
             }
@@ -600,4 +724,103 @@ pub async fn mark_restore_completed(
     engine.restore_completed = true;
     eprintln!("[MarketData] Restore marked as completed, auto-save now enabled");
     Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DataGapInfo {
+    pub symbol: String,
+    pub has_data: bool,
+    pub last_tick: Option<String>,
+    pub gap_minutes: Option<i64>,
+    pub gaps: Vec<GapPeriod>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GapPeriod {
+    pub start: String,
+    pub end: String,
+    pub gap_hours: f64,
+}
+
+#[tauri::command]
+pub async fn check_data_gaps(
+    symbol: String,
+    state: State<'_, MarketDataState>,
+) -> Result<DataGapInfo, String> {
+    let engine = state.engine.lock().await;
+    let db_pool = &engine.db_pool;
+    
+    // First check if we have any data
+    let last_tick_result = sqlx::query_as::<_, (Option<chrono::DateTime<chrono::Utc>>,)>(
+        "SELECT MAX(time) as last_tick FROM forex_ticks WHERE symbol = $1"
+    )
+    .bind(&symbol)
+    .fetch_one(db_pool)
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+    
+    if let (Some(last_tick),) = last_tick_result {
+        let now = chrono::Utc::now();
+        let gap_minutes = (now - last_tick).num_minutes();
+        
+        // Query for significant gaps in the data
+        #[derive(sqlx::FromRow)]
+        struct GapRow {
+            prev_time: Option<chrono::DateTime<chrono::Utc>>,
+            time: chrono::DateTime<chrono::Utc>,
+            gap_hours: Option<f64>,
+        }
+        
+        let gaps = sqlx::query_as::<_, GapRow>(
+            r#"
+            WITH tick_gaps AS (
+                SELECT 
+                    time,
+                    LAG(time) OVER (ORDER BY time) as prev_time,
+                    time - LAG(time) OVER (ORDER BY time) as gap
+                FROM forex_ticks 
+                WHERE symbol = $1 
+                    AND time > NOW() - INTERVAL '30 days'
+            )
+            SELECT 
+                prev_time,
+                time,
+                EXTRACT(epoch FROM gap)/3600 as gap_hours
+            FROM tick_gaps 
+            WHERE gap > INTERVAL '1 hour' 
+            ORDER BY gap DESC 
+            LIMIT 10
+            "#
+        )
+        .bind(&symbol)
+        .fetch_all(db_pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+        
+        let gap_periods: Vec<GapPeriod> = gaps.iter()
+            .filter_map(|row| {
+                row.prev_time.map(|start| GapPeriod {
+                    start: start.to_rfc3339(),
+                    end: row.time.to_rfc3339(),
+                    gap_hours: row.gap_hours.unwrap_or(0.0),
+                })
+            })
+            .collect();
+        
+        Ok(DataGapInfo {
+            symbol,
+            has_data: true,
+            last_tick: Some(last_tick.to_rfc3339()),
+            gap_minutes: Some(gap_minutes),
+            gaps: gap_periods,
+        })
+    } else {
+        Ok(DataGapInfo {
+            symbol,
+            has_data: false,
+            last_tick: None,
+            gap_minutes: None,
+            gaps: vec![],
+        })
+    }
 }
