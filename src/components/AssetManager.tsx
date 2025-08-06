@@ -275,19 +275,51 @@ export function AssetManager() {
       }
     );
 
-    const unlistenCatchup = listen<{ symbol: string; gap_minutes: number; status: string }>(
-      'catchup-status',
-      (event) => {
-        console.log('Catchup status:', event.payload);
-        if (event.payload.gap_minutes > 0) {
+    const unlistenCatchup = listen<{
+      symbol: string;
+      gap_minutes: number;
+      status: string;
+      message?: string;
+      error?: string;
+    }>('catchup-status', (event) => {
+      console.log('Catchup status:', event.payload);
+      const { symbol, gap_minutes, status, message, error } = event.payload;
+
+      switch (status) {
+        case 'completed':
           notifications.show({
-            title: `Data Gap: ${event.payload.symbol}`,
-            message: `${event.payload.gap_minutes} minute gap detected. ${event.payload.status}`,
-            color: 'yellow',
+            title: `Catchup Complete: ${symbol}`,
+            message: message || `Successfully filled ${gap_minutes} minute gap`,
+            color: 'green',
+            icon: <IconCheck />,
           });
-        }
+          break;
+        case 'failed':
+          notifications.show({
+            title: `Catchup Failed: ${symbol}`,
+            message: error || `Failed to fill ${gap_minutes} minute gap`,
+            color: 'red',
+            icon: <IconAlertCircle />,
+          });
+          break;
+        case 'skipped':
+          notifications.show({
+            title: `Catchup Skipped: ${symbol}`,
+            message: message || `Gap too large (${gap_minutes} minutes)`,
+            color: 'orange',
+            icon: <IconAlertCircle />,
+          });
+          break;
+        case 'error':
+          notifications.show({
+            title: `Catchup Error: ${symbol}`,
+            message: error || 'Failed to run catchup process',
+            color: 'red',
+            icon: <IconAlertCircle />,
+          });
+          break;
       }
-    );
+    });
 
     return () => {
       unlistenAdded.then((fn) => fn());

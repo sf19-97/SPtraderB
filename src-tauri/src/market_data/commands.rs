@@ -213,13 +213,76 @@ pub async fn add_market_asset(
                     
                     eprintln!("[Command] Gap detected: {} minutes for {}", gap_minutes, request.symbol);
                     
-                    // TODO: Implement actual historical data fetch
-                    // For now, just log the gap
-                    window.emit("catchup-status", serde_json::json!({
-                        "symbol": request.symbol,
-                        "gap_minutes": gap_minutes,
-                        "status": "Gap detected, catchup not yet implemented"
-                    })).ok();
+                    // Only catchup if gap is significant (>1 minute) and not too large (<24 hours)
+                    if gap_minutes > 1 && gap_minutes < 1440 {
+                        // Spawn catchup task
+                        let symbol_clone = request.symbol.clone();
+                        let window_clone = window.clone();
+                        let from_time_str = catchup_from.clone();
+                        
+                        tokio::spawn(async move {
+                            eprintln!("[Catchup] Starting historical data fetch for {}", symbol_clone);
+                            
+                            // Get path to catchup script
+                            let script_path = std::env::current_dir()
+                                .unwrap()
+                                .join("src")
+                                .join("market_data")
+                                .join("historical")
+                                .join("catchup_ingester.py");
+                            
+                            // Run Python catchup script
+                            match tokio::process::Command::new("python3")
+                                .arg(&script_path)
+                                .arg("--symbol")
+                                .arg(&symbol_clone)
+                                .arg("--from")
+                                .arg(&from_time_str)
+                                .output()
+                                .await
+                            {
+                                Ok(output) => {
+                                    if output.status.success() {
+                                        let stdout = String::from_utf8_lossy(&output.stdout);
+                                        eprintln!("[Catchup] Success: {}", stdout);
+                                        
+                                        window_clone.emit("catchup-status", serde_json::json!({
+                                            "symbol": symbol_clone,
+                                            "gap_minutes": gap_minutes,
+                                            "status": "completed",
+                                            "message": stdout.trim()
+                                        })).ok();
+                                    } else {
+                                        let stderr = String::from_utf8_lossy(&output.stderr);
+                                        eprintln!("[Catchup] Failed: {}", stderr);
+                                        
+                                        window_clone.emit("catchup-status", serde_json::json!({
+                                            "symbol": symbol_clone,
+                                            "gap_minutes": gap_minutes,
+                                            "status": "failed",
+                                            "error": stderr.trim()
+                                        })).ok();
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("[Catchup] Error running script: {}", e);
+                                    window_clone.emit("catchup-status", serde_json::json!({
+                                        "symbol": symbol_clone,
+                                        "gap_minutes": gap_minutes,
+                                        "status": "error",
+                                        "error": e.to_string()
+                                    })).ok();
+                                }
+                            }
+                        });
+                    } else if gap_minutes >= 1440 {
+                        window.emit("catchup-status", serde_json::json!({
+                            "symbol": request.symbol,
+                            "gap_minutes": gap_minutes,
+                            "status": "skipped",
+                            "message": "Gap too large (>24 hours), manual intervention required"
+                        })).ok();
+                    }
                 }
             }
             
