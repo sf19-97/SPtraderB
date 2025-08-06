@@ -130,8 +130,8 @@ impl MarketDataEngine {
     pub fn start_auto_save(engine: Arc<Mutex<Self>>) {
         tokio::spawn(async move {
             // CRITICAL: Wait before first save to allow restore
-            eprintln!("[AutoSave] Delaying first save by 10 seconds for restore window...");
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            eprintln!("[AutoSave] Delaying first save by 30 seconds for restore window...");
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             interval.tick().await; // Consume the immediate tick

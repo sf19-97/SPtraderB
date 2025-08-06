@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface BrokerProfile {
+export interface BrokerProfile {
   id: string;
   name: string;
   broker: string;

@@ -94,8 +94,6 @@ struct AppState {
     active_backtests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     // Candle update monitors
     candle_monitors: Arc<Mutex<HashMap<String, Arc<candle_monitor::CandleUpdateMonitor>>>>,
-    // Market data pipelines
-    market_data: market_data::commands::MarketDataState,
 }
 
 #[derive(Clone)]
@@ -1696,7 +1694,7 @@ async fn run_orchestrator_live(
     
     // Load the strategy
     let strategy_path = format!("workspace/strategies/{}.yaml", strategy_name);
-    let mut orchestrator = match orchestrator::Orchestrator::load_strategy(&strategy_path) {
+    let orchestrator = match orchestrator::Orchestrator::load_strategy(&strategy_path) {
         Ok(o) => o,
         Err(e) => {
             emit_log(&window, "ERROR", &format!("Failed to load strategy: {}", e));
@@ -1984,14 +1982,6 @@ async fn init_execution_engine_with_broker(
     Ok("ExecutionEngine initialized".to_string())
 }
 
-// Internal function to initialize execution engine (legacy - requires broker profile)
-async fn init_execution_engine_internal(
-    _state: &State<'_, AppState>,
-    window: &tauri::Window,
-) -> Result<String, String> {
-    emit_log(window, "ERROR", "Cannot initialize ExecutionEngine without broker profile");
-    Err("Please select a broker profile first".to_string())
-}
 
 // Initialize execution engine
 #[tauri::command]
@@ -2171,7 +2161,6 @@ async fn main() {
         active_backtests: Arc::new(Mutex::new(HashMap::new())),
         // bitcoin_consumers: Arc::new(Mutex::new(HashMap::new())), // Removed - using direct DB ingestion
         candle_monitors: Arc::new(Mutex::new(HashMap::new())),
-        market_data: market_data_state.clone(),
     };
 
     Builder::default()

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useBrokerStore } from '../stores/useBrokerStore';
+import { useBrokerStore, BrokerProfile } from '../stores/useBrokerStore';
 import {
   TextInput,
   Button,
@@ -11,16 +11,12 @@ import {
   Badge,
   Group,
   Stack,
-  Loader,
   Alert,
   Table,
   ActionIcon,
-  Box,
   Paper,
   Title,
   Grid,
-  Progress,
-  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { 
@@ -30,9 +26,6 @@ import {
   IconTrash,
   IconAlertCircle,
   IconCheck,
-  IconDatabase,
-  IconActivity,
-  IconCloudDownload,
   IconPlugConnected,
   IconPlugOff
 } from '@tabler/icons-react';
@@ -169,10 +162,11 @@ export function AssetManager() {
   useEffect(() => {
     loadActivePipelines();
     
-    // Restore saved pipelines after a short delay to ensure broker profiles are loaded
+    // Restore saved pipelines after backend is fully initialized
+    // Backend has 10 second delay before first auto-save
     const restoreTimer = setTimeout(() => {
       restorePipelines();
-    }, 1000);
+    }, 5000);
     
     // Listen for asset events
     const unlistenAdded = listen('asset-added', (event) => {
@@ -334,10 +328,10 @@ export function AssetManager() {
   };
 
   return (
-    <Stack spacing="lg">
+    <Stack gap="lg">
       {/* Search Section */}
       <Card shadow="sm" p="lg" radius="md" withBorder>
-        <Stack spacing="md">
+        <Stack gap="md">
           <Title order={3}>Add New Asset</Title>
           
           <Group>
@@ -345,9 +339,9 @@ export function AssetManager() {
               placeholder="Search for assets (e.g., EURUSD, BTCUSD, AAPL)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.currentTarget.value)}
-              onKeyPress={(e) => e.key === 'Enter' && searchAssets()}
+              onKeyDown={(e) => e.key === 'Enter' && searchAssets()}
               style={{ flex: 1 }}
-              icon={<IconSearch size={16} />}
+              leftSection={<IconSearch size={16} />}
             />
             <Button 
               onClick={searchAssets} 
@@ -377,7 +371,7 @@ export function AssetManager() {
                     return (
                       <tr key={result.symbol}>
                         <td>
-                          <Text weight={600}>{result.symbol}</Text>
+                          <Text fw={600}>{result.symbol}</Text>
                         </td>
                         <td>{result.name}</td>
                         <td>
@@ -431,8 +425,8 @@ export function AssetManager() {
 
       {/* Active Pipelines Section */}
       <Card shadow="sm" p="lg" radius="md" withBorder>
-        <Stack spacing="md">
-          <Group position="apart">
+        <Stack gap="md">
+          <Group justify="space-between">
             <Title order={3}>Active Pipelines</Title>
             <Button
               variant="subtle"
@@ -457,10 +451,10 @@ export function AssetManager() {
               {activePipelines.map((pipeline) => (
                 <Grid.Col key={pipeline.symbol} span={6}>
                   <Paper p="md" withBorder>
-                    <Stack spacing="sm">
-                      <Group position="apart">
+                    <Stack gap="sm">
+                      <Group justify="space-between">
                         <Group>
-                          <Text size="lg" weight={600}>{pipeline.symbol}</Text>
+                          <Text size="lg" fw={600}>{pipeline.symbol}</Text>
                           <Badge color={getPipelineStatusColor(pipeline.status)}>
                             {pipeline.status}
                           </Badge>
@@ -474,7 +468,7 @@ export function AssetManager() {
                         </ActionIcon>
                       </Group>
 
-                      <Group spacing="xs">
+                      <Group gap="xs">
                         <Badge
                           leftSection={
                             pipeline.connected ? 

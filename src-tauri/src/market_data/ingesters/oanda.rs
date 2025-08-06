@@ -11,8 +11,11 @@ struct OandaPrice {
     time: String,
     bids: Vec<PricePoint>,
     asks: Vec<PricePoint>,
-    closeoutBid: String,
-    closeoutAsk: String,
+    #[serde(rename = "closeoutBid")]
+    closeout_bid: String,
+    #[serde(rename = "closeoutAsk")]
+    closeout_ask: String,
+    #[allow(dead_code)]
     status: String,
     tradeable: bool,
     instrument: String,
@@ -21,10 +24,12 @@ struct OandaPrice {
 #[derive(Debug, Deserialize)]
 struct PricePoint {
     price: String,
+    #[allow(dead_code)]
     liquidity: i64,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OandaHeartbeat {
     #[serde(rename = "type")]
     msg_type: String,
@@ -151,8 +156,8 @@ impl Ingester for OandaIngester {
                                 extra: json!({
                                     "spread": ask - bid,
                                     "tradeable": price.tradeable,
-                                    "closeout_bid": price.closeoutBid,
-                                    "closeout_ask": price.closeoutAsk,
+                                    "closeout_bid": price.closeout_bid,
+                                    "closeout_ask": price.closeout_ask,
                                 }),
                             });
                         }

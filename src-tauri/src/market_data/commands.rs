@@ -290,7 +290,7 @@ pub async fn stop_pipeline(
 ) -> Result<String, String> {
     let mut engine = state.engine.lock().await;
     
-    if let Some(mut pipeline) = engine.pipelines.remove(&symbol) {
+    if let Some(pipeline) = engine.pipelines.remove(&symbol) {
         // Stop the ingester
         if let Some(mut ingester) = pipeline.ingester {
             if let Err(e) = ingester.disconnect().await {
