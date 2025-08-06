@@ -144,6 +144,7 @@ async fn flush_batch(
 }
 
 impl PipelineBuilder {
+    #[allow(dead_code)]
     async fn create_schema_detailed(
         &self,
         tick_table: &str,
