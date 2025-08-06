@@ -10,11 +10,13 @@ export function BacktestConfig() {
   return (
     <Paper p="md" withBorder>
       <Stack gap="md">
-        <Text fw={600} size="lg">Backtest Configuration</Text>
-        
+        <Text fw={600} size="lg">
+          Backtest Configuration
+        </Text>
+
         {/* Strategy Selection */}
         <StrategySelector />
-        
+
         {selectedStrategy && (
           <>
             {/* Date Range */}
@@ -28,7 +30,7 @@ export function BacktestConfig() {
                 maxDate={new Date()}
                 clearable={false}
               />
-              
+
               <DatePickerInput
                 label="End Date"
                 placeholder="Select end date"
@@ -51,7 +53,7 @@ export function BacktestConfig() {
                 data={['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD']}
                 leftSection={<IconChartLine size={16} />}
               />
-              
+
               <Select
                 label="Timeframe"
                 placeholder="Select timeframe"
@@ -62,7 +64,7 @@ export function BacktestConfig() {
                   { value: '15m', label: '15 minutes' },
                   { value: '1h', label: '1 hour' },
                   { value: '4h', label: '4 hours' },
-                  { value: '12h', label: '12 hours' }
+                  { value: '12h', label: '12 hours' },
                 ]}
                 leftSection={<IconClock size={16} />}
               />
@@ -91,7 +93,7 @@ export function BacktestConfig() {
                 min={0}
                 max={1}
               />
-              
+
               <NumberInput
                 label="Commission ($)"
                 placeholder="0"

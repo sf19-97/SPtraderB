@@ -56,7 +56,7 @@ const BitcoinTest = () => {
 
         {/* Chart area */}
         <Box style={{ flex: 1, background: '#0a0a0a', position: 'relative' }}>
-          <BitcoinTestChart 
+          <BitcoinTestChart
             symbol="BTCUSD"
             timeframe={currentTimeframe}
             onTimeframeChange={setCurrentTimeframe}
@@ -66,16 +66,18 @@ const BitcoinTest = () => {
         </Box>
 
         {/* Bottom status bar */}
-        <Box style={{
-          height: '30px',
-          background: '#1a1a1a',
-          borderTop: '1px solid #333',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 20px',
-          fontSize: '12px',
-          color: '#888'
-        }}>
+        <Box
+          style={{
+            height: '30px',
+            background: '#1a1a1a',
+            borderTop: '1px solid #333',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 20px',
+            fontSize: '12px',
+            color: '#888',
+          }}
+        >
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Indicator
               inline
@@ -92,7 +94,7 @@ const BitcoinTest = () => {
       </Box>
 
       {/* Right sidebar - collapsible */}
-      <TradingRightSidebar 
+      <TradingRightSidebar
         collapsed={rightCollapsed}
         onToggle={() => setRightCollapsed(!rightCollapsed)}
       />

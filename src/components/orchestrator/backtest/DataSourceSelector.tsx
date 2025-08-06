@@ -58,8 +58,8 @@ export function DataSourceSelector({
         onChange={(value) => onDataSourceChange(value as 'database' | 'parquet')}
       >
         <Group mt="xs">
-          <Radio 
-            value="database" 
+          <Radio
+            value="database"
             label={
               <Group gap="xs">
                 <IconDatabase size={16} />
@@ -67,8 +67,8 @@ export function DataSourceSelector({
               </Group>
             }
           />
-          <Radio 
-            value="parquet" 
+          <Radio
+            value="parquet"
             label={
               <Group gap="xs">
                 <IconFile size={16} />
@@ -89,7 +89,7 @@ export function DataSourceSelector({
             data={symbols}
             required
           />
-          
+
           <Select
             label="Timeframe"
             placeholder="Select a timeframe"
@@ -102,7 +102,7 @@ export function DataSourceSelector({
       ) : (
         <Select
           label="Dataset"
-          placeholder={loadingDatasets ? "Loading datasets..." : "Select a parquet file"}
+          placeholder={loadingDatasets ? 'Loading datasets...' : 'Select a parquet file'}
           value={parquetFile}
           onChange={(value) => onParquetFileChange(value || '')}
           data={datasets}

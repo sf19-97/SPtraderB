@@ -1,5 +1,23 @@
-import { Modal, Stack, Text, Title, Box, Group, Badge, Paper, List, ThemeIcon } from '@mantine/core';
-import { IconStack3, IconBolt, IconTrendingUp, IconBox, IconArrowDown, IconCheck } from '@tabler/icons-react';
+import {
+  Modal,
+  Stack,
+  Text,
+  Title,
+  Box,
+  Group,
+  Badge,
+  Paper,
+  List,
+  ThemeIcon,
+} from '@mantine/core';
+import {
+  IconStack3,
+  IconBolt,
+  IconTrendingUp,
+  IconBox,
+  IconArrowDown,
+  IconCheck,
+} from '@tabler/icons-react';
 
 interface IDEHelpModalProps {
   opened: boolean;
@@ -18,7 +36,7 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
           description: 'Pure mathematical calculations. The foundation of your trading system.',
           canSee: [],
           purpose: 'Calculate values like RSI, moving averages, volatility metrics',
-          example: 'An RSI indicator that outputs a value between 0-100'
+          example: 'An RSI indicator that outputs a value between 0-100',
         };
       case 'signal':
         return {
@@ -28,7 +46,7 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
           description: 'Combine indicators with logic to detect trading opportunities.',
           canSee: ['Indicators'],
           purpose: 'Define when to potentially enter or exit trades',
-          example: 'RSI < 30 AND price above 200-day SMA = oversold in uptrend'
+          example: 'RSI < 30 AND price above 200-day SMA = oversold in uptrend',
         };
       case 'strategy':
         return {
@@ -38,7 +56,7 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
           description: 'Complete trading systems that orchestrate everything.',
           canSee: ['Indicators', 'Signals'],
           purpose: 'Combine all components with risk management rules',
-          example: 'Momentum strategy using RSI signals with risk management'
+          example: 'Momentum strategy using RSI signals with risk management',
         };
     }
   };
@@ -56,7 +74,9 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
           </ThemeIcon>
           <div>
             <Title order={4}>Building {typeInfo.title}</Title>
-            <Text size="xs" c="dimmed">Understanding the architecture</Text>
+            <Text size="xs" c="dimmed">
+              Understanding the architecture
+            </Text>
           </div>
         </Group>
       }
@@ -65,18 +85,29 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
     >
       <Stack gap="lg">
         {/* Current Component Type */}
-        <Paper p="md" withBorder style={{ borderColor: `var(--mantine-color-${typeInfo.color}-6)` }}>
-          <Text size="sm" fw={500} mb="xs">{typeInfo.description}</Text>
-          <Text size="xs" c="dimmed">{typeInfo.purpose}</Text>
+        <Paper
+          p="md"
+          withBorder
+          style={{ borderColor: `var(--mantine-color-${typeInfo.color}-6)` }}
+        >
+          <Text size="sm" fw={500} mb="xs">
+            {typeInfo.description}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {typeInfo.purpose}
+          </Text>
         </Paper>
 
         {/* Visibility Rules */}
         <Box>
-          <Text size="sm" fw={500} mb="sm">What You Can Access:</Text>
+          <Text size="sm" fw={500} mb="sm">
+            What You Can Access:
+          </Text>
           {typeInfo.canSee.length === 0 ? (
             <Paper p="sm" bg="dark.8">
               <Text size="sm" c="dimmed">
-                ⚡ No dependencies - {currentType}s are pure functions that cannot import other components
+                ⚡ No dependencies - {currentType}s are pure functions that cannot import other
+                components
               </Text>
             </Paper>
           ) : (
@@ -97,14 +128,22 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
 
         {/* Architecture Diagram */}
         <Box>
-          <Text size="sm" fw={500} mb="sm">System Architecture:</Text>
+          <Text size="sm" fw={500} mb="sm">
+            System Architecture:
+          </Text>
           <Paper p="md" bg="dark.8">
             <Stack gap="xs" align="center">
-              <Badge size="lg" color="purple" variant="filled">Strategies</Badge>
+              <Badge size="lg" color="purple" variant="filled">
+                Strategies
+              </Badge>
               <IconArrowDown size={16} style={{ opacity: 0.5 }} />
-              <Badge size="lg" color="yellow" variant="filled">Signals</Badge>
+              <Badge size="lg" color="yellow" variant="filled">
+                Signals
+              </Badge>
               <IconArrowDown size={16} style={{ opacity: 0.5 }} />
-              <Badge size="lg" color="blue" variant="filled">Indicators</Badge>
+              <Badge size="lg" color="blue" variant="filled">
+                Indicators
+              </Badge>
             </Stack>
             <Text size="xs" c="dimmed" ta="center" mt="md">
               Components can only import from lower levels
@@ -114,7 +153,9 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
 
         {/* Example */}
         <Box>
-          <Text size="sm" fw={500} mb="xs">Example:</Text>
+          <Text size="sm" fw={500} mb="xs">
+            Example:
+          </Text>
           <Paper p="sm" bg="dark.7" style={{ fontFamily: 'monospace' }}>
             <Text size="xs">{typeInfo.example}</Text>
           </Paper>
@@ -122,7 +163,9 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
 
         {/* Best Practices */}
         <Box>
-          <Text size="sm" fw={500} mb="sm">Best Practices:</Text>
+          <Text size="sm" fw={500} mb="sm">
+            Best Practices:
+          </Text>
           <List size="sm" spacing="xs">
             {currentType === 'indicator' && (
               <>
@@ -151,12 +194,16 @@ export const IDEHelpModal = ({ opened, onClose, currentType }: IDEHelpModalProps
         {/* Quick Tips */}
         <Paper p="md" bg="blue.9" style={{ borderLeft: '4px solid var(--mantine-color-blue-5)' }}>
           <Group gap="sm" mb="xs">
-            <Text size="sm" fw={500}>💡 Pro Tip:</Text>
+            <Text size="sm" fw={500}>
+              💡 Pro Tip:
+            </Text>
           </Group>
           <Text size="xs">
-            {currentType === 'indicator' && "Test your indicators on historical data before using them in signals"}
-            {currentType === 'signal' && "Use the backtester to verify signal accuracy before building strategies"}
-            {currentType === 'strategy' && "Paper trade for at least 30 days before going live"}
+            {currentType === 'indicator' &&
+              'Test your indicators on historical data before using them in signals'}
+            {currentType === 'signal' &&
+              'Use the backtester to verify signal accuracy before building strategies'}
+            {currentType === 'strategy' && 'Paper trade for at least 30 days before going live'}
           </Text>
         </Paper>
       </Stack>

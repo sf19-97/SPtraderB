@@ -7,7 +7,7 @@ export function StrategySelector() {
 
   const handleChange = (value: string | null) => {
     if (value) {
-      const strategy = strategies.find(s => s.path === value);
+      const strategy = strategies.find((s) => s.path === value);
       if (strategy) {
         setSelectedStrategy(strategy);
       }
@@ -16,7 +16,7 @@ export function StrategySelector() {
     }
   };
 
-  const data = strategies.map(strategy => ({
+  const data = strategies.map((strategy) => ({
     value: strategy.path,
     label: strategy.name,
     description: strategy.description,
@@ -38,11 +38,15 @@ export function StrategySelector() {
           <div>
             <Text size="sm">{option.label}</Text>
             {option.description && (
-              <Text size="xs" c="dimmed">{option.description}</Text>
+              <Text size="xs" c="dimmed">
+                {option.description}
+              </Text>
             )}
           </div>
           {option.version && (
-            <Text size="xs" c="dimmed">v{option.version}</Text>
+            <Text size="xs" c="dimmed">
+              v{option.version}
+            </Text>
           )}
         </Group>
       )}

@@ -1,5 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Stack, Paper, Text, Group, Badge, Loader, Center, Tabs, ScrollArea, Button } from '@mantine/core';
+import {
+  Stack,
+  Paper,
+  Text,
+  Group,
+  Badge,
+  Loader,
+  Center,
+  Tabs,
+  ScrollArea,
+  Button,
+} from '@mantine/core';
 import { IconCode, IconSettings, IconShieldCheck, IconRefresh } from '@tabler/icons-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useOrchestratorStore } from '../../stores/useOrchestratorStore';
@@ -20,16 +31,16 @@ export function StrategyDetails() {
 
   const loadStrategyContent = async () => {
     if (!selectedStrategy) return;
-    
+
     setLoading(true);
     setError(null);
-    
+
     try {
-      const strategyContent = await invoke<string>('read_component_file', { 
-        filePath: selectedStrategy.path 
+      const strategyContent = await invoke<string>('read_component_file', {
+        filePath: selectedStrategy.path,
       });
       setContent(strategyContent);
-      
+
       // Try to parse YAML to extract structured data
       parseStrategyYaml(strategyContent);
     } catch (err) {
@@ -48,23 +59,26 @@ export function StrategyDetails() {
         parameters: {},
         entryRules: [],
         exitRules: [],
-        riskManagement: {}
+        riskManagement: {},
       };
 
       // Extract signals
-      const signalsMatch = yamlContent.match(/signals:\s*\n((?:  - .+\n?)+)/);
+      const signalsMatch = yamlContent.match(/signals:\s*\n((?: {2}- .+\n?)+)/);
       if (signalsMatch) {
         parsed.signals = signalsMatch[1]
           .split('\n')
-          .filter(line => line.trim().startsWith('-'))
-          .map(line => line.trim().substring(2));
+          .filter((line) => line.trim().startsWith('-'))
+          .map((line) => line.trim().substring(2));
       }
 
       // Extract parameters
-      const paramsMatch = yamlContent.match(/parameters:\s*\n((?:  .+: .+\n?)+)/);
+      const paramsMatch = yamlContent.match(/parameters:\s*\n((?: {2}.+: .+\n?)+)/);
       if (paramsMatch) {
-        paramsMatch[1].split('\n').forEach(line => {
-          const [key, value] = line.trim().split(':').map(s => s.trim());
+        paramsMatch[1].split('\n').forEach((line) => {
+          const [key, value] = line
+            .trim()
+            .split(':')
+            .map((s) => s.trim());
           if (key && value) {
             parsed.parameters[key] = value;
           }
@@ -72,19 +86,22 @@ export function StrategyDetails() {
       }
 
       // Extract entry rules
-      const entryMatch = yamlContent.match(/entry_rules:\s*\n((?:  - [\s\S]+?)+?)(?=\n\w|$)/);
+      const entryMatch = yamlContent.match(/entry_rules:\s*\n((?: {2}- [\s\S]+?)+?)(?=\n\w|$)/);
       if (entryMatch) {
         parsed.entryRules = entryMatch[1]
-          .split(/\n  - /)
-          .filter(rule => rule.trim())
-          .map(rule => rule.trim());
+          .split(/\n {2}- /)
+          .filter((rule) => rule.trim())
+          .map((rule) => rule.trim());
       }
 
       // Extract risk management
-      const riskMatch = yamlContent.match(/risk_management:\s*\n((?:  .+: .+\n?)+)/);
+      const riskMatch = yamlContent.match(/risk_management:\s*\n((?: {2}.+: .+\n?)+)/);
       if (riskMatch) {
-        riskMatch[1].split('\n').forEach(line => {
-          const [key, value] = line.trim().split(':').map(s => s.trim());
+        riskMatch[1].split('\n').forEach((line) => {
+          const [key, value] = line
+            .trim()
+            .split(':')
+            .map((s) => s.trim());
           if (key && value) {
             parsed.riskManagement[key] = value;
           }
@@ -133,16 +150,24 @@ export function StrategyDetails() {
         <Group justify="space-between" mb="md">
           <Stack gap="xs">
             <Group gap="xs">
-              <Text size="lg" fw={700}>{selectedStrategy.name}</Text>
+              <Text size="lg" fw={700}>
+                {selectedStrategy.name}
+              </Text>
               {selectedStrategy.version && (
-                <Badge size="sm" variant="light">v{selectedStrategy.version}</Badge>
+                <Badge size="sm" variant="light">
+                  v{selectedStrategy.version}
+                </Badge>
               )}
             </Group>
             {selectedStrategy.description && (
-              <Text size="sm" c="dimmed">{selectedStrategy.description}</Text>
+              <Text size="sm" c="dimmed">
+                {selectedStrategy.description}
+              </Text>
             )}
             {selectedStrategy.author && (
-              <Text size="xs" c="dimmed">Author: {selectedStrategy.author}</Text>
+              <Text size="xs" c="dimmed">
+                Author: {selectedStrategy.author}
+              </Text>
             )}
           </Stack>
         </Group>
@@ -168,7 +193,9 @@ export function StrategyDetails() {
                     {/* Signals */}
                     {parsedStrategy.signals.length > 0 && (
                       <div>
-                        <Text fw={600} size="sm" mb="xs">Signals</Text>
+                        <Text fw={600} size="sm" mb="xs">
+                          Signals
+                        </Text>
                         <Group gap="xs">
                           {parsedStrategy.signals.map((signal: string, idx: number) => (
                             <Badge key={idx} variant="light" size="sm">
@@ -182,11 +209,15 @@ export function StrategyDetails() {
                     {/* Parameters */}
                     {Object.keys(parsedStrategy.parameters).length > 0 && (
                       <div>
-                        <Text fw={600} size="sm" mb="xs">Parameters</Text>
+                        <Text fw={600} size="sm" mb="xs">
+                          Parameters
+                        </Text>
                         <Stack gap="xs">
                           {Object.entries(parsedStrategy.parameters).map(([key, value]) => (
                             <Group key={key} justify="space-between">
-                              <Text size="sm" c="dimmed">{key}:</Text>
+                              <Text size="sm" c="dimmed">
+                                {key}:
+                              </Text>
                               <Text size="sm">{String(value)}</Text>
                             </Group>
                           ))}
@@ -197,7 +228,9 @@ export function StrategyDetails() {
                     {/* Entry Rules */}
                     {parsedStrategy.entryRules.length > 0 && (
                       <div>
-                        <Text fw={600} size="sm" mb="xs">Entry Rules</Text>
+                        <Text fw={600} size="sm" mb="xs">
+                          Entry Rules
+                        </Text>
                         <Stack gap="xs">
                           {parsedStrategy.entryRules.map((rule: string, idx: number) => (
                             <Paper key={idx} p="xs" withBorder>
@@ -234,8 +267,12 @@ export function StrategyDetails() {
                 <Stack gap="md">
                   {Object.entries(parsedStrategy.riskManagement).map(([key, value]) => (
                     <Group key={key} justify="space-between">
-                      <Text size="sm" c="dimmed">{key.replace(/_/g, ' ')}:</Text>
-                      <Text size="sm" fw={600}>{String(value)}</Text>
+                      <Text size="sm" c="dimmed">
+                        {key.replace(/_/g, ' ')}:
+                      </Text>
+                      <Text size="sm" fw={600}>
+                        {String(value)}
+                      </Text>
                     </Group>
                   ))}
                 </Stack>

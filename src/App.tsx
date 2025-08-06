@@ -37,7 +37,7 @@ function App() {
           <Route path="market-data" element={<MarketDataPage />} />
           <Route path="market-chart" element={<MarketChartPage />} />
         </Route>
-        
+
         {/* IDE route outside AppLayout for full screen */}
         <Route path="/ide" element={<MonacoIDE />} />
       </Routes>

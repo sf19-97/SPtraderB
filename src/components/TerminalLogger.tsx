@@ -5,7 +5,17 @@ import { IconTerminal2, IconTrash, IconBug, IconBugOff } from '@tabler/icons-rea
 export interface LogEntry {
   id: number;
   timestamp: string;
-  type: 'info' | 'success' | 'warn' | 'error' | 'debug' | 'python' | 'db' | 'candles' | 'perf' | 'user';
+  type:
+    | 'info'
+    | 'success'
+    | 'warn'
+    | 'error'
+    | 'debug'
+    | 'python'
+    | 'db'
+    | 'candles'
+    | 'perf'
+    | 'user';
   prefix: string;
   message: string;
   color: string;
@@ -17,7 +27,11 @@ interface TerminalLoggerProps {
   isProcessRunning?: boolean;
 }
 
-export const TerminalLogger: React.FC<TerminalLoggerProps> = ({ logs, onClearLogs, isProcessRunning = false }) => {
+export const TerminalLogger: React.FC<TerminalLoggerProps> = ({
+  logs,
+  onClearLogs,
+  isProcessRunning = false,
+}) => {
   const logEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -34,43 +48,65 @@ export const TerminalLogger: React.FC<TerminalLoggerProps> = ({ logs, onClearLog
   // Detect user scrolling
   const handleScroll = () => {
     if (!scrollContainerRef.current) return;
-    
+
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
     const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
-    
+
     setAutoScroll(isAtBottom);
     setIsUserScrolling(!isAtBottom);
   };
 
   const getLogColor = (type: LogEntry['type']): string => {
     switch (type) {
-      case 'info': return '#3b82f6'; // blue
-      case 'success': return '#10b981'; // green
-      case 'warn': return '#f59e0b'; // yellow
-      case 'error': return '#ef4444'; // red
-      case 'debug': return '#8b5cf6'; // purple
-      case 'python': return '#06b6d4'; // cyan
-      case 'db': return '#6366f1'; // indigo
-      case 'candles': return '#14b8a6'; // teal
-      case 'perf': return '#a855f7'; // purple
-      case 'user': return '#ec4899'; // pink
-      default: return '#9ca3af'; // gray
+      case 'info':
+        return '#3b82f6'; // blue
+      case 'success':
+        return '#10b981'; // green
+      case 'warn':
+        return '#f59e0b'; // yellow
+      case 'error':
+        return '#ef4444'; // red
+      case 'debug':
+        return '#8b5cf6'; // purple
+      case 'python':
+        return '#06b6d4'; // cyan
+      case 'db':
+        return '#6366f1'; // indigo
+      case 'candles':
+        return '#14b8a6'; // teal
+      case 'perf':
+        return '#a855f7'; // purple
+      case 'user':
+        return '#ec4899'; // pink
+      default:
+        return '#9ca3af'; // gray
     }
   };
 
   const getPrefix = (type: LogEntry['type']): string => {
     switch (type) {
-      case 'info': return '[INFO]';
-      case 'success': return '[SUCCESS]';
-      case 'warn': return '[WARN]';
-      case 'error': return '[ERROR]';
-      case 'debug': return '[DEBUG]';
-      case 'python': return '[PYTHON]';
-      case 'db': return '[DB]';
-      case 'candles': return '[CANDLES]';
-      case 'perf': return '[PERF]';
-      case 'user': return '[USER]';
-      default: return '[LOG]';
+      case 'info':
+        return '[INFO]';
+      case 'success':
+        return '[SUCCESS]';
+      case 'warn':
+        return '[WARN]';
+      case 'error':
+        return '[ERROR]';
+      case 'debug':
+        return '[DEBUG]';
+      case 'python':
+        return '[PYTHON]';
+      case 'db':
+        return '[DB]';
+      case 'candles':
+        return '[CANDLES]';
+      case 'perf':
+        return '[PERF]';
+      case 'user':
+        return '[USER]';
+      default:
+        return '[LOG]';
     }
   };
 
@@ -103,23 +139,18 @@ export const TerminalLogger: React.FC<TerminalLoggerProps> = ({ logs, onClearLog
           </Text>
         </Group>
         <Group gap="xs">
-          <Tooltip label={showDebug ? "Hide debug logs" : "Show debug logs"}>
+          <Tooltip label={showDebug ? 'Hide debug logs' : 'Show debug logs'}>
             <ActionIcon
               size="sm"
               variant="subtle"
-              color={showDebug ? "violet" : "gray"}
+              color={showDebug ? 'violet' : 'gray'}
               onClick={() => setShowDebug(!showDebug)}
             >
               {showDebug ? <IconBug size={16} /> : <IconBugOff size={16} />}
             </ActionIcon>
           </Tooltip>
           <Tooltip label="Clear logs">
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="gray"
-              onClick={onClearLogs}
-            >
+            <ActionIcon size="sm" variant="subtle" color="gray" onClick={onClearLogs}>
               <IconTrash size={16} />
             </ActionIcon>
           </Tooltip>
@@ -140,7 +171,7 @@ export const TerminalLogger: React.FC<TerminalLoggerProps> = ({ logs, onClearLog
         }}
       >
         {logs
-          .filter(log => showDebug || log.type !== 'debug')
+          .filter((log) => showDebug || log.type !== 'debug')
           .map((log) => (
             <Box key={log.id} style={{ display: 'flex', gap: '8px', marginBottom: '2px' }}>
               <Text span size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
@@ -171,7 +202,9 @@ export const TerminalLogger: React.FC<TerminalLoggerProps> = ({ logs, onClearLog
         }}
       >
         <Group gap="xl">
-          <Text c="dimmed">Lines: {logs.filter(log => showDebug || log.type !== 'debug').length}</Text>
+          <Text c="dimmed">
+            Lines: {logs.filter((log) => showDebug || log.type !== 'debug').length}
+          </Text>
           <Text c="dimmed">UTF-8</Text>
         </Group>
         <Group gap="md">

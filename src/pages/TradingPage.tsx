@@ -58,7 +58,7 @@ export const TradingPage = () => {
 
         {/* Chart area */}
         <Box style={{ flex: 1, background: '#0a0a0a', position: 'relative' }}>
-          <AdaptiveChart 
+          <AdaptiveChart
             symbol={selectedPair}
             timeframe={selectedTimeframe}
             isFullscreen={isChartFullscreen}
@@ -67,16 +67,18 @@ export const TradingPage = () => {
         </Box>
 
         {/* Bottom status bar */}
-        <Box style={{
-          height: '30px',
-          background: '#1a1a1a',
-          borderTop: '1px solid #333',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 20px',
-          fontSize: '12px',
-          color: '#888'
-        }}>
+        <Box
+          style={{
+            height: '30px',
+            background: '#1a1a1a',
+            borderTop: '1px solid #333',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 20px',
+            fontSize: '12px',
+            color: '#888',
+          }}
+        >
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Indicator
               inline
@@ -93,7 +95,7 @@ export const TradingPage = () => {
       </Box>
 
       {/* Right sidebar - collapsible */}
-      <TradingRightSidebar 
+      <TradingRightSidebar
         collapsed={rightCollapsed}
         onToggle={() => setRightCollapsed(!rightCollapsed)}
       />

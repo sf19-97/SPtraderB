@@ -4,7 +4,6 @@ import { BacktestRunner } from './BacktestRunner';
 import { BacktestResults } from './BacktestResults';
 
 export function BacktestPanel() {
-
   return (
     <Grid gutter="md">
       {/* Left Column - Configuration */}

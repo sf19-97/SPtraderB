@@ -43,20 +43,20 @@ interface OrchestratorContextType {
   // Core state
   mode: 'backtest' | 'paper' | 'live';
   isConnected: boolean;
-  
+
   // Strategies
   strategies: StrategyInfo[];
   selectedStrategy: StrategyInfo | null;
-  
+
   // Backtest
   backtestConfig: BacktestConfig;
   backtestResults: BacktestResults | null;
   isBacktestRunning: boolean;
   backtestLogs: string[];
-  
+
   // Logs
   logs: LogEntry[];
-  
+
   // Actions
   setMode: (mode: 'backtest' | 'paper' | 'live') => void;
   setIsConnected: (connected: boolean) => void;
@@ -93,15 +93,15 @@ export const OrchestratorProvider = ({ children }: { children: ReactNode }) => {
     const stored = localStorage.getItem(STORAGE_KEYS.mode);
     return (stored as 'backtest' | 'paper' | 'live') || 'backtest';
   });
-  
+
   const [isConnected, setIsConnected] = useState(false);
   const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
-  
+
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyInfo | null>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.selectedStrategy);
     return stored ? JSON.parse(stored) : null;
   });
-  
+
   const [backtestConfig, setBacktestConfig] = useState<BacktestConfig>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.backtestConfig);
     if (stored) {
@@ -115,7 +115,7 @@ export const OrchestratorProvider = ({ children }: { children: ReactNode }) => {
     }
     return DEFAULT_BACKTEST_CONFIG;
   });
-  
+
   const [backtestResults, setBacktestResults] = useState<BacktestResults | null>(null);
   const [isBacktestRunning, setIsBacktestRunning] = useState(false);
   const [backtestLogs, setBacktestLogs] = useState<string[]>([]);
@@ -135,7 +135,7 @@ export const OrchestratorProvider = ({ children }: { children: ReactNode }) => {
   }, [backtestConfig]);
 
   const addLog = (log: LogEntry) => {
-    setLogs(prev => [...prev, log]);
+    setLogs((prev) => [...prev, log]);
   };
 
   const clearLogs = () => {
@@ -143,29 +143,31 @@ export const OrchestratorProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <OrchestratorContext.Provider value={{
-      // State
-      mode,
-      isConnected,
-      strategies,
-      selectedStrategy,
-      backtestConfig,
-      backtestResults,
-      isBacktestRunning,
-      backtestLogs,
-      logs,
-      
-      // Actions
-      setMode,
-      setIsConnected,
-      setStrategies,
-      setSelectedStrategy,
-      setBacktestConfig,
-      setBacktestResults,
-      setIsBacktestRunning,
-      addLog,
-      clearLogs,
-    }}>
+    <OrchestratorContext.Provider
+      value={{
+        // State
+        mode,
+        isConnected,
+        strategies,
+        selectedStrategy,
+        backtestConfig,
+        backtestResults,
+        isBacktestRunning,
+        backtestLogs,
+        logs,
+
+        // Actions
+        setMode,
+        setIsConnected,
+        setStrategies,
+        setSelectedStrategy,
+        setBacktestConfig,
+        setBacktestResults,
+        setIsBacktestRunning,
+        addLog,
+        clearLogs,
+      }}
+    >
       {children}
     </OrchestratorContext.Provider>
   );

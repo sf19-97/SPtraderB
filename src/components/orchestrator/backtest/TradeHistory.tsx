@@ -27,16 +27,16 @@ export function TradeHistory() {
   // Scroll to highlighted trade when it changes - MUST be before any returns
   useEffect(() => {
     if (highlightedTradeId && highlightedRowRef.current) {
-      highlightedRowRef.current.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'center' 
+      highlightedRowRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
       });
     }
   }, [highlightedTradeId]);
 
   // Use completed_trades if available, otherwise try to reconstruct from orders
   let trades: Trade[] = [];
-  
+
   if (backtestResults?.completed_trades && backtestResults.completed_trades.length > 0) {
     // Use actual completed trades from backtest
     trades = backtestResults.completed_trades.map((trade: any) => ({
@@ -69,28 +69,31 @@ export function TradeHistory() {
   if (trades.length === 0) {
     return (
       <Paper p="md" withBorder>
-        <Text c="dimmed" ta="center">No trades to display</Text>
+        <Text c="dimmed" ta="center">
+          No trades to display
+        </Text>
       </Paper>
     );
   }
 
   // Filter trades based on search term
-  const filteredTrades = trades.filter(trade =>
-    trade.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    trade.signalType?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredTrades = trades.filter(
+    (trade) =>
+      trade.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      trade.signalType?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Sort trades
   const sortedTrades = [...filteredTrades].sort((a, b) => {
     const aValue = a[sortField];
     const bValue = b[sortField];
-    
+
     if (aValue === undefined || bValue === undefined) return 0;
-    
+
     let comparison = 0;
     if (aValue < bValue) comparison = -1;
     if (aValue > bValue) comparison = 1;
-    
+
     return sortDirection === 'asc' ? comparison : -comparison;
   });
 
@@ -104,8 +107,18 @@ export function TradeHistory() {
   };
 
   const exportToCSV = () => {
-    const headers = ['Entry Time', 'Exit Time', 'Symbol', 'Side', 'Quantity', 'Entry Price', 'Exit Price', 'P&L', 'Signal Type'];
-    const rows = sortedTrades.map(trade => [
+    const headers = [
+      'Entry Time',
+      'Exit Time',
+      'Symbol',
+      'Side',
+      'Quantity',
+      'Entry Price',
+      'Exit Price',
+      'P&L',
+      'Signal Type',
+    ];
+    const rows = sortedTrades.map((trade) => [
       trade.entryTime,
       trade.exitTime || '',
       trade.symbol,
@@ -117,10 +130,7 @@ export function TradeHistory() {
       trade.signalType || '',
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -130,7 +140,6 @@ export function TradeHistory() {
     a.click();
     window.URL.revokeObjectURL(url);
   };
-
 
   const handleRowClick = (trade: Trade) => {
     if (trade.id) {
@@ -144,7 +153,9 @@ export function TradeHistory() {
       <Paper p="md" withBorder>
         <Stack gap="md">
           <Group justify="space-between">
-            <Text fw={600} size="lg">Trade History</Text>
+            <Text fw={600} size="lg">
+              Trade History
+            </Text>
             <Group>
               <TextInput
                 placeholder="Search trades..."
@@ -168,15 +179,15 @@ export function TradeHistory() {
             <Table striped highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th 
-                    onClick={() => handleSort('entryTime')}
-                    style={{ cursor: 'pointer' }}
-                  >
+                  <Table.Th onClick={() => handleSort('entryTime')} style={{ cursor: 'pointer' }}>
                     <Group gap="xs">
                       Entry Time
-                      {sortField === 'entryTime' && (
-                        sortDirection === 'asc' ? <IconArrowUp size={14} /> : <IconArrowDown size={14} />
-                      )}
+                      {sortField === 'entryTime' &&
+                        (sortDirection === 'asc' ? (
+                          <IconArrowUp size={14} />
+                        ) : (
+                          <IconArrowDown size={14} />
+                        ))}
                     </Group>
                   </Table.Th>
                   <Table.Th>Exit Time</Table.Th>
@@ -185,15 +196,15 @@ export function TradeHistory() {
                   <Table.Th>Quantity</Table.Th>
                   <Table.Th>Entry Price</Table.Th>
                   <Table.Th>Exit Price</Table.Th>
-                  <Table.Th 
-                    onClick={() => handleSort('pnl')}
-                    style={{ cursor: 'pointer' }}
-                  >
+                  <Table.Th onClick={() => handleSort('pnl')} style={{ cursor: 'pointer' }}>
                     <Group gap="xs">
                       P&L
-                      {sortField === 'pnl' && (
-                        sortDirection === 'asc' ? <IconArrowUp size={14} /> : <IconArrowDown size={14} />
-                      )}
+                      {sortField === 'pnl' &&
+                        (sortDirection === 'asc' ? (
+                          <IconArrowUp size={14} />
+                        ) : (
+                          <IconArrowDown size={14} />
+                        ))}
                     </Group>
                   </Table.Th>
                   <Table.Th>Signal</Table.Th>
@@ -210,14 +221,16 @@ export function TradeHistory() {
                   sortedTrades.map((trade, index) => {
                     const isHighlighted = trade.id === highlightedTradeId;
                     return (
-                      <Table.Tr 
+                      <Table.Tr
                         key={trade.id || index}
                         ref={isHighlighted ? highlightedRowRef : undefined}
                         onClick={() => handleRowClick(trade)}
-                        style={{ 
+                        style={{
                           cursor: trade.id ? 'pointer' : 'default',
-                          backgroundColor: isHighlighted ? 'var(--mantine-color-blue-light)' : undefined,
-                          transition: 'background-color 0.2s ease'
+                          backgroundColor: isHighlighted
+                            ? 'var(--mantine-color-blue-light)'
+                            : undefined,
+                          transition: 'background-color 0.2s ease',
                         }}
                       >
                         <Table.Td>{trade.entryTime}</Table.Td>
@@ -230,13 +243,17 @@ export function TradeHistory() {
                         </Table.Td>
                         <Table.Td>{Number(trade.quantity || 0).toFixed(2)}</Table.Td>
                         <Table.Td>${Number(trade.entryPrice || 0).toFixed(5)}</Table.Td>
-                        <Table.Td>{trade.exitPrice ? `$${Number(trade.exitPrice || 0).toFixed(5)}` : '-'}</Table.Td>
+                        <Table.Td>
+                          {trade.exitPrice ? `$${Number(trade.exitPrice || 0).toFixed(5)}` : '-'}
+                        </Table.Td>
                         <Table.Td>
                           {trade.pnl !== undefined ? (
                             <Text c={trade.pnl >= 0 ? 'green' : 'red'} fw={600}>
                               ${Number(trade.pnl || 0).toFixed(2)}
                             </Text>
-                          ) : '-'}
+                          ) : (
+                            '-'
+                          )}
                         </Table.Td>
                         <Table.Td>
                           {trade.signalType && (

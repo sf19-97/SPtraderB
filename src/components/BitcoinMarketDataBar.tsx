@@ -16,7 +16,9 @@ interface BitcoinMarketDataBarProps {
   currentTimeframe?: string;
 }
 
-export const BitcoinMarketDataBar: React.FC<BitcoinMarketDataBarProps> = ({ currentTimeframe = '1h' }) => {
+export const BitcoinMarketDataBar: React.FC<BitcoinMarketDataBarProps> = ({
+  currentTimeframe = '1h',
+}) => {
   const [marketData, setMarketData] = useState({
     price: 0,
     bid: 0,
@@ -38,14 +40,14 @@ export const BitcoinMarketDataBar: React.FC<BitcoinMarketDataBarProps> = ({ curr
         // Get latest tick from database
         const latestTick = await invoke<any>('get_latest_bitcoin_tick');
         if (latestTick) {
-          const price = latestTick.bid && latestTick.ask ? 
-            (latestTick.bid + latestTick.ask) / 2 : 0;
+          const price =
+            latestTick.bid && latestTick.ask ? (latestTick.bid + latestTick.ask) / 2 : 0;
           const spread = latestTick.ask - latestTick.bid;
-          
+
           // Get 24h stats
           const stats = await invoke<any>('get_bitcoin_24h_stats');
-          
-          setMarketData(prev => ({
+
+          setMarketData((prev) => ({
             price: price,
             bid: latestTick.bid,
             ask: latestTick.ask,
@@ -79,51 +81,57 @@ export const BitcoinMarketDataBar: React.FC<BitcoinMarketDataBarProps> = ({ curr
 
   // Format Bitcoin price with commas and no decimals
   const formatBitcoinPrice = (price: number): string => {
-    return price.toLocaleString('en-US', { 
+    return price.toLocaleString('en-US', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2 
+      maximumFractionDigits: 2,
     });
   };
 
   return (
-    <Paper 
-      p="xs" 
-      style={{ 
-        background: '#1a1a1a', 
+    <Paper
+      p="xs"
+      style={{
+        background: '#1a1a1a',
         borderBottom: '1px solid #333',
-        borderRadius: 0 
+        borderRadius: 0,
       }}
     >
       <Group justify="space-between" gap="xl">
         {/* Bitcoin Price Section */}
         <Group gap="md">
           <Box style={{ width: '120px' }}>
-            <Text size="lg" fw={600} c="#f7931a">BTC/USD</Text>
+            <Text size="lg" fw={600} c="#f7931a">
+              BTC/USD
+            </Text>
           </Box>
-          
+
           {/* Timeframe display */}
-          <Box 
-            style={{ 
-              background: 'rgba(255, 255, 255, 0.1)', 
-              padding: '4px 12px', 
+          <Box
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              padding: '4px 12px',
               borderRadius: '4px',
-              border: '1px solid rgba(255, 255, 255, 0.2)'
+              border: '1px solid rgba(255, 255, 255, 0.2)',
             }}
           >
-            <Text size="sm" fw={500} c="white">{currentTimeframe}</Text>
+            <Text size="sm" fw={500} c="white">
+              {currentTimeframe}
+            </Text>
           </Box>
-          
+
           <Box>
             <Text size="xl" fw={600} c="white">
               ${formatBitcoinPrice(marketData.price)}
             </Text>
             <Group gap="xs">
-              {isPositive ? 
-                <IconTrendingUp size={14} color="#00ff88" /> : 
+              {isPositive ? (
+                <IconTrendingUp size={14} color="#00ff88" />
+              ) : (
                 <IconTrendingDown size={14} color="#ff4976" />
-              }
+              )}
               <Text size="sm" c={isPositive ? '#00ff88' : '#ff4976'}>
-                {isPositive ? '+' : ''}${formatBitcoinPrice(marketData.change)} ({marketData.changePercent}%)
+                {isPositive ? '+' : ''}${formatBitcoinPrice(marketData.change)} (
+                {marketData.changePercent}%)
               </Text>
             </Group>
           </Box>
@@ -132,28 +140,52 @@ export const BitcoinMarketDataBar: React.FC<BitcoinMarketDataBarProps> = ({ curr
         {/* Market Stats */}
         <Group gap="xl">
           <Box>
-            <Text size="xs" c="dimmed">Bid</Text>
-            <Text size="sm" fw={500}>${formatBitcoinPrice(marketData.bid)}</Text>
+            <Text size="xs" c="dimmed">
+              Bid
+            </Text>
+            <Text size="sm" fw={500}>
+              ${formatBitcoinPrice(marketData.bid)}
+            </Text>
           </Box>
           <Box>
-            <Text size="xs" c="dimmed">Ask</Text>
-            <Text size="sm" fw={500}>${formatBitcoinPrice(marketData.ask)}</Text>
+            <Text size="xs" c="dimmed">
+              Ask
+            </Text>
+            <Text size="sm" fw={500}>
+              ${formatBitcoinPrice(marketData.ask)}
+            </Text>
           </Box>
           <Box>
-            <Text size="xs" c="dimmed">Spread</Text>
-            <Text size="sm" fw={500}>${marketData.spread.toFixed(2)}</Text>
+            <Text size="xs" c="dimmed">
+              Spread
+            </Text>
+            <Text size="sm" fw={500}>
+              ${marketData.spread.toFixed(2)}
+            </Text>
           </Box>
           <Box>
-            <Text size="xs" c="dimmed">24h High</Text>
-            <Text size="sm" fw={500}>${formatBitcoinPrice(marketData.high)}</Text>
+            <Text size="xs" c="dimmed">
+              24h High
+            </Text>
+            <Text size="sm" fw={500}>
+              ${formatBitcoinPrice(marketData.high)}
+            </Text>
           </Box>
           <Box>
-            <Text size="xs" c="dimmed">24h Low</Text>
-            <Text size="sm" fw={500}>${formatBitcoinPrice(marketData.low)}</Text>
+            <Text size="xs" c="dimmed">
+              24h Low
+            </Text>
+            <Text size="sm" fw={500}>
+              ${formatBitcoinPrice(marketData.low)}
+            </Text>
           </Box>
           <Box>
-            <Text size="xs" c="dimmed">Volume</Text>
-            <Text size="sm" fw={500}>{marketData.volume}</Text>
+            <Text size="xs" c="dimmed">
+              Volume
+            </Text>
+            <Text size="sm" fw={500}>
+              {marketData.volume}
+            </Text>
           </Box>
         </Group>
 
@@ -169,7 +201,9 @@ export const BitcoinMarketDataBar: React.FC<BitcoinMarketDataBarProps> = ({ curr
                 animation: 'pulse 2s infinite',
               }}
             />
-            <Text size="xs" c="dimmed">LIVE</Text>
+            <Text size="xs" c="dimmed">
+              LIVE
+            </Text>
           </Group>
         </Box>
       </Group>

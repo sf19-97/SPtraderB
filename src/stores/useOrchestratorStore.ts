@@ -5,30 +5,30 @@ import { BacktestConfig, BacktestResults, Strategy, LogEntry } from '../types/or
 interface OrchestratorState {
   // Mode
   mode: 'backtest' | 'paper' | 'live';
-  
+
   // Strategies
   strategies: Strategy[];
   selectedStrategy: Strategy | null;
   isLoadingStrategies: boolean;
-  
+
   // Backtest
   backtestConfig: BacktestConfig;
   backtestResults: BacktestResults | null;
   isBacktestRunning: boolean;
   currentBacktestId: string | null;
-  
+
   // Live Trading
   isConnected: boolean;
   portfolioState: any; // TODO: Type this properly
-  
+
   // Logs
   logs: LogEntry[];
   maxLogs: number;
-  
+
   // UI Navigation
   activeResultsTab: string;
   highlightedTradeId: string | null;
-  
+
   // Actions
   setMode: (mode: 'backtest' | 'paper' | 'live') => void;
   setStrategies: (strategies: Strategy[]) => void;
@@ -43,7 +43,7 @@ interface OrchestratorState {
   addLog: (log: LogEntry) => void;
   clearLogs: () => void;
   reset: () => void;
-  
+
   // UI Navigation Actions
   setActiveResultsTab: (tab: string) => void;
   highlightTrade: (tradeId: string | null) => void;
@@ -85,29 +85,29 @@ export const useOrchestratorStore = create<OrchestratorState>()(
 
         // Actions
         setMode: (mode) => set({ mode }),
-        
+
         setStrategies: (strategies) => set({ strategies }),
-        
+
         setSelectedStrategy: (strategy) => set({ selectedStrategy: strategy }),
-        
+
         setIsLoadingStrategies: (loading) => set({ isLoadingStrategies: loading }),
-        
-        updateBacktestConfig: (updates) => 
+
+        updateBacktestConfig: (updates) =>
           set((state) => ({
-            backtestConfig: { ...state.backtestConfig, ...updates }
+            backtestConfig: { ...state.backtestConfig, ...updates },
           })),
-        
+
         setBacktestResults: (results) => set({ backtestResults: results }),
-        
+
         setIsBacktestRunning: (running) => set({ isBacktestRunning: running }),
-        
+
         setCurrentBacktestId: (id) => set({ currentBacktestId: id }),
-        
+
         setIsConnected: (connected) => set({ isConnected: connected }),
-        
+
         setPortfolioState: (portfolioState) => set({ portfolioState }),
-        
-        addLog: (log) => 
+
+        addLog: (log) =>
           set((state) => {
             const newLogs = [...state.logs, log];
             // Keep only the last maxLogs entries
@@ -116,20 +116,20 @@ export const useOrchestratorStore = create<OrchestratorState>()(
             }
             return { logs: newLogs };
           }),
-        
+
         clearLogs: () => set({ logs: [] }),
-        
+
         reset: () => set(initialState),
-        
+
         // UI Navigation Actions
         setActiveResultsTab: (tab) => set({ activeResultsTab: tab }),
-        
+
         highlightTrade: (tradeId) => set({ highlightedTradeId: tradeId }),
-        
-        navigateToTrade: (tradeId, tab) => 
-          set({ 
-            highlightedTradeId: tradeId, 
-            activeResultsTab: tab 
+
+        navigateToTrade: (tradeId, tab) =>
+          set({
+            highlightedTradeId: tradeId,
+            activeResultsTab: tab,
           }),
       }),
       {

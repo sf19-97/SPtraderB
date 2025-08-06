@@ -16,7 +16,7 @@ export const ResolutionTracker: React.FC = () => {
       setCurrentResolution(currentTimeframe);
       setTimeframeChanged(true);
       prevResolutionRef.current = currentTimeframe;
-      
+
       // Reset the glow effect after animation
       setTimeout(() => setTimeframeChanged(false), 550);
     }
@@ -25,14 +25,14 @@ export const ResolutionTracker: React.FC = () => {
   useEffect(() => {
     // Start intercepting console logs
     consoleInterceptor.start();
-    
+
     // Subscribe to timeframe changes from console logs as backup
     const unsubscribe = consoleInterceptor.subscribe((timeframe) => {
       if (timeframe !== prevResolutionRef.current) {
         setCurrentResolution(timeframe);
         setTimeframeChanged(true);
         prevResolutionRef.current = timeframe;
-        
+
         // Reset the glow effect after animation (match chart's 550ms total)
         setTimeout(() => setTimeframeChanged(false), 550);
       }
@@ -68,7 +68,7 @@ export const ResolutionTracker: React.FC = () => {
           }
         `}
       </style>
-      
+
       <Box
         style={{
           background: 'linear-gradient(145deg, #1a1a1a, #0a0a0a)',
@@ -93,7 +93,7 @@ export const ResolutionTracker: React.FC = () => {
             {currentResolution.toUpperCase()}
           </Text>
         </Group>
-        
+
         {/* Glow effect on change */}
         {timeframeChanged && (
           <Box

@@ -28,19 +28,14 @@ export function EnhancedDataSourceSelector({
   parquetFile,
   onParquetFileChange,
   startDate,
-  endDate
+  endDate,
 }: Props) {
   const [availableDatasets, setAvailableDatasets] = useState<string[]>([]);
   const [isLoadingCache, setIsLoadingCache] = useState(false);
   const [cacheStatus, setCacheStatus] = useState<'empty' | 'loading' | 'loaded'>('empty');
-  
-  const { 
-    getCachedCandles, 
-    setCachedCandles, 
-    getCacheKey,
-    currentSymbol,
-    currentTimeframe 
-  } = useChartStore();
+
+  const { getCachedCandles, setCachedCandles, getCacheKey, currentSymbol, currentTimeframe } =
+    useChartStore();
 
   // Check cache status when params change
   useEffect(() => {
@@ -51,15 +46,15 @@ export function EnhancedDataSourceSelector({
 
   const checkCacheStatus = () => {
     if (!startDate || !endDate) return;
-    
+
     const start = startDate instanceof Date ? startDate : new Date(startDate);
     const end = endDate instanceof Date ? endDate : new Date(endDate);
-    
+
     const fromTimestamp = Math.floor(start.getTime() / 1000);
     const toTimestamp = Math.floor(end.getTime() / 1000);
     const cacheKey = getCacheKey(symbol, timeframe, fromTimestamp, toTimestamp);
     const cachedData = getCachedCandles(cacheKey);
-    
+
     setCacheStatus(cachedData ? 'loaded' : 'empty');
   };
 
@@ -68,22 +63,22 @@ export function EnhancedDataSourceSelector({
       notifications.show({
         title: 'Invalid Date Range',
         message: 'Please select start and end dates',
-        color: 'red'
+        color: 'red',
       });
       return;
     }
-    
+
     setIsLoadingCache(true);
     setCacheStatus('loading');
-    
+
     try {
       const start = startDate instanceof Date ? startDate : new Date(startDate);
       const end = endDate instanceof Date ? endDate : new Date(endDate);
-      
+
       const fromTimestamp = Math.floor(start.getTime() / 1000);
       const toTimestamp = Math.floor(end.getTime() / 1000);
       const cacheKey = getCacheKey(symbol, timeframe, fromTimestamp, toTimestamp);
-      
+
       // Check if already cached
       const existing = getCachedCandles(cacheKey);
       if (existing) {
@@ -91,39 +86,39 @@ export function EnhancedDataSourceSelector({
           title: 'Data Already Cached',
           message: `${symbol} ${timeframe} data is already in cache`,
           color: 'blue',
-          icon: <IconCheck size={16} />
+          icon: <IconCheck size={16} />,
         });
         setCacheStatus('loaded');
         setIsLoadingCache(false);
         return;
       }
-      
+
       // Fetch from database
       const data = await invoke<any[]>('fetch_candles', {
         request: {
           symbol,
           timeframe,
           from: fromTimestamp,
-          to: toTimestamp
-        }
+          to: toTimestamp,
+        },
       });
-      
+
       if (data && data.length > 0) {
         // Cache the data
         setCachedCandles(cacheKey, data);
         setCacheStatus('loaded');
-        
+
         notifications.show({
           title: 'Data Cached Successfully',
           message: `Loaded ${data.length} candles into cache`,
           color: 'green',
-          icon: <IconCheck size={16} />
+          icon: <IconCheck size={16} />,
         });
       } else {
         notifications.show({
           title: 'No Data Found',
           message: 'No data available for the selected range',
-          color: 'orange'
+          color: 'orange',
         });
         setCacheStatus('empty');
       }
@@ -131,7 +126,7 @@ export function EnhancedDataSourceSelector({
       notifications.show({
         title: 'Failed to Load Data',
         message: String(error),
-        color: 'red'
+        color: 'red',
       });
       setCacheStatus('empty');
     } finally {
@@ -164,7 +159,7 @@ export function EnhancedDataSourceSelector({
           data={[
             { value: 'cache', label: 'Cache (Fast)' },
             { value: 'database', label: 'Database' },
-            { value: 'parquet', label: 'Parquet File' }
+            { value: 'parquet', label: 'Parquet File' },
           ]}
         />
       </Group>
@@ -175,16 +170,23 @@ export function EnhancedDataSourceSelector({
           <Stack gap="xs">
             <Group justify="space-between">
               <Group gap="xs">
-                <Text size="sm" fw={500}>Cache Status:</Text>
-                <Badge 
-                  color={cacheStatus === 'loaded' ? 'green' : cacheStatus === 'loading' ? 'blue' : 'gray'}
+                <Text size="sm" fw={500}>
+                  Cache Status:
+                </Text>
+                <Badge
+                  color={
+                    cacheStatus === 'loaded' ? 'green' : cacheStatus === 'loading' ? 'blue' : 'gray'
+                  }
                   variant="dot"
                 >
-                  {cacheStatus === 'loaded' ? 'Data Cached' : 
-                   cacheStatus === 'loading' ? 'Loading...' : 'Empty'}
+                  {cacheStatus === 'loaded'
+                    ? 'Data Cached'
+                    : cacheStatus === 'loading'
+                      ? 'Loading...'
+                      : 'Empty'}
                 </Badge>
               </Group>
-              
+
               {cacheStatus !== 'loaded' && (
                 <Button
                   size="xs"
@@ -196,7 +198,7 @@ export function EnhancedDataSourceSelector({
                 </Button>
               )}
             </Group>
-            
+
             <Group grow>
               <Select
                 label="Symbol"
@@ -205,7 +207,7 @@ export function EnhancedDataSourceSelector({
                 data={['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD']}
                 leftSection={<IconDatabase size={16} />}
               />
-              
+
               <Select
                 label="Timeframe"
                 value={timeframe}
@@ -215,11 +217,11 @@ export function EnhancedDataSourceSelector({
                   { value: '15m', label: '15 minutes' },
                   { value: '1h', label: '1 hour' },
                   { value: '4h', label: '4 hours' },
-                  { value: '12h', label: '12 hours' }
+                  { value: '12h', label: '12 hours' },
                 ]}
               />
             </Group>
-            
+
             {cacheStatus === 'loaded' && (
               <Text size="xs" c="dimmed" ta="center">
                 Using cached data for faster execution
@@ -239,7 +241,7 @@ export function EnhancedDataSourceSelector({
             data={['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD']}
             leftSection={<IconDatabase size={16} />}
           />
-          
+
           <Select
             label="Timeframe"
             value={timeframe}
@@ -249,7 +251,7 @@ export function EnhancedDataSourceSelector({
               { value: '15m', label: '15 minutes' },
               { value: '1h', label: '1 hour' },
               { value: '4h', label: '4 hours' },
-              { value: '12h', label: '12 hours' }
+              { value: '12h', label: '12 hours' },
             ]}
           />
         </Group>
@@ -269,12 +271,7 @@ export function EnhancedDataSourceSelector({
               style={{ flex: 1 }}
               searchable
             />
-            <Button
-              size="sm"
-              variant="subtle"
-              onClick={loadAvailableDatasets}
-              mt="lg"
-            >
+            <Button size="sm" variant="subtle" onClick={loadAvailableDatasets} mt="lg">
               <IconRefresh size={16} />
             </Button>
           </Group>

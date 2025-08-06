@@ -14,7 +14,7 @@ export const PairSelector = () => {
     { value: 'AUDUSD', label: 'AUD/USD' },
     { value: 'USDCHF', label: 'USD/CHF' },
     { value: 'BTCUSD', label: 'BTC/USD' },
-    { value: 'ETHUSD', label: 'ETH/USD' }
+    { value: 'ETHUSD', label: 'ETH/USD' },
   ];
 
   const handlePairChange = (value: string | null) => {

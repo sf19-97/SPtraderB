@@ -58,7 +58,10 @@ export async function loadStrategy(strategyName: string): Promise<any> {
 }
 
 // Start live trading mode
-export async function startLiveTrading(strategyName: string, initialCapital: number): Promise<void> {
+export async function startLiveTrading(
+  strategyName: string,
+  initialCapital: number
+): Promise<void> {
   return await invoke('run_orchestrator_live', { strategyName, initialCapital });
 }
 

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBrokerStore } from '../stores/useBrokerStore';
-import { 
-  Container, 
-  Title, 
-  Tabs, 
+import {
+  Container,
+  Title,
+  Tabs,
   Box,
   Paper,
   Stack,
@@ -18,20 +18,20 @@ import {
   PasswordInput,
   Select,
   Modal,
-  Divider
+  Divider,
 } from '@mantine/core';
-import { 
-  IconPlus, 
-  IconChevronDown, 
-  IconChevronRight, 
-  IconEdit, 
+import {
+  IconPlus,
+  IconChevronDown,
+  IconChevronRight,
+  IconEdit,
   IconTrash,
   IconServer,
   IconKey,
   IconUser,
   IconCircleCheck,
   IconCircleX,
-  IconArrowLeft
+  IconArrowLeft,
 } from '@tabler/icons-react';
 
 interface BrokerProfile {
@@ -46,15 +46,15 @@ interface BrokerProfile {
 export const SettingsPage = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string | null>('broker');
-  const { 
-    profiles, 
-    addProfile, 
-    updateProfile, 
-    deleteProfile, 
+  const {
+    profiles,
+    addProfile,
+    updateProfile,
+    deleteProfile,
     activateProfile,
-    decryptSensitiveData 
+    decryptSensitiveData,
   } = useBrokerStore();
-  
+
   const [expandedProfiles, setExpandedProfiles] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<BrokerProfile | null>(null);
@@ -62,7 +62,7 @@ export const SettingsPage = () => {
     name: '',
     broker: '',
     apiKey: '',
-    account: ''
+    account: '',
   });
 
   // Load demo profiles from env on first load if no profiles exist
@@ -71,24 +71,22 @@ export const SettingsPage = () => {
       // Check for demo credentials in environment variables
       const oandaKey = import.meta.env.VITE_OANDA_DEMO_API_KEY;
       const oandaAccount = import.meta.env.VITE_OANDA_DEMO_ACCOUNT_ID;
-      
+
       if (oandaKey && oandaAccount) {
         addProfile({
           name: 'OANDA Demo (from env)',
           broker: 'OANDA',
           apiKey: oandaKey,
           account: oandaAccount,
-          environment: 'demo'
+          environment: 'demo',
         });
       }
     }
   }, []);
 
   const toggleProfile = (profileId: string) => {
-    setExpandedProfiles(prev => 
-      prev.includes(profileId) 
-        ? prev.filter(id => id !== profileId)
-        : [...prev, profileId]
+    setExpandedProfiles((prev) =>
+      prev.includes(profileId) ? prev.filter((id) => id !== profileId) : [...prev, profileId]
     );
   };
 
@@ -99,7 +97,7 @@ export const SettingsPage = () => {
         name: profile.name,
         broker: profile.broker,
         apiKey: decryptSensitiveData(profile.apiKey),
-        account: profile.account
+        account: profile.account,
       });
     } else {
       setEditingProfile(null);
@@ -107,7 +105,7 @@ export const SettingsPage = () => {
         name: '',
         broker: '',
         apiKey: '',
-        account: ''
+        account: '',
       });
     }
     setModalOpen(true);
@@ -120,7 +118,7 @@ export const SettingsPage = () => {
       name: '',
       broker: '',
       apiKey: '',
-      account: ''
+      account: '',
     });
   };
 
@@ -146,34 +144,31 @@ export const SettingsPage = () => {
     <Container size="lg" py="xl" style={{ color: '#fff' }}>
       <Group justify="space-between" mb="xl">
         <Group gap="md">
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="lg"
-            onClick={() => navigate(-1)}
-          >
+          <ActionIcon variant="subtle" color="gray" size="lg" onClick={() => navigate(-1)}>
             <IconArrowLeft size={20} />
           </ActionIcon>
-          <Title order={2} c="white">Settings</Title>
+          <Title order={2} c="white">
+            Settings
+          </Title>
         </Group>
       </Group>
-      
-      <Tabs 
-        value={activeTab} 
+
+      <Tabs
+        value={activeTab}
         onChange={setActiveTab}
         styles={{
           root: { backgroundColor: 'transparent' },
           list: { backgroundColor: '#1a1a1a', borderBottom: '1px solid #333' },
-          tab: { 
+          tab: {
             color: '#888',
             '&[data-active="true"]': {
               color: '#fff',
-              borderBottomColor: '#4a9eff'
+              borderBottomColor: '#4a9eff',
             },
             '&:hover': {
-              backgroundColor: '#252525'
-            }
-          }
+              backgroundColor: '#252525',
+            },
+          },
         }}
       >
         <Tabs.List>
@@ -184,56 +179,53 @@ export const SettingsPage = () => {
         </Tabs.List>
 
         <Tabs.Panel value="broker" pt="xl">
-          <Paper 
-            p="md" 
+          <Paper
+            p="md"
             withBorder
-            style={{ 
-              backgroundColor: '#1a1a1a', 
-              borderColor: '#333' 
+            style={{
+              backgroundColor: '#1a1a1a',
+              borderColor: '#333',
             }}
           >
             <Group justify="space-between" mb="md">
-              <Title order={4} c="white">Broker Profiles</Title>
-              <Button 
-                leftSection={<IconPlus size={16} />}
-                size="sm"
-                onClick={() => openModal()}
-              >
+              <Title order={4} c="white">
+                Broker Profiles
+              </Title>
+              <Button leftSection={<IconPlus size={16} />} size="sm" onClick={() => openModal()}>
                 Add Profile
               </Button>
             </Group>
 
             <Stack gap="sm">
-              {profiles.map(profile => (
-                <Paper 
-                  key={profile.id} 
-                  p="sm" 
+              {profiles.map((profile) => (
+                <Paper
+                  key={profile.id}
+                  p="sm"
                   withBorder
-                  style={{ 
-                    backgroundColor: '#252525', 
+                  style={{
+                    backgroundColor: '#252525',
                     borderColor: '#444',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
                   }}
                 >
-                  <Group 
-                    justify="space-between" 
+                  <Group
+                    justify="space-between"
                     style={{ cursor: 'pointer' }}
                     onClick={() => toggleProfile(profile.id)}
                   >
                     <Group gap="xs">
                       <ActionIcon variant="subtle" size="sm">
-                        {expandedProfiles.includes(profile.id) 
-                          ? <IconChevronDown size={16} />
-                          : <IconChevronRight size={16} />
-                        }
+                        {expandedProfiles.includes(profile.id) ? (
+                          <IconChevronDown size={16} />
+                        ) : (
+                          <IconChevronRight size={16} />
+                        )}
                       </ActionIcon>
-                      <Text fw={500} c="white">{profile.name}</Text>
+                      <Text fw={500} c="white">
+                        {profile.name}
+                      </Text>
                       {profile.isActive && (
-                        <Badge 
-                          color="green" 
-                          size="sm"
-                          leftSection={<IconCircleCheck size={12} />}
-                        >
+                        <Badge color="green" size="sm" leftSection={<IconCircleCheck size={12} />}>
                           Active
                         </Badge>
                       )}
@@ -245,24 +237,30 @@ export const SettingsPage = () => {
                       <Stack gap="xs">
                         <Group gap="xs">
                           <IconServer size={16} color="#666" />
-                          <Text size="sm" c="dimmed">Broker:</Text>
+                          <Text size="sm" c="dimmed">
+                            Broker:
+                          </Text>
                           <Text size="sm">{profile.broker}</Text>
                         </Group>
                         <Group gap="xs">
                           <IconKey size={16} color="#666" />
-                          <Text size="sm" c="dimmed">API Key:</Text>
+                          <Text size="sm" c="dimmed">
+                            API Key:
+                          </Text>
                           <Text size="sm">{maskApiKey(profile.apiKey)}</Text>
                         </Group>
                         <Group gap="xs">
                           <IconUser size={16} color="#666" />
-                          <Text size="sm" c="dimmed">Account:</Text>
+                          <Text size="sm" c="dimmed">
+                            Account:
+                          </Text>
                           <Text size="sm">{profile.account}</Text>
                         </Group>
-                        
+
                         <Group gap="xs" mt="sm">
                           {!profile.isActive && (
-                            <Button 
-                              size="xs" 
+                            <Button
+                              size="xs"
                               variant="filled"
                               color="green"
                               onClick={(e) => {
@@ -273,8 +271,8 @@ export const SettingsPage = () => {
                               Activate
                             </Button>
                           )}
-                          <Button 
-                            size="xs" 
+                          <Button
+                            size="xs"
                             variant="light"
                             leftSection={<IconEdit size={14} />}
                             onClick={(e) => {
@@ -284,9 +282,9 @@ export const SettingsPage = () => {
                           >
                             Edit
                           </Button>
-                          <Button 
-                            size="xs" 
-                            variant="light" 
+                          <Button
+                            size="xs"
+                            variant="light"
                             color="red"
                             leftSection={<IconTrash size={14} />}
                             onClick={(e) => {
@@ -315,29 +313,35 @@ export const SettingsPage = () => {
 
         <Tabs.Panel value="display" pt="xl">
           <Paper p="md" withBorder style={{ backgroundColor: '#1a1a1a', borderColor: '#333' }}>
-            <Title order={4} mb="md" c="white">Display Settings</Title>
+            <Title order={4} mb="md" c="white">
+              Display Settings
+            </Title>
             <Text c="dimmed">Display settings will be added here...</Text>
           </Paper>
         </Tabs.Panel>
 
         <Tabs.Panel value="data" pt="xl">
           <Paper p="md" withBorder style={{ backgroundColor: '#1a1a1a', borderColor: '#333' }}>
-            <Title order={4} mb="md" c="white">Data Settings</Title>
+            <Title order={4} mb="md" c="white">
+              Data Settings
+            </Title>
             <Text c="dimmed">Data settings will be added here...</Text>
           </Paper>
         </Tabs.Panel>
 
         <Tabs.Panel value="advanced" pt="xl">
           <Paper p="md" withBorder style={{ backgroundColor: '#1a1a1a', borderColor: '#333' }}>
-            <Title order={4} mb="md" c="white">Advanced Settings</Title>
+            <Title order={4} mb="md" c="white">
+              Advanced Settings
+            </Title>
             <Text c="dimmed">Advanced settings will be added here...</Text>
           </Paper>
         </Tabs.Panel>
       </Tabs>
 
       {/* Add/Edit Profile Modal */}
-      <Modal 
-        opened={modalOpen} 
+      <Modal
+        opened={modalOpen}
         onClose={closeModal}
         title={editingProfile ? 'Edit Broker Profile' : 'Add Broker Profile'}
       >
@@ -346,15 +350,15 @@ export const SettingsPage = () => {
             label="Profile Name"
             placeholder="e.g. OANDA Practice"
             value={formData.name}
-            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
             required
           />
-          
+
           <Select
             label="Broker"
             placeholder="Select broker"
             value={formData.broker}
-            onChange={(value) => setFormData(prev => ({ ...prev, broker: value || '' }))}
+            onChange={(value) => setFormData((prev) => ({ ...prev, broker: value || '' }))}
             data={[
               { value: 'OANDA', label: 'OANDA' },
               { value: 'Interactive Brokers', label: 'Interactive Brokers' },
@@ -366,34 +370,34 @@ export const SettingsPage = () => {
               { value: 'Coinbase', label: 'Coinbase' },
               { value: 'Kraken', label: 'Kraken' },
               { value: 'FTX', label: 'FTX' },
-              { value: 'Dukascopy', label: 'Dukascopy' }
+              { value: 'Dukascopy', label: 'Dukascopy' },
             ]}
             required
           />
-          
+
           <PasswordInput
             label="API Key"
             placeholder="Enter your API key"
             value={formData.apiKey}
-            onChange={(e) => setFormData(prev => ({ ...prev, apiKey: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
             required
           />
-          
+
           <TextInput
             label="Account ID"
             placeholder="e.g. 101-001-1234567-001"
             value={formData.account}
-            onChange={(e) => setFormData(prev => ({ ...prev, account: e.target.value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, account: e.target.value }))}
             required
           />
-          
+
           <Divider />
-          
+
           <Group justify="flex-end">
             <Button variant="subtle" onClick={closeModal}>
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={saveProfile}
               disabled={!formData.name || !formData.broker || !formData.apiKey || !formData.account}
             >

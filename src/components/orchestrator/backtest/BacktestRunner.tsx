@@ -22,13 +22,13 @@ export function BacktestRunner() {
   // Listen for backtest started event
   useEffect(() => {
     const unlisten = listen('backtest_started', (event: any) => {
-            if (event.payload && event.payload.backtest_id) {
+      if (event.payload && event.payload.backtest_id) {
         setCurrentBacktestId(event.payload.backtest_id);
-              }
+      }
     });
 
     return () => {
-      unlisten.then(fn => fn());
+      unlisten.then((fn) => fn());
     };
   }, [setCurrentBacktestId]);
 
@@ -57,7 +57,7 @@ export function BacktestRunner() {
     // setBacktestResults(null);
     setCurrentBacktestId(null);
     clearLogs();
-        
+
     addLog({
       timestamp: new Date().toISOString(),
       level: 'INFO',
@@ -66,12 +66,14 @@ export function BacktestRunner() {
 
     try {
       // Ensure dates are Date objects
-      const startDate = backtestConfig.startDate instanceof Date 
-        ? backtestConfig.startDate 
-        : new Date(backtestConfig.startDate);
-      const endDate = backtestConfig.endDate instanceof Date 
-        ? backtestConfig.endDate 
-        : new Date(backtestConfig.endDate);
+      const startDate =
+        backtestConfig.startDate instanceof Date
+          ? backtestConfig.startDate
+          : new Date(backtestConfig.startDate);
+      const endDate =
+        backtestConfig.endDate instanceof Date
+          ? backtestConfig.endDate
+          : new Date(backtestConfig.endDate);
 
       const result = await runBacktest({
         strategyName: selectedStrategy.name.replace('.yaml', ''),
@@ -82,7 +84,6 @@ export function BacktestRunner() {
         initialCapital: backtestConfig.initialCapital,
       });
 
-      
       // Map snake_case from Rust to camelCase for TypeScript
       const backtestResult = result.result as any;
       setBacktestResults({
@@ -101,16 +102,17 @@ export function BacktestRunner() {
         daily_returns: backtestResult.daily_returns,
         indicatorData: backtestResult.indicator_data || {},
       });
-            
+
       addLog({
         timestamp: new Date().toISOString(),
         level: 'INFO',
         message: `Backtest completed successfully`,
       });
 
-      const pnl = typeof result.result.total_pnl === 'string' 
-        ? parseFloat(result.result.total_pnl) 
-        : result.result.total_pnl;
+      const pnl =
+        typeof result.result.total_pnl === 'string'
+          ? parseFloat(result.result.total_pnl)
+          : result.result.total_pnl;
       notifications.show({
         title: 'Backtest Complete',
         message: `Final P&L: $${pnl.toFixed(2)}`,
@@ -118,7 +120,7 @@ export function BacktestRunner() {
       });
     } catch (error) {
       console.error('Backtest failed:', error);
-      
+
       addLog({
         timestamp: new Date().toISOString(),
         level: 'ERROR',
@@ -137,20 +139,20 @@ export function BacktestRunner() {
   };
 
   const handleCancel = async () => {
-        if (!currentBacktestId) {
+    if (!currentBacktestId) {
       console.error('No backtest ID to cancel');
       return;
     }
 
     try {
       await cancelBacktest(currentBacktestId);
-      
+
       addLog({
         timestamp: new Date().toISOString(),
         level: 'WARN',
         message: 'Backtest cancelled by user',
       });
-      
+
       notifications.show({
         title: 'Backtest Cancelled',
         message: 'The backtest was cancelled successfully',
@@ -168,7 +170,6 @@ export function BacktestRunner() {
       setCurrentBacktestId(null);
     }
   };
-
 
   return (
     <Stack gap="md">
@@ -201,7 +202,9 @@ export function BacktestRunner() {
 
           {isBacktestRunning && (
             <Stack gap="xs">
-              <Text size="sm" c="dimmed">Running backtest...</Text>
+              <Text size="sm" c="dimmed">
+                Running backtest...
+              </Text>
               <Progress value={30} animated />
             </Stack>
           )}

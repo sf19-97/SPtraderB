@@ -1,6 +1,24 @@
-import { AppShell, Burger, Group, Text, Stack, Tabs, Badge, Button, SegmentedControl } from '@mantine/core';
+import {
+  AppShell,
+  Burger,
+  Group,
+  Text,
+  Stack,
+  Tabs,
+  Badge,
+  Button,
+  SegmentedControl,
+} from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconChartLine, IconActivityHeartbeat, IconShieldCheck, IconListDetails, IconChartBar, IconRefresh, IconArrowLeft } from '@tabler/icons-react';
+import {
+  IconChartLine,
+  IconActivityHeartbeat,
+  IconShieldCheck,
+  IconListDetails,
+  IconChartBar,
+  IconRefresh,
+  IconArrowLeft,
+} from '@tabler/icons-react';
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useNavigate } from 'react-router-dom';
@@ -16,13 +34,7 @@ import { BacktestPanel } from '../components/orchestrator/backtest/BacktestPanel
 export function OrchestratorPage() {
   const [opened, { toggle }] = useDisclosure();
   const navigate = useNavigate();
-  const { 
-    mode, 
-    setMode, 
-    isConnected, 
-    selectedStrategy, 
-    addLog
-  } = useOrchestratorStore();
+  const { mode, setMode, isConnected, selectedStrategy, addLog } = useOrchestratorStore();
 
   // Listen for log events
   useEffect(() => {
@@ -30,7 +42,7 @@ export function OrchestratorPage() {
       addLog({
         timestamp: new Date().toISOString(),
         level: event.payload.level,
-        message: event.payload.message
+        message: event.payload.message,
       });
     });
 
@@ -40,23 +52,27 @@ export function OrchestratorPage() {
         addLog({
           timestamp: new Date().toISOString(),
           level: 'OUTPUT',
-          message: event.payload.line
+          message: event.payload.line,
         });
       }
     });
 
     return () => {
-      unlisten.then(fn => fn());
-      unlistenOutput.then(fn => fn());
+      unlisten.then((fn) => fn());
+      unlistenOutput.then((fn) => fn());
     };
   }, [addLog]);
 
   const getModeColor = () => {
     switch (mode) {
-      case 'backtest': return 'blue';
-      case 'paper': return 'yellow';
-      case 'live': return 'red';
-      default: return 'gray';
+      case 'backtest':
+        return 'blue';
+      case 'paper':
+        return 'yellow';
+      case 'live':
+        return 'red';
+      default:
+        return 'gray';
     }
   };
 
@@ -78,15 +94,12 @@ export function OrchestratorPage() {
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group>
-            <Burger
-              opened={opened}
-              onClick={toggle}
-              hiddenFrom="sm"
-              size="sm"
-            />
-            <Text size="xl" fw={700}>SPtraderB Orchestrator</Text>
+            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Text size="xl" fw={700}>
+              SPtraderB Orchestrator
+            </Text>
           </Group>
-          
+
           <Group>
             {/* Mode Selector */}
             <SegmentedControl
@@ -99,14 +112,18 @@ export function OrchestratorPage() {
               ]}
               color={getModeColor()}
             />
-            
+
             {/* Connection Status */}
-            <Badge color={getConnectionColor()} size="lg" variant={isConnected ? 'light' : 'filled'}>
+            <Badge
+              color={getConnectionColor()}
+              size="lg"
+              variant={isConnected ? 'light' : 'filled'}
+            >
               {isConnected ? 'Connected' : 'Disconnected'}
             </Badge>
-            
+
             {/* Back Button */}
-            <Button 
+            <Button
               leftSection={<IconArrowLeft size={16} />}
               variant="subtle"
               onClick={() => navigate('/')}
@@ -126,16 +143,22 @@ export function OrchestratorPage() {
               Refresh
             </Button>
           </Group>
-          
+
           {selectedStrategy ? (
             <Stack gap="xs">
-              <Text size="sm" fw={600}>{selectedStrategy.name}</Text>
-              <Text size="xs" c="dimmed">{selectedStrategy.description}</Text>
+              <Text size="sm" fw={600}>
+                {selectedStrategy.name}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {selectedStrategy.description}
+              </Text>
             </Stack>
           ) : (
-            <Text c="dimmed" size="sm">No strategy selected</Text>
+            <Text c="dimmed" size="sm">
+              No strategy selected
+            </Text>
           )}
-          
+
           <StrategyList />
         </Stack>
       </AppShell.Navbar>

@@ -1,27 +1,27 @@
-import { create } from 'zustand'
-import { devtools, persist } from 'zustand/middleware'
+import { create } from 'zustand';
+import { devtools, persist } from 'zustand/middleware';
 
 interface TradingState {
   // Chart settings (from TradingContext)
-  selectedPair: string
-  selectedTimeframe: string
-  chartType: 'candlestick' | 'line' | 'bar'
-  chartVersion: 'v1' | 'v2'
-  
+  selectedPair: string;
+  selectedTimeframe: string;
+  chartType: 'candlestick' | 'line' | 'bar';
+  chartVersion: 'v1' | 'v2';
+
   // Indicators
   indicators: {
-    ma: boolean
-    rsi: boolean
-    macd: boolean
-    volume: boolean
-  }
-  
+    ma: boolean;
+    rsi: boolean;
+    macd: boolean;
+    volume: boolean;
+  };
+
   // Actions
-  setPair: (pair: string) => void
-  setTimeframe: (tf: string) => void
-  setChartType: (type: 'candlestick' | 'line' | 'bar') => void
-  setChartVersion: (version: 'v1' | 'v2') => void
-  toggleIndicator: (indicator: keyof TradingState['indicators']) => void
+  setPair: (pair: string) => void;
+  setTimeframe: (tf: string) => void;
+  setChartType: (type: 'candlestick' | 'line' | 'bar') => void;
+  setChartVersion: (version: 'v1' | 'v2') => void;
+  toggleIndicator: (indicator: keyof TradingState['indicators']) => void;
 }
 
 export const useTradingStore = create<TradingState>()(
@@ -39,41 +39,41 @@ export const useTradingStore = create<TradingState>()(
           macd: false,
           volume: false,
         },
-        
+
         // Actions - same API as TradingContext
         setPair: (pair) => {
-          console.log('[TradingStore] setPair called with:', pair)
+          console.log('[TradingStore] setPair called with:', pair);
           set((state) => {
-            console.log('[TradingStore] Current selectedPair:', state.selectedPair)
-            console.log('[TradingStore] New selectedPair will be:', pair)
-            return { selectedPair: pair }
-          })
+            console.log('[TradingStore] Current selectedPair:', state.selectedPair);
+            console.log('[TradingStore] New selectedPair will be:', pair);
+            return { selectedPair: pair };
+          });
         },
-        
+
         setTimeframe: (timeframe) => {
-          console.log('[TradingStore] setTimeframe:', timeframe)
-          set({ selectedTimeframe: timeframe })
+          console.log('[TradingStore] setTimeframe:', timeframe);
+          set({ selectedTimeframe: timeframe });
         },
-        
+
         setChartType: (chartType) => {
-          console.log('[TradingStore] setChartType:', chartType)
-          set({ chartType })
+          console.log('[TradingStore] setChartType:', chartType);
+          set({ chartType });
         },
-        
+
         setChartVersion: (chartVersion) => {
-          console.log('[TradingStore] setChartVersion:', chartVersion)
-          set({ chartVersion })
+          console.log('[TradingStore] setChartVersion:', chartVersion);
+          set({ chartVersion });
         },
-        
+
         toggleIndicator: (indicator) => {
-          console.log('[TradingStore] toggleIndicator:', indicator)
+          console.log('[TradingStore] toggleIndicator:', indicator);
           set((state) => ({
             indicators: {
               ...state.indicators,
-              [indicator]: !state.indicators[indicator]
-            }
-          }))
-        }
+              [indicator]: !state.indicators[indicator],
+            },
+          }));
+        },
       }),
       {
         name: 'trading-storage',
@@ -83,22 +83,22 @@ export const useTradingStore = create<TradingState>()(
           selectedTimeframe: state.selectedTimeframe,
           chartType: state.chartType,
           chartVersion: state.chartVersion,
-          indicators: state.indicators
-        })
+          indicators: state.indicators,
+        }),
       }
     ),
     {
-      name: 'trading-store'
+      name: 'trading-store',
     }
   )
-)
+);
 
 // Compatibility hook to ease migration
 export const useTrading = () => {
-  const state = useTradingStore()
+  const state = useTradingStore();
   return {
     ...state,
     // Ensure complete compatibility with TradingContext API
     setTimeframe: state.setTimeframe,
-  }
-}
+  };
+};

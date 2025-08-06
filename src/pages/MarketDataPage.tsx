@@ -18,8 +18,8 @@ export function MarketDataPage() {
                 Market Data Manager
               </Title>
               <Text size="lg" color="dimmed">
-                Configure and manage real-time data pipelines for various assets. 
-                Add forex pairs, cryptocurrencies, and stocks to start collecting market data.
+                Configure and manage real-time data pipelines for various assets. Add forex pairs,
+                cryptocurrencies, and stocks to start collecting market data.
               </Text>
             </Stack>
             <Button

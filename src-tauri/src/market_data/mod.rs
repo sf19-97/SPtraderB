@@ -102,6 +102,7 @@ pub struct MarketDataEngine {
     pub pipelines: HashMap<String, AssetPipeline>,
     pub db_pool: PgPool,
     pub cascade_scheduler: CascadeScheduler,
+    pub restore_completed: bool, // Track if restore has happened
 }
 
 pub struct CascadeScheduler {
@@ -124,6 +125,7 @@ impl MarketDataEngine {
             pipelines: HashMap::new(),
             db_pool: db_pool.clone(),
             cascade_scheduler: CascadeScheduler::new(db_pool),
+            restore_completed: false,
         }
     }
     
@@ -138,6 +140,17 @@ impl MarketDataEngine {
             
             loop {
                 interval.tick().await;
+                
+                // Check if restore has completed
+                let should_save = {
+                    let engine_lock = engine.lock().await;
+                    engine_lock.restore_completed
+                };
+                
+                if !should_save {
+                    eprintln!("[AutoSave] Skipping save - restore not yet completed");
+                    continue;
+                }
                 
                 // Extract configs directly without needing State
                 let configs = {

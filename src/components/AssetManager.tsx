@@ -19,15 +19,15 @@ import {
   Grid,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { 
-  IconSearch, 
-  IconPlus, 
-  IconRefresh, 
+import {
+  IconSearch,
+  IconPlus,
+  IconRefresh,
   IconTrash,
   IconAlertCircle,
   IconCheck,
   IconPlugConnected,
-  IconPlugOff
+  IconPlugOff,
 } from '@tabler/icons-react';
 
 interface AssetSearchResult {
@@ -53,14 +53,14 @@ export function AssetManager() {
   const [activePipelines, setActivePipelines] = useState<PipelineStatus[]>([]);
   const [isLoadingPipelines, setIsLoadingPipelines] = useState(false);
   const [selectedSource, setSelectedSource] = useState<Record<string, string>>({});
-  
+
   const { getActiveProfile, profiles } = useBrokerStore();
 
   // Helper to get profile for a specific source
   const getProfileForSource = (source: string): BrokerProfile | null => {
-    return profiles.find(p => 
-      p.broker.toLowerCase() === source.toLowerCase() && p.isActive
-    ) || null;
+    return (
+      profiles.find((p) => p.broker.toLowerCase() === source.toLowerCase() && p.isActive) || null
+    );
   };
 
   // Restore pipelines from saved config
@@ -68,7 +68,7 @@ export function AssetManager() {
     console.log('[AssetManager] Starting pipeline restore...');
     console.log('[AssetManager] Current profiles:', profiles);
     console.log('[AssetManager] Active profile:', getActiveProfile());
-    
+
     try {
       const configFile = await invoke<{
         version: number;
@@ -82,29 +82,39 @@ export function AssetManager() {
         saved_at: string;
         clean_shutdown: boolean;
       }>('load_pipeline_config');
-      
+
       if (configFile.pipelines.length === 0) {
         console.log('[AssetManager] No saved pipelines to restore');
+        // Still mark restore as completed
+        try {
+          await invoke('mark_restore_completed');
+          console.log('[AssetManager] Marked restore as completed (no pipelines)');
+        } catch (e) {
+          console.error('[AssetManager] Failed to mark restore completed:', e);
+        }
         return;
       }
-      
+
       console.log(`[AssetManager] Restoring ${configFile.pipelines.length} pipelines`);
       console.log('[AssetManager] Pipelines to restore:', configFile.pipelines);
-      
+
       const results = await Promise.allSettled(
         configFile.pipelines.map(async (config) => {
           console.log(`[AssetManager] Processing ${config.symbol} with source ${config.source}`);
           const profile = getProfileForSource(config.source);
-          
+
           if (!profile) {
             console.warn(`[AssetManager] No active ${config.source} profile for ${config.symbol}`);
-            console.log('[AssetManager] Available profiles:', profiles.map(p => ({ broker: p.broker, isActive: p.isActive })));
+            console.log(
+              '[AssetManager] Available profiles:',
+              profiles.map((p) => ({ broker: p.broker, isActive: p.isActive }))
+            );
             return Promise.reject({
               symbol: config.symbol,
-              reason: `No active ${config.source} profile`
+              reason: `No active ${config.source} profile`,
             });
           }
-          
+
           try {
             await invoke('add_market_asset', {
               request: {
@@ -112,24 +122,24 @@ export function AssetManager() {
                 source: config.source,
                 account_id: profile.account,
                 api_token: profile.apiKey,
-              }
+              },
             });
-            
+
             console.log(`[AssetManager] Restored ${config.symbol}`);
             return { symbol: config.symbol, success: true };
           } catch (e) {
             return Promise.reject({
               symbol: config.symbol,
-              reason: e?.toString() || 'Unknown error'
+              reason: e?.toString() || 'Unknown error',
             });
           }
         })
       );
-      
+
       // Report results
-      const succeeded = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected');
-      
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected');
+
       if (succeeded > 0) {
         notifications.show({
           title: 'Pipelines Restored',
@@ -139,14 +149,21 @@ export function AssetManager() {
         });
       }
       
+      // Mark restore as completed so auto-save can start
+      try {
+        await invoke('mark_restore_completed');
+        console.log('[AssetManager] Marked restore as completed');
+      } catch (e) {
+        console.error('[AssetManager] Failed to mark restore completed:', e);
+      }
+
       // Log failures
-      failed.forEach(f => {
+      failed.forEach((f) => {
         if (f.status === 'rejected') {
           const reason = (f as any).reason;
           console.error(`[AssetManager] Failed to restore ${reason.symbol}: ${reason.reason}`);
         }
       });
-      
     } catch (error) {
       console.error('[AssetManager] Pipeline restore failed:', error);
       notifications.show({
@@ -161,13 +178,13 @@ export function AssetManager() {
   // Load active pipelines on mount
   useEffect(() => {
     loadActivePipelines();
-    
+
     // Restore saved pipelines after backend is fully initialized
     // Backend has 10 second delay before first auto-save
     const restoreTimer = setTimeout(() => {
       restorePipelines();
     }, 5000);
-    
+
     // Listen for asset events
     const unlistenAdded = listen('asset-added', (event) => {
       notifications.show({
@@ -186,8 +203,8 @@ export function AssetManager() {
 
     return () => {
       clearTimeout(restoreTimer);
-      unlistenAdded.then(fn => fn());
-      unlistenProgress.then(fn => fn());
+      unlistenAdded.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
     };
   }, []);
 
@@ -209,7 +226,7 @@ export function AssetManager() {
 
   const searchAssets = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const results = await invoke<AssetSearchResult[]>('search_assets', {
@@ -231,7 +248,7 @@ export function AssetManager() {
     console.log('[AssetManager] Adding asset:', symbol);
     const source = selectedSource[symbol];
     console.log('[AssetManager] Selected source:', source);
-    
+
     if (!source) {
       notifications.show({
         title: 'Error',
@@ -244,10 +261,10 @@ export function AssetManager() {
     // Get credentials from active broker profile
     const profile = getActiveProfile();
     console.log('[AssetManager] Active profile:', profile);
-    
+
     let account_id: string | undefined;
     let api_token: string | undefined;
-    
+
     // Match the source to the broker profile
     if (source.toLowerCase() === 'oanda' && profile?.broker === 'OANDA') {
       account_id = profile.account;
@@ -260,9 +277,9 @@ export function AssetManager() {
         symbol,
         source,
         account_id: account_id ? 'set' : 'not set',
-        api_token: api_token ? 'set' : 'not set'
+        api_token: api_token ? 'set' : 'not set',
       });
-      
+
       await invoke('add_market_asset', {
         request: {
           symbol,
@@ -271,7 +288,7 @@ export function AssetManager() {
           api_token,
         },
       });
-      
+
       console.log('[AssetManager] add_market_asset completed successfully');
     } catch (error) {
       console.error('[AssetManager] Error:', error);
@@ -333,7 +350,7 @@ export function AssetManager() {
       <Card shadow="sm" p="lg" radius="md" withBorder>
         <Stack gap="md">
           <Title order={3}>Add New Asset</Title>
-          
+
           <Group>
             <TextInput
               placeholder="Search for assets (e.g., EURUSD, BTCUSD, AAPL)"
@@ -343,8 +360,8 @@ export function AssetManager() {
               style={{ flex: 1 }}
               leftSection={<IconSearch size={16} />}
             />
-            <Button 
-              onClick={searchAssets} 
+            <Button
+              onClick={searchAssets}
               loading={isSearching}
               leftSection={<IconSearch size={16} />}
             >
@@ -366,8 +383,8 @@ export function AssetManager() {
                 </thead>
                 <tbody>
                   {searchResults.map((result) => {
-                    const isActive = activePipelines.some(p => p.symbol === result.symbol);
-                    
+                    const isActive = activePipelines.some((p) => p.symbol === result.symbol);
+
                     return (
                       <tr key={result.symbol}>
                         <td>
@@ -383,13 +400,13 @@ export function AssetManager() {
                           <Select
                             size="sm"
                             placeholder="Select source"
-                            data={result.available_sources.map(s => ({
+                            data={result.available_sources.map((s) => ({
                               value: s,
                               label: s.charAt(0).toUpperCase() + s.slice(1),
                             }))}
                             value={selectedSource[result.symbol] || ''}
-                            onChange={(value) => 
-                              setSelectedSource(prev => ({
+                            onChange={(value) =>
+                              setSelectedSource((prev) => ({
                                 ...prev,
                                 [result.symbol]: value || '',
                               }))
@@ -439,11 +456,7 @@ export function AssetManager() {
           </Group>
 
           {activePipelines.length === 0 ? (
-            <Alert 
-              icon={<IconAlertCircle size={16} />} 
-              color="gray"
-              variant="light"
-            >
+            <Alert icon={<IconAlertCircle size={16} />} color="gray" variant="light">
               No active pipelines. Search and add assets to start collecting data.
             </Alert>
           ) : (
@@ -454,7 +467,9 @@ export function AssetManager() {
                     <Stack gap="sm">
                       <Group justify="space-between">
                         <Group>
-                          <Text size="lg" fw={600}>{pipeline.symbol}</Text>
+                          <Text size="lg" fw={600}>
+                            {pipeline.symbol}
+                          </Text>
                           <Badge color={getPipelineStatusColor(pipeline.status)}>
                             {pipeline.status}
                           </Badge>
@@ -471,18 +486,18 @@ export function AssetManager() {
                       <Group gap="xs">
                         <Badge
                           leftSection={
-                            pipeline.connected ? 
-                              <IconPlugConnected size={12} /> : 
+                            pipeline.connected ? (
+                              <IconPlugConnected size={12} />
+                            ) : (
                               <IconPlugOff size={12} />
+                            )
                           }
                           color={pipeline.connected ? 'green' : 'red'}
                           variant="light"
                         >
                           {pipeline.connected ? 'Connected' : 'Disconnected'}
                         </Badge>
-                        <Badge variant="light">
-                          {pipeline.source}
-                        </Badge>
+                        <Badge variant="light">{pipeline.source}</Badge>
                       </Group>
 
                       {pipeline.last_tick && (

@@ -1,5 +1,16 @@
 // src/components/TradingRightSidebar.tsx
-import { Stack, Title, Text, Switch, Button, NumberInput, Divider, Box, Group, ActionIcon } from '@mantine/core';
+import {
+  Stack,
+  Title,
+  Text,
+  Switch,
+  Button,
+  NumberInput,
+  Divider,
+  Box,
+  Group,
+  ActionIcon,
+} from '@mantine/core';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useTradingStore } from '../stores/useTradingStore';
 
@@ -25,12 +36,7 @@ export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebar
           justifyContent: 'center',
         }}
       >
-        <ActionIcon
-          onClick={onToggle}
-          variant="subtle"
-          color="gray"
-          size="md"
-        >
+        <ActionIcon onClick={onToggle} variant="subtle" color="gray" size="md">
           <IconChevronLeft size={16} />
         </ActionIcon>
       </Box>
@@ -57,20 +63,19 @@ export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebar
         <Stack p="md" gap="lg">
           {/* Header with close button */}
           <Group justify="space-between">
-            <Title order={4} c="white">Trading Panel</Title>
-            <ActionIcon
-              onClick={onToggle}
-              variant="subtle"
-              color="gray"
-              size="sm"
-            >
+            <Title order={4} c="white">
+              Trading Panel
+            </Title>
+            <ActionIcon onClick={onToggle} variant="subtle" color="gray" size="sm">
               <IconChevronRight size={16} />
             </ActionIcon>
           </Group>
 
           {/* Indicators Section */}
           <Box>
-            <Text size="sm" c="dimmed" mb="xs">Indicators</Text>
+            <Text size="sm" c="dimmed" mb="xs">
+              Indicators
+            </Text>
             <Stack gap="xs">
               <Switch
                 label="Moving Averages"
@@ -103,7 +108,9 @@ export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebar
 
           {/* Quick Order Section */}
           <Box>
-            <Text size="sm" c="dimmed" mb="xs">Quick Order</Text>
+            <Text size="sm" c="dimmed" mb="xs">
+              Quick Order
+            </Text>
             <Stack gap="sm">
               <NumberInput
                 label="Amount"
@@ -113,8 +120,12 @@ export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebar
                 size="sm"
               />
               <Group grow>
-                <Button color="green" size="sm">Buy</Button>
-                <Button color="red" size="sm">Sell</Button>
+                <Button color="green" size="sm">
+                  Buy
+                </Button>
+                <Button color="red" size="sm">
+                  Sell
+                </Button>
               </Group>
             </Stack>
           </Box>
@@ -123,8 +134,12 @@ export const TradingRightSidebar = ({ collapsed, onToggle }: TradingRightSidebar
 
           {/* Position Info */}
           <Box>
-            <Text size="sm" c="dimmed" mb="xs">Open Positions</Text>
-            <Text size="xs" c="dimmed">No open positions</Text>
+            <Text size="sm" c="dimmed" mb="xs">
+              Open Positions
+            </Text>
+            <Text size="xs" c="dimmed">
+              No open positions
+            </Text>
           </Box>
         </Stack>
       </Box>

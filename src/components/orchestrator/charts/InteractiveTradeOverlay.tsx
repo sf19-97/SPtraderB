@@ -55,7 +55,7 @@ export const InteractiveTradeOverlay = ({
   dimensions,
   priceScale,
   currentPrice,
-  isFullscreen = false
+  isFullscreen = false,
 }: InteractiveTradeOverlayProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [tradeMarkers, setTradeMarkers] = useState<TradeMarker[]>([]);
@@ -66,12 +66,12 @@ export const InteractiveTradeOverlay = ({
   const normalizeTime = (time: string): string => {
     // If time already has milliseconds, return as-is
     if (time.includes('.')) return time;
-    
+
     // If time ends with 'Z', insert '.000' before it
     if (time.endsWith('Z')) {
       return time.slice(0, -1) + '.000Z';
     }
-    
+
     // Otherwise add '.000Z' at the end
     return time + '.000Z';
   };
@@ -81,19 +81,26 @@ export const InteractiveTradeOverlay = ({
     const normalizedTime = normalizeTime(time);
     const index = times.indexOf(normalizedTime);
     if (index === -1) return -1;
-    return dimensions.padding.left + (index / (times.length - 1)) * (dimensions.width - dimensions.padding.left - dimensions.padding.right);
+    return (
+      dimensions.padding.left +
+      (index / (times.length - 1)) *
+        (dimensions.width - dimensions.padding.left - dimensions.padding.right)
+    );
   };
 
   const yScale = (price: number) => {
     const range = priceScale.max - priceScale.min;
     const normalized = (price - priceScale.min) / range;
-    return dimensions.padding.top + (1 - normalized) * (dimensions.height - dimensions.padding.top - dimensions.padding.bottom);
+    return (
+      dimensions.padding.top +
+      (1 - normalized) * (dimensions.height - dimensions.padding.top - dimensions.padding.bottom)
+    );
   };
 
   // Calculate trade marker positions
   useEffect(() => {
     const markers: TradeMarker[] = [];
-    
+
     trades.forEach((trade) => {
       const entryX = xScale(trade.entryTime);
       if (entryX !== -1) {
@@ -102,7 +109,7 @@ export const InteractiveTradeOverlay = ({
           trade,
           x: entryX,
           y: entryY,
-          type: 'entry'
+          type: 'entry',
         });
 
         if (trade.exitTime && trade.exitPrice) {
@@ -113,7 +120,7 @@ export const InteractiveTradeOverlay = ({
               trade,
               x: exitX,
               y: exitY,
-              type: 'exit'
+              type: 'exit',
             });
           }
         }
@@ -125,7 +132,6 @@ export const InteractiveTradeOverlay = ({
 
   // Draw the overlay
   useEffect(() => {
-    
     if (!canvasRef.current || trades.length === 0) return;
 
     const canvas = canvasRef.current;
@@ -138,13 +144,12 @@ export const InteractiveTradeOverlay = ({
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
 
     // Draw trades
     trades.forEach((trade, index) => {
       const normalizedTime = normalizeTime(trade.entryTime);
       const entryX = xScale(trade.entryTime);
-      
+
       if (entryX === -1) {
         return;
       }
@@ -156,13 +161,13 @@ export const InteractiveTradeOverlay = ({
 
       // Draw entry marker
       ctx.save();
-      
+
       // Highlight effect
       if (isHighlighted || isHovered) {
         ctx.shadowColor = isLong ? '#00ff88' : '#ff4976';
         ctx.shadowBlur = 10;
       }
-      
+
       // Entry arrow
       ctx.fillStyle = isLong ? '#00ff88' : '#ff4976';
       ctx.strokeStyle = isLong ? '#00ff88' : '#ff4976';
@@ -174,13 +179,13 @@ export const InteractiveTradeOverlay = ({
       if (isLong) {
         // Up arrow
         ctx.moveTo(entryX, entryY - arrowSize);
-        ctx.lineTo(entryX - arrowSize/2, entryY);
-        ctx.lineTo(entryX + arrowSize/2, entryY);
+        ctx.lineTo(entryX - arrowSize / 2, entryY);
+        ctx.lineTo(entryX + arrowSize / 2, entryY);
       } else {
         // Down arrow
         ctx.moveTo(entryX, entryY + arrowSize);
-        ctx.lineTo(entryX - arrowSize/2, entryY);
-        ctx.lineTo(entryX + arrowSize/2, entryY);
+        ctx.lineTo(entryX - arrowSize / 2, entryY);
+        ctx.lineTo(entryX + arrowSize / 2, entryY);
       }
       ctx.closePath();
       ctx.fill();
@@ -218,7 +223,7 @@ export const InteractiveTradeOverlay = ({
           if (trade.pnl !== undefined && (isFullscreen || Math.abs(exitX - entryX) > 50)) {
             const midX = (entryX + exitX) / 2;
             const midY = (entryY + exitY) / 2;
-            
+
             // Background for label
             ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
             const text = `${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}`;
@@ -245,32 +250,45 @@ export const InteractiveTradeOverlay = ({
 
     // Draw trade summary in corner if in fullscreen
     if (isFullscreen && trades.length > 0) {
-      const closedTrades = trades.filter(t => t.pnl !== undefined);
-      const winningTrades = closedTrades.filter(t => t.pnl! >= 0);
+      const closedTrades = trades.filter((t) => t.pnl !== undefined);
+      const winningTrades = closedTrades.filter((t) => t.pnl! >= 0);
       const totalPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      
+
       ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
       ctx.fillRect(10, 10, 150, 80);
-      
+
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 1;
       ctx.strokeRect(10, 10, 150, 80);
-      
+
       ctx.fillStyle = '#ccc';
       ctx.font = '12px monospace';
       ctx.textAlign = 'left';
       ctx.fillText('Trade Summary', 20, 30);
-      
+
       ctx.font = '10px monospace';
       ctx.fillStyle = '#888';
       ctx.fillText(`Total: ${closedTrades.length}`, 20, 50);
-      ctx.fillText(`Win Rate: ${closedTrades.length > 0 ? ((winningTrades.length / closedTrades.length) * 100).toFixed(0) : 0}%`, 20, 65);
-      
+      ctx.fillText(
+        `Win Rate: ${closedTrades.length > 0 ? ((winningTrades.length / closedTrades.length) * 100).toFixed(0) : 0}%`,
+        20,
+        65
+      );
+
       ctx.fillStyle = totalPnl >= 0 ? '#00ff88' : '#ff4976';
       ctx.fillText(`P&L: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`, 20, 80);
     }
-
-  }, [trades, times, prices, dimensions, priceScale, currentPrice, isFullscreen, hoveredTrade, highlightedTradeId]);
+  }, [
+    trades,
+    times,
+    prices,
+    dimensions,
+    priceScale,
+    currentPrice,
+    isFullscreen,
+    hoveredTrade,
+    highlightedTradeId,
+  ]);
 
   // Handle mouse events
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -281,7 +299,7 @@ export const InteractiveTradeOverlay = ({
     const y = e.clientY - rect.top;
 
     // Check if mouse is over any trade marker
-    const marker = tradeMarkers.find(m => {
+    const marker = tradeMarkers.find((m) => {
       const distance = Math.sqrt(Math.pow(x - m.x, 2) + Math.pow(y - m.y, 2));
       return distance < 15; // 15px hit radius
     });
@@ -303,7 +321,7 @@ export const InteractiveTradeOverlay = ({
     const y = e.clientY - rect.top;
 
     // Check if click is on any trade marker
-    const marker = tradeMarkers.find(m => {
+    const marker = tradeMarkers.find((m) => {
       const distance = Math.sqrt(Math.pow(x - m.x, 2) + Math.pow(y - m.y, 2));
       return distance < 15; // 15px hit radius
     });

@@ -487,3 +487,13 @@ pub fn init_market_data_engine(pool: PgPool) -> MarketDataState {
     
     MarketDataState { engine }
 }
+
+#[tauri::command]
+pub async fn mark_restore_completed(
+    state: State<'_, MarketDataState>,
+) -> Result<(), String> {
+    let mut engine = state.engine.lock().await;
+    engine.restore_completed = true;
+    eprintln!("[MarketData] Restore marked as completed, auto-save now enabled");
+    Ok(())
+}

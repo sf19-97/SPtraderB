@@ -31,15 +31,15 @@ export interface BacktestResults {
   maxDrawdown: number;
   sharpeRatio: number;
   signalsGenerated?: any[] | number;
-  signals_generated?: any[];  // Snake case version from Rust
+  signals_generated?: any[]; // Snake case version from Rust
   executedOrders?: any[];
-  executed_orders?: any[];    // Snake case version from Rust
+  executed_orders?: any[]; // Snake case version from Rust
   completed_trades?: any[];
   finalPortfolio?: any;
-  final_portfolio?: any;      // Snake case version from Rust
+  final_portfolio?: any; // Snake case version from Rust
   daily_returns?: any[];
   indicatorData?: Record<string, (number | null)[]>;
-  indicator_data?: Record<string, (number | null)[]>;  // Snake case version from Rust
+  indicator_data?: Record<string, (number | null)[]>; // Snake case version from Rust
 }
 
 export interface LogEntry {

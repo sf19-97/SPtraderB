@@ -51,10 +51,9 @@ export const MarketChartPage = () => {
       {/* Market Data Bar at top */}
       <MarketDataBar />
 
-
       {/* Chart area */}
       <Box style={{ flex: 1, background: '#0a0a0a', position: 'relative' }}>
-        <MarketDataChart 
+        <MarketDataChart
           symbol={selectedPair}
           isFullscreen={isChartFullscreen}
           onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
@@ -62,17 +61,19 @@ export const MarketChartPage = () => {
       </Box>
 
       {/* Bottom status bar */}
-      <Box style={{
-        height: '30px',
-        background: '#1a1a1a',
-        borderTop: '1px solid #333',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 20px',
-        fontSize: '12px',
-        color: '#888',
-        gap: '8px'
-      }}>
+      <Box
+        style={{
+          height: '30px',
+          background: '#1a1a1a',
+          borderTop: '1px solid #333',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 20px',
+          fontSize: '12px',
+          color: '#888',
+          gap: '8px',
+        }}
+      >
         <Indicator
           inline
           size={8}

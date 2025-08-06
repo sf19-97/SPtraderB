@@ -4,17 +4,17 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { IconDatabase } from '@tabler/icons-react';
 
-import { 
-  IconChartLine, 
-  IconTestPipe, 
-  IconCode, 
-  IconHistory, 
+import {
+  IconChartLine,
+  IconTestPipe,
+  IconCode,
+  IconHistory,
   IconSettings,
   IconChevronLeft,
   IconChevronRight,
   IconRobot,
   IconCurrencyBitcoin,
-  IconChartCandle 
+  IconChartCandle,
 } from '@tabler/icons-react';
 
 export const AppLayout = () => {
@@ -63,14 +63,9 @@ export const AppLayout = () => {
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
-                  
+
                   return (
-                    <Tooltip 
-                      key={item.path}
-                      label={item.label} 
-                      position="right"
-                      withArrow
-                    >
+                    <Tooltip key={item.path} label={item.label} position="right" withArrow>
                       <ActionIcon
                         variant={isActive ? 'light' : 'subtle'}
                         color={isActive ? 'cyan' : 'gray'}
@@ -120,15 +115,10 @@ export const AppLayout = () => {
             <Stack h="100%" p="md" justify="space-between" gap={0}>
               <div>
                 <Group justify="space-between" mb="xl">
-                  <Text 
-                    className="sp-trader-logo" 
-                    size="lg" 
-                    fw={700}
-                    c="white"
-                  >
+                  <Text className="sp-trader-logo" size="lg" fw={700} c="white">
                     SPTrader
                   </Text>
-                  
+
                   <ActionIcon
                     onClick={() => setCollapsed(true)}
                     variant="subtle"
@@ -143,7 +133,7 @@ export const AppLayout = () => {
                   {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path;
-                    
+
                     return (
                       <NavLink
                         key={item.path}

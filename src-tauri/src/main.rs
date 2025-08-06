@@ -2220,6 +2220,7 @@ async fn main() {
             stop_pipeline,
             save_pipeline_config,
             load_pipeline_config,
+            mark_restore_completed,
             // Candles module commands
             candles::commands::get_market_candles
         ])

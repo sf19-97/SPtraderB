@@ -47,7 +47,7 @@ export const TradeOverlay = ({
   dimensions,
   priceScale,
   currentPrice,
-  isFullscreen = false
+  isFullscreen = false,
 }: TradeOverlayProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -92,7 +92,7 @@ export const TradeOverlay = ({
 
       // Draw entry marker
       ctx.save();
-      
+
       // Entry arrow
       ctx.fillStyle = isLong ? '#00ff88' : '#ff4976';
       ctx.strokeStyle = isLong ? '#00ff88' : '#ff4976';
@@ -104,13 +104,13 @@ export const TradeOverlay = ({
       if (isLong) {
         // Up arrow
         ctx.moveTo(entryX, entryY - arrowSize);
-        ctx.lineTo(entryX - arrowSize/2, entryY);
-        ctx.lineTo(entryX + arrowSize/2, entryY);
+        ctx.lineTo(entryX - arrowSize / 2, entryY);
+        ctx.lineTo(entryX + arrowSize / 2, entryY);
       } else {
         // Down arrow
         ctx.moveTo(entryX, entryY + arrowSize);
-        ctx.lineTo(entryX - arrowSize/2, entryY);
-        ctx.lineTo(entryX + arrowSize/2, entryY);
+        ctx.lineTo(entryX - arrowSize / 2, entryY);
+        ctx.lineTo(entryX + arrowSize / 2, entryY);
       }
       ctx.closePath();
       ctx.fill();
@@ -151,10 +151,18 @@ export const TradeOverlay = ({
           ctx.font = '10px monospace';
           ctx.fillStyle = '#ff4976';
           ctx.textAlign = 'left';
-          ctx.fillText(`SL: ${trade.stopLoss.toFixed(5)}`, dimensions.width - dimensions.padding.right + 5, slY + 3);
-          
+          ctx.fillText(
+            `SL: ${trade.stopLoss.toFixed(5)}`,
+            dimensions.width - dimensions.padding.right + 5,
+            slY + 3
+          );
+
           ctx.fillStyle = '#00ff88';
-          ctx.fillText(`TP: ${trade.takeProfit.toFixed(5)}`, dimensions.width - dimensions.padding.right + 5, tpY + 3);
+          ctx.fillText(
+            `TP: ${trade.takeProfit.toFixed(5)}`,
+            dimensions.width - dimensions.padding.right + 5,
+            tpY + 3
+          );
         }
       }
 
@@ -176,7 +184,8 @@ export const TradeOverlay = ({
           ctx.stroke();
 
           // Draw connecting line between entry and exit
-          ctx.strokeStyle = trade.pnl && trade.pnl >= 0 ? 'rgba(0, 255, 136, 0.3)' : 'rgba(255, 73, 118, 0.3)';
+          ctx.strokeStyle =
+            trade.pnl && trade.pnl >= 0 ? 'rgba(0, 255, 136, 0.3)' : 'rgba(255, 73, 118, 0.3)';
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(entryX, entryY);
@@ -187,7 +196,7 @@ export const TradeOverlay = ({
           if (trade.pnl !== undefined && (isFullscreen || Math.abs(exitX - entryX) > 50)) {
             const midX = (entryX + exitX) / 2;
             const midY = (entryY + exitY) / 2;
-            
+
             // Background for label
             ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
             const text = `${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}`;
@@ -214,31 +223,34 @@ export const TradeOverlay = ({
 
     // Draw trade summary in corner if in fullscreen
     if (isFullscreen && trades.length > 0) {
-      const closedTrades = trades.filter(t => t.pnl !== undefined);
-      const winningTrades = closedTrades.filter(t => t.pnl! >= 0);
+      const closedTrades = trades.filter((t) => t.pnl !== undefined);
+      const winningTrades = closedTrades.filter((t) => t.pnl! >= 0);
       const totalPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      
+
       ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
       ctx.fillRect(10, 10, 150, 80);
-      
+
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 1;
       ctx.strokeRect(10, 10, 150, 80);
-      
+
       ctx.fillStyle = '#ccc';
       ctx.font = '12px monospace';
       ctx.textAlign = 'left';
       ctx.fillText('Trade Summary', 20, 30);
-      
+
       ctx.font = '10px monospace';
       ctx.fillStyle = '#888';
       ctx.fillText(`Total: ${closedTrades.length}`, 20, 50);
-      ctx.fillText(`Win Rate: ${closedTrades.length > 0 ? ((winningTrades.length / closedTrades.length) * 100).toFixed(0) : 0}%`, 20, 65);
-      
+      ctx.fillText(
+        `Win Rate: ${closedTrades.length > 0 ? ((winningTrades.length / closedTrades.length) * 100).toFixed(0) : 0}%`,
+        20,
+        65
+      );
+
       ctx.fillStyle = totalPnl >= 0 ? '#00ff88' : '#ff4976';
       ctx.fillText(`P&L: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`, 20, 80);
     }
-
   }, [trades, times, prices, dimensions, priceScale, currentPrice, isFullscreen]);
 
   return (

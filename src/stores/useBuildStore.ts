@@ -18,21 +18,21 @@ interface BuildState {
   searchTerm: string;
   selectedCategory: string | null;
   selectedTags: string[];
-  
+
   // Component management
   recentComponents: BuildComponent[];
   favoriteComponents: string[]; // paths
-  
+
   // UI state
   viewMode: 'grid' | 'list';
   sortBy: 'name' | 'modified' | 'type';
   sortOrder: 'asc' | 'desc';
   scrollPosition: number;
-  
+
   // IDE state
   openFiles: string[];
   activeFile: string | null;
-  
+
   // Actions
   setSearchTerm: (term: string) => void;
   setSelectedCategory: (category: string | null) => void;
@@ -70,63 +70,64 @@ export const useBuildStore = create<BuildState>()(
         ...initialState,
 
         setSearchTerm: (searchTerm) => set({ searchTerm }),
-        
+
         setSelectedCategory: (category) => set({ selectedCategory: category }),
-        
-        toggleTag: (tag) => 
+
+        toggleTag: (tag) =>
           set((state) => ({
             selectedTags: state.selectedTags.includes(tag)
-              ? state.selectedTags.filter(t => t !== tag)
-              : [...state.selectedTags, tag]
+              ? state.selectedTags.filter((t) => t !== tag)
+              : [...state.selectedTags, tag],
           })),
-        
-        addRecentComponent: (component) => 
+
+        addRecentComponent: (component) =>
           set((state) => {
-            const filtered = state.recentComponents.filter(c => c.path !== component.path);
+            const filtered = state.recentComponents.filter((c) => c.path !== component.path);
             const newRecent = [component, ...filtered].slice(0, 10); // Keep last 10
             return { recentComponents: newRecent };
           }),
-        
-        toggleFavorite: (path) => 
+
+        toggleFavorite: (path) =>
           set((state) => ({
             favoriteComponents: state.favoriteComponents.includes(path)
-              ? state.favoriteComponents.filter(p => p !== path)
-              : [...state.favoriteComponents, path]
+              ? state.favoriteComponents.filter((p) => p !== path)
+              : [...state.favoriteComponents, path],
           })),
-        
+
         setViewMode: (viewMode) => set({ viewMode }),
-        
+
         setSortBy: (sortBy) => set({ sortBy }),
-        
-        toggleSortOrder: () => 
+
+        toggleSortOrder: () =>
           set((state) => ({
-            sortOrder: state.sortOrder === 'asc' ? 'desc' : 'asc'
+            sortOrder: state.sortOrder === 'asc' ? 'desc' : 'asc',
           })),
-        
+
         setScrollPosition: (position) => set({ scrollPosition: position }),
-        
-        openFile: (path) => 
+
+        openFile: (path) =>
           set((state) => ({
-            openFiles: state.openFiles.includes(path) 
-              ? state.openFiles 
+            openFiles: state.openFiles.includes(path)
+              ? state.openFiles
               : [...state.openFiles, path],
-            activeFile: path
+            activeFile: path,
           })),
-        
-        closeFile: (path) => 
+
+        closeFile: (path) =>
           set((state) => {
-            const newOpenFiles = state.openFiles.filter(f => f !== path);
-            const newActiveFile = state.activeFile === path 
-              ? newOpenFiles[newOpenFiles.length - 1] || null
-              : state.activeFile;
+            const newOpenFiles = state.openFiles.filter((f) => f !== path);
+            const newActiveFile =
+              state.activeFile === path
+                ? newOpenFiles[newOpenFiles.length - 1] || null
+                : state.activeFile;
             return {
               openFiles: newOpenFiles,
-              activeFile: newActiveFile
+              activeFile: newActiveFile,
             };
           }),
-        
+
         setActiveFile: (path) => set({ activeFile: path }),
-        
+
         reset: () => set(initialState),
       }),
       {

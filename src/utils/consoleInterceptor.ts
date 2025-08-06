@@ -13,12 +13,12 @@ class ConsoleInterceptor {
 
   start() {
     if (this.isIntercepting) return;
-    
+
     this.isIntercepting = true;
     console.log = (...args: any[]) => {
       // Call original console.log
       this.originalLog.apply(console, args);
-      
+
       // Check for timeframe-related logs
       const message = args.join(' ');
       this.parseTimeframeFromLog(message);
@@ -27,7 +27,7 @@ class ConsoleInterceptor {
 
   stop() {
     if (!this.isIntercepting) return;
-    
+
     console.log = this.originalLog;
     this.isIntercepting = false;
   }
@@ -54,20 +54,24 @@ class ConsoleInterceptor {
     }
 
     // Pattern 4: [ResolutionTracker] Loaded 1h: X candles
-    const resolutionLoadedMatch = message.match(/\[ResolutionTracker\]\s+Loaded\s+(\S+):\s+\d+\s+candles/);
+    const resolutionLoadedMatch = message.match(
+      /\[ResolutionTracker\]\s+Loaded\s+(\S+):\s+\d+\s+candles/
+    );
     if (resolutionLoadedMatch && !message.includes('maintained view')) {
       const potentialTf = resolutionLoadedMatch[1];
       if (['15m', '1h', '4h', '12h'].includes(potentialTf)) {
         newTimeframe = potentialTf;
       }
     }
-    
+
     // Pattern 5: [ResolutionTracker] Timeframe transition: X → Y
-    const resolutionTransitionMatch = message.match(/\[ResolutionTracker\]\s+Timeframe transition:\s+\S+\s+→\s+(\S+)/);
+    const resolutionTransitionMatch = message.match(
+      /\[ResolutionTracker\]\s+Timeframe transition:\s+\S+\s+→\s+(\S+)/
+    );
     if (resolutionTransitionMatch) {
       newTimeframe = resolutionTransitionMatch[1];
     }
-    
+
     // Pattern 6: [AdaptiveChart] Initial load triggered
     const initialLoadMatch = message.match(/\[AdaptiveChart\]\s+Initial load.*timeframe:\s+(\S+)/);
     if (initialLoadMatch) {
@@ -85,7 +89,7 @@ class ConsoleInterceptor {
   }
 
   private notifyListeners(timeframe: string) {
-    this.listeners.forEach(listener => {
+    this.listeners.forEach((listener) => {
       try {
         listener(timeframe);
       } catch (error) {
@@ -98,7 +102,7 @@ class ConsoleInterceptor {
     this.listeners.add(listener);
     // Immediately call with current timeframe
     listener(this.currentTimeframe);
-    
+
     // Return unsubscribe function
     return () => {
       this.listeners.delete(listener);
