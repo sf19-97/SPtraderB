@@ -28,6 +28,7 @@ import {
   IconCheck,
   IconPlugConnected,
   IconPlugOff,
+  IconRestore,
 } from '@tabler/icons-react';
 
 interface AssetSearchResult {
@@ -53,8 +54,10 @@ export function AssetManager() {
   const [activePipelines, setActivePipelines] = useState<PipelineStatus[]>([]);
   const [isLoadingPipelines, setIsLoadingPipelines] = useState(false);
   const [selectedSource, setSelectedSource] = useState<Record<string, string>>({});
+  const [selectedProfile, setSelectedProfile] = useState<Record<string, string>>({});
+  const [isRestoring, setIsRestoring] = useState(false);
 
-  const { getActiveProfile, profiles } = useBrokerStore();
+  const { getActiveProfile, profiles, decryptSensitiveData } = useBrokerStore();
 
   // Helper to get profile for a specific source
   const getProfileForSource = (source: string): BrokerProfile | null => {
@@ -63,12 +66,18 @@ export function AssetManager() {
     );
   };
 
+  // Get all profiles for a specific broker/source
+  const getProfilesForSource = (source: string): BrokerProfile[] => {
+    return profiles.filter((p) => p.broker.toLowerCase() === source.toLowerCase());
+  };
+
   // Restore pipelines from saved config
   const restorePipelines = async () => {
     console.log('[AssetManager] Starting pipeline restore...');
     console.log('[AssetManager] Current profiles:', profiles);
     console.log('[AssetManager] Active profile:', getActiveProfile());
 
+    setIsRestoring(true);
     try {
       const configFile = await invoke<{
         version: number;
@@ -78,6 +87,8 @@ export function AssetManager() {
           asset_class: string;
           added_at: string;
           last_tick: string | null;
+          profile_id: string | null;
+          profile_name: string | null;
         }>;
         saved_at: string;
         clean_shutdown: boolean;
@@ -100,19 +111,39 @@ export function AssetManager() {
 
       const results = await Promise.allSettled(
         configFile.pipelines.map(async (config) => {
-          console.log(`[AssetManager] Processing ${config.symbol} with source ${config.source}`);
-          const profile = getProfileForSource(config.source);
+          console.log(
+            `[AssetManager] Processing ${config.symbol} with source ${config.source}, profile_id ${config.profile_id}`
+          );
 
-          if (!profile) {
-            console.warn(`[AssetManager] No active ${config.source} profile for ${config.symbol}`);
-            console.log(
-              '[AssetManager] Available profiles:',
-              profiles.map((p) => ({ broker: p.broker, isActive: p.isActive }))
-            );
-            return Promise.reject({
-              symbol: config.symbol,
-              reason: `No active ${config.source} profile`,
-            });
+          let profile;
+          if (config.profile_id) {
+            // Use the saved profile_id
+            profile = profiles.find((p) => p.id === config.profile_id);
+            if (!profile) {
+              console.warn(
+                `[AssetManager] Profile ${config.profile_id} not found for ${config.symbol}`
+              );
+              return Promise.reject({
+                symbol: config.symbol,
+                reason: `Profile ${config.profile_id} not found`,
+              });
+            }
+          } else {
+            // Fallback to active profile for backward compatibility
+            profile = getProfileForSource(config.source);
+            if (!profile) {
+              console.warn(
+                `[AssetManager] No active ${config.source} profile for ${config.symbol}`
+              );
+              console.log(
+                '[AssetManager] Available profiles:',
+                profiles.map((p) => ({ broker: p.broker, isActive: p.isActive }))
+              );
+              return Promise.reject({
+                symbol: config.symbol,
+                reason: `No active ${config.source} profile`,
+              });
+            }
           }
 
           try {
@@ -121,7 +152,8 @@ export function AssetManager() {
                 symbol: config.symbol,
                 source: config.source,
                 account_id: profile.account,
-                api_token: profile.apiKey,
+                api_token: decryptSensitiveData(profile.apiKey),
+                profile_id: profile.id,
               },
             });
 
@@ -147,20 +179,34 @@ export function AssetManager() {
           color: failed.length > 0 ? 'yellow' : 'green',
           icon: <IconCheck />,
         });
-      }
-      
-      // Mark restore as completed so auto-save can start
-      try {
-        await invoke('mark_restore_completed');
-        console.log('[AssetManager] Marked restore as completed');
-      } catch (e) {
-        console.error('[AssetManager] Failed to mark restore completed:', e);
+
+        // Only mark restore as completed if we actually restored something
+        try {
+          await invoke('mark_restore_completed');
+          console.log('[AssetManager] Marked restore as completed');
+        } catch (e) {
+          console.error('[AssetManager] Failed to mark restore completed:', e);
+        }
+      } else if (configFile.pipelines.length > 0) {
+        // Had pipelines to restore but all failed
+        notifications.show({
+          title: 'Restore Failed',
+          message: `Failed to restore all ${configFile.pipelines.length} pipelines`,
+          color: 'red',
+          icon: <IconAlertCircle />,
+        });
+        console.error(
+          '[AssetManager] All pipeline restores failed, not marking restore as completed'
+        );
       }
 
       // Log failures
       failed.forEach((f) => {
         if (f.status === 'rejected') {
-          const reason = (f as any).reason;
+          const reason = (f as PromiseRejectedResult).reason as {
+            symbol: string;
+            reason: string;
+          };
           console.error(`[AssetManager] Failed to restore ${reason.symbol}: ${reason.reason}`);
         }
       });
@@ -172,18 +218,14 @@ export function AssetManager() {
         color: 'red',
         icon: <IconAlertCircle />,
       });
+    } finally {
+      setIsRestoring(false);
     }
   };
 
   // Load active pipelines on mount
   useEffect(() => {
     loadActivePipelines();
-
-    // Restore saved pipelines after backend is fully initialized
-    // Backend has 10 second delay before first auto-save
-    const restoreTimer = setTimeout(() => {
-      restorePipelines();
-    }, 5000);
 
     // Listen for asset events
     const unlistenAdded = listen('asset-added', (event) => {
@@ -196,13 +238,15 @@ export function AssetManager() {
       loadActivePipelines();
     });
 
-    const unlistenProgress = listen('ingestion-progress', (event: any) => {
-      // Handle progress updates if needed
-      console.log('Ingestion progress:', event.payload);
-    });
+    const unlistenProgress = listen<{ symbol: string; progress: number }>(
+      'ingestion-progress',
+      (event) => {
+        // Handle progress updates if needed
+        console.log('Ingestion progress:', event.payload);
+      }
+    );
 
     return () => {
-      clearTimeout(restoreTimer);
       unlistenAdded.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
     };
@@ -247,7 +291,8 @@ export function AssetManager() {
   const addAsset = async (symbol: string) => {
     console.log('[AssetManager] Adding asset:', symbol);
     const source = selectedSource[symbol];
-    console.log('[AssetManager] Selected source:', source);
+    const profileId = selectedProfile[symbol];
+    console.log('[AssetManager] Selected source:', source, 'profile:', profileId);
 
     if (!source) {
       notifications.show({
@@ -258,24 +303,46 @@ export function AssetManager() {
       return;
     }
 
-    // Get credentials from active broker profile
-    const profile = getActiveProfile();
-    console.log('[AssetManager] Active profile:', profile);
+    if (!profileId) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please select a broker profile',
+        color: 'red',
+      });
+      return;
+    }
+
+    // Get the selected profile
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) {
+      notifications.show({
+        title: 'Error',
+        message: 'Selected profile not found',
+        color: 'red',
+      });
+      return;
+    }
+
+    console.log('[AssetManager] Using profile:', profile);
+    console.log('[AssetManager] Profile broker:', profile.broker);
+    console.log('[AssetManager] Source:', source);
 
     let account_id: string | undefined;
     let api_token: string | undefined;
 
-    // Match the source to the broker profile
-    if (source.toLowerCase() === 'oanda' && profile?.broker === 'OANDA') {
+    // Get credentials from the selected profile
+    if (source.toLowerCase() === 'oanda') {
       account_id = profile.account;
-      api_token = profile.apiKey; // Already decrypted by getActiveProfile
+      api_token = decryptSensitiveData(profile.apiKey); // Decrypt the API key
       console.log('[AssetManager] Found OANDA credentials, account:', account_id);
+      console.log('[AssetManager] API token length:', api_token?.length);
     }
 
     try {
       console.log('[AssetManager] Invoking add_market_asset with:', {
         symbol,
         source,
+        profile_id: profileId,
         account_id: account_id ? 'set' : 'not set',
         api_token: api_token ? 'set' : 'not set',
       });
@@ -286,6 +353,7 @@ export function AssetManager() {
           source,
           account_id,
           api_token,
+          profile_id: profileId,
         },
       });
 
@@ -377,7 +445,7 @@ export function AssetManager() {
                     <th>Symbol</th>
                     <th>Name</th>
                     <th>Type</th>
-                    <th>Data Source</th>
+                    <th>Data Source & Profile</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -397,22 +465,51 @@ export function AssetManager() {
                           </Badge>
                         </td>
                         <td>
-                          <Select
-                            size="sm"
-                            placeholder="Select source"
-                            data={result.available_sources.map((s) => ({
-                              value: s,
-                              label: s.charAt(0).toUpperCase() + s.slice(1),
-                            }))}
-                            value={selectedSource[result.symbol] || ''}
-                            onChange={(value) =>
-                              setSelectedSource((prev) => ({
-                                ...prev,
-                                [result.symbol]: value || '',
-                              }))
-                            }
-                            disabled={isActive}
-                          />
+                          <Group gap="xs">
+                            <Select
+                              size="sm"
+                              placeholder="Select source"
+                              data={result.available_sources.map((s) => ({
+                                value: s,
+                                label: s.charAt(0).toUpperCase() + s.slice(1),
+                              }))}
+                              value={selectedSource[result.symbol] || ''}
+                              onChange={(value) => {
+                                setSelectedSource((prev) => ({
+                                  ...prev,
+                                  [result.symbol]: value || '',
+                                }));
+                                // Clear profile selection when source changes
+                                setSelectedProfile((prev) => ({
+                                  ...prev,
+                                  [result.symbol]: '',
+                                }));
+                              }}
+                              disabled={isActive}
+                              style={{ minWidth: 120 }}
+                            />
+                            {selectedSource[result.symbol] && (
+                              <Select
+                                size="sm"
+                                placeholder="Select profile"
+                                data={getProfilesForSource(selectedSource[result.symbol]).map(
+                                  (p) => ({
+                                    value: p.id,
+                                    label: p.name,
+                                  })
+                                )}
+                                value={selectedProfile[result.symbol] || ''}
+                                onChange={(value) =>
+                                  setSelectedProfile((prev) => ({
+                                    ...prev,
+                                    [result.symbol]: value || '',
+                                  }))
+                                }
+                                disabled={isActive}
+                                style={{ minWidth: 150 }}
+                              />
+                            )}
+                          </Group>
                         </td>
                         <td>
                           {isActive ? (
@@ -424,7 +521,9 @@ export function AssetManager() {
                               size="sm"
                               leftSection={<IconPlus size={16} />}
                               onClick={() => addAsset(result.symbol)}
-                              disabled={!selectedSource[result.symbol]}
+                              disabled={
+                                !selectedSource[result.symbol] || !selectedProfile[result.symbol]
+                              }
                             >
                               Add
                             </Button>
@@ -445,14 +544,25 @@ export function AssetManager() {
         <Stack gap="md">
           <Group justify="space-between">
             <Title order={3}>Active Pipelines</Title>
-            <Button
-              variant="subtle"
-              leftSection={<IconRefresh size={16} />}
-              onClick={loadActivePipelines}
-              loading={isLoadingPipelines}
-            >
-              Refresh
-            </Button>
+            <Group gap="xs">
+              <Button
+                variant="light"
+                leftSection={<IconRestore size={16} />}
+                onClick={restorePipelines}
+                disabled={profiles.length === 0}
+                loading={isRestoring}
+              >
+                Restore Saved
+              </Button>
+              <Button
+                variant="subtle"
+                leftSection={<IconRefresh size={16} />}
+                onClick={loadActivePipelines}
+                loading={isLoadingPipelines}
+              >
+                Refresh
+              </Button>
+            </Group>
           </Group>
 
           {activePipelines.length === 0 ? (

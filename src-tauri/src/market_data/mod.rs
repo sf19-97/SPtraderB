@@ -60,8 +60,11 @@ pub struct PipelineConfig {
     pub asset_class: AssetClass,
     pub source: DataSource,
     pub tick_table: String,
+    #[allow(dead_code)]
     pub aggregate_tables: Vec<(String, String)>, // (table_name, timeframe)
     pub cascade_procedure: String,
+    pub profile_id: Option<String>, // Broker profile used for this pipeline
+    pub profile_name: Option<String>, // Display name of the profile
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +90,7 @@ pub trait Ingester: Send + Sync {
     async fn disconnect(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     
     /// Get source-specific column definitions for tick table
+    #[allow(dead_code)]
     fn extra_columns(&self) -> &'static str;
 }
 
@@ -185,6 +189,8 @@ impl MarketDataEngine {
                             asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
                             added_at: chrono::Utc::now().to_rfc3339(),
                             last_tick: last_tick_str,
+                            profile_id: pipeline.config.profile_id.clone(),
+                            profile_name: pipeline.config.profile_name.clone(),
                         });
                     }
                     configs
@@ -223,7 +229,7 @@ impl MarketDataEngine {
         });
     }
     
-    pub async fn add_asset(&mut self, symbol: String, source: Option<DataSource>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn add_asset(&mut self, symbol: String, source: Option<DataSource>, profile_id: Option<String>, profile_name: Option<String>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 1. Discover asset info
         let asset_info = AssetDiscovery::identify(&symbol).await?;
         
@@ -234,12 +240,16 @@ impl MarketDataEngine {
         };
         
         // 3. Build pipeline configuration
-        let config = PipelineBuilder::new(self.db_pool.clone())
+        let mut config = PipelineBuilder::new(self.db_pool.clone())
             .symbol(&symbol)
             .asset_info(&asset_info)
             .source(selected_source)
             .build()
             .await?;
+        
+        // Set profile information
+        config.profile_id = profile_id;
+        config.profile_name = profile_name;
         
         // 4. Create ingester
         let ingester = create_ingester(&config)?;
@@ -419,6 +429,8 @@ impl PipelineBuilder {
             tick_table,
             aggregate_tables,
             cascade_procedure,
+            profile_id: None, // Will be set by caller
+            profile_name: None, // Will be set by caller
         })
     }
     

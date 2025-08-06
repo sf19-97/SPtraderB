@@ -17,6 +17,7 @@ pub struct AddAssetRequest {
     pub source: Option<String>, // "kraken", "oanda", etc.
     pub account_id: Option<String>,
     pub api_token: Option<String>,
+    pub profile_id: Option<String>, // Specific broker profile to use
 }
 
 #[derive(Serialize, Deserialize)]
@@ -154,6 +155,13 @@ pub async fn add_market_asset(
     
     let mut engine = state.engine.lock().await;
     
+    // Get profile information if profile_id is provided
+    let (profile_id, profile_name) = if let Some(pid) = &request.profile_id {
+        (Some(pid.clone()), None) // Profile name could be looked up from broker store
+    } else {
+        (None, None)
+    };
+    
     // Convert source string to DataSource enum
     let source = match request.source.as_deref() {
         Some("kraken") => Some(DataSource::Kraken { 
@@ -161,18 +169,22 @@ pub async fn add_market_asset(
             api_secret: None 
         }),
         Some("oanda") => {
-            Some(DataSource::Oanda {
-                account_id: request.account_id.clone()
-                    .unwrap_or_else(|| std::env::var("OANDA_ACCOUNT_ID").unwrap_or_default()),
-                api_token: request.api_token.clone()
-                    .unwrap_or_else(|| std::env::var("OANDA_API_TOKEN").unwrap_or_default()),
-            })
+            // Require credentials from the request (no env var fallback)
+            match (request.account_id.clone(), request.api_token.clone()) {
+                (Some(account_id), Some(api_token)) if !account_id.is_empty() && !api_token.is_empty() => {
+                    Some(DataSource::Oanda { account_id, api_token })
+                },
+                _ => {
+                    eprintln!("[Command] Missing or empty OANDA credentials");
+                    return Err("OANDA requires account_id and api_token".to_string());
+                }
+            }
         },
         _ => None,
     };
     
     // Add the asset
-    match engine.add_asset(request.symbol.clone(), source).await {
+    match engine.add_asset(request.symbol.clone(), source, profile_id, profile_name).await {
         Ok(_) => {
             // Emit event to frontend
             window.emit("asset-added", &request.symbol).ok();
@@ -325,6 +337,8 @@ pub struct PipelineConfig {
     pub asset_class: String,
     pub added_at: String,
     pub last_tick: Option<String>,
+    pub profile_id: Option<String>, // Which broker profile this pipeline uses
+    pub profile_name: Option<String>, // Display name for UI
 }
 
 #[tauri::command]
@@ -358,6 +372,8 @@ pub async fn save_pipeline_config(
             asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
             added_at: chrono::Utc::now().to_rfc3339(),
             last_tick: last_tick_str,
+            profile_id: pipeline.config.profile_id.clone(),
+            profile_name: pipeline.config.profile_name.clone(),
         });
     }
     
@@ -444,6 +460,8 @@ async fn save_engine_state(engine: Arc<Mutex<MarketDataEngine>>) -> Result<(), S
                 asset_class: format!("{:?}", pipeline.config.asset_class).to_lowercase(),
                 added_at: chrono::Utc::now().to_rfc3339(),
                 last_tick: last_tick_str,
+                profile_id: pipeline.config.profile_id.clone(),
+                profile_name: pipeline.config.profile_name.clone(),
             });
         }
         configs
