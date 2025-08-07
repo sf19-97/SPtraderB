@@ -136,7 +136,6 @@ impl MarketDataEngine {
     pub fn start_auto_save(engine: Arc<Mutex<Self>>) {
         tokio::spawn(async move {
             // CRITICAL: Wait before first save to allow restore
-            eprintln!("[AutoSave] Delaying first save by 30 seconds for restore window...");
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -152,19 +151,12 @@ impl MarketDataEngine {
                 };
                 
                 if !should_save {
-                    eprintln!("[AutoSave] Skipping save - restore not yet completed");
                     continue;
                 }
                 
                 // Extract configs directly without needing State
                 let configs = {
                     let engine_lock = engine.lock().await;
-                    eprintln!("[AutoSave] Found {} pipelines in engine", engine_lock.pipelines.len());
-                    for (sym, pipe) in &engine_lock.pipelines {
-                        let status = pipe.status.lock().await;
-                        eprintln!("[AutoSave] Pipeline {}: has_ingester={}, status={:?}", 
-                            sym, pipe.ingester.is_some(), *status);
-                    }
                     let mut configs = Vec::new();
                     for (symbol, pipeline) in engine_lock.pipelines.iter() {
                         let source_name = match &pipeline.config.source {
@@ -219,7 +211,6 @@ impl MarketDataEngine {
                             if let Err(e) = std::fs::write(&config_path, json) {
                                 eprintln!("[MarketData] Auto-save write failed: {}", e);
                             } else {
-                                println!("[MarketData] Auto-saved {} pipelines", config_file.pipelines.len());
                             }
                         }
                         Err(e) => eprintln!("[MarketData] Auto-save serialization failed: {}", e),
@@ -263,16 +254,10 @@ impl MarketDataEngine {
         };
         
         // 6. Start it
-        eprintln!("[AddAsset] Before start - Pipeline {} has ingester: {}", 
-            symbol, pipeline.ingester.is_some());
         pipeline.start().await?;
-        eprintln!("[AddAsset] After start - Pipeline {} has ingester: {}", 
-            symbol, pipeline.ingester.is_some());
         
         // 7. Store it
         self.pipelines.insert(symbol.clone(), pipeline);
-        eprintln!("[AddAsset] Stored pipeline {}. Total pipelines: {}", 
-            symbol, self.pipelines.len());
         
         Ok(())
     }
@@ -444,9 +429,6 @@ impl PipelineBuilder {
         // This is where we'd create tables dynamically
         // For now, we'll assume they exist or log what needs to be created
         
-        println!("Would create tick table: {}", tick_table);
-        println!("Would create aggregates: {:?}", aggregate_tables);
-        println!("Would create cascade procedure: {}", cascade_procedure);
         
         // TODO: Actual SQL creation here
         

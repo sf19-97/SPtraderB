@@ -152,8 +152,6 @@ pub async fn add_market_asset(
     state: State<'_, MarketDataState>,
     window: tauri::Window,
 ) -> Result<String, String> {
-    println!("[Command] Adding asset: {} with source: {:?}", request.symbol, request.source);
-    
     let mut engine = state.engine.lock().await;
     
     // Get profile information if profile_id is provided
@@ -176,7 +174,6 @@ pub async fn add_market_asset(
                     Some(DataSource::Oanda { account_id, api_token })
                 },
                 _ => {
-                    eprintln!("[Command] Missing or empty OANDA credentials");
                     return Err("OANDA requires account_id and api_token".to_string());
                 }
             }
@@ -264,13 +261,13 @@ pub async fn add_market_asset(
                             let now = chrono::Utc::now();
                             let gap_minutes = (now - last_tick).num_minutes();
                             
-                            eprintln!("[Command] Found existing data for {}, last tick: {}, gap: {} minutes", 
-                                symbol_for_gap_check, last_tick, gap_minutes);
+                            println!("[MarketData] Found existing data for {}, gap: {} minutes", 
+                                symbol_for_gap_check, gap_minutes);
                             
                             // If there's a significant gap, run catchup
                             if gap_minutes > 5 {
-                                eprintln!("[Catchup] Auto-detected gap for {}, initiating catchup from {}", 
-                                    symbol_for_gap_check, last_tick);
+                                println!("[MarketData] Auto-detected gap for {}, initiating catchup", 
+                                    symbol_for_gap_check);
                                 
                                 // Get path to catchup script
                                 let script_path = std::env::current_dir()
@@ -293,7 +290,7 @@ pub async fn add_market_asset(
                                     Ok(output) => {
                                         if output.status.success() {
                                             let stdout = String::from_utf8_lossy(&output.stdout);
-                                            eprintln!("[Catchup] Success: {}", stdout);
+                                            println!("[MarketData] Catchup completed for {}", symbol_for_gap_check);
                                             
                                             window_for_gap_check.emit("catchup-status", serde_json::json!({
                                                 "symbol": symbol_for_gap_check,
@@ -303,7 +300,7 @@ pub async fn add_market_asset(
                                             })).ok();
                                         } else {
                                             let stderr = String::from_utf8_lossy(&output.stderr);
-                                            eprintln!("[Catchup] Failed: {}", stderr);
+                                            eprintln!("[MarketData] Catchup failed: {}", stderr);
                                             
                                             window_for_gap_check.emit("catchup-status", serde_json::json!({
                                                 "symbol": symbol_for_gap_check,
@@ -314,7 +311,7 @@ pub async fn add_market_asset(
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("[Catchup] Error running script: {}", e);
+                                        eprintln!("[MarketData] Error running catchup script: {}", e);
                                         window_for_gap_check.emit("catchup-status", serde_json::json!({
                                             "symbol": symbol_for_gap_check,
                                             "gap_minutes": gap_minutes,
@@ -327,14 +324,12 @@ pub async fn add_market_asset(
                         }
                     }
                     Err(e) => {
-                        eprintln!("[Command] No existing data for {} (error: {})", symbol_for_gap_check, e);
                     }
                 }
             });
             
             // Handle explicit catchup if requested (for restore scenarios)
             if let Some(catchup_from) = request.catchup_from {
-                eprintln!("[Command] Initiating catchup for {} from {}", request.symbol, catchup_from);
                 
                 // Parse the timestamp
                 if let Ok(from_time) = chrono::DateTime::parse_from_rfc3339(&catchup_from) {
@@ -342,7 +337,6 @@ pub async fn add_market_asset(
                     let now = chrono::Utc::now();
                     let gap_minutes = (now - from_utc).num_minutes();
                     
-                    eprintln!("[Command] Gap detected: {} minutes for {}", gap_minutes, request.symbol);
                     
                     // Only catchup if gap is significant (>1 minute)
                     if gap_minutes > 1 {
@@ -352,7 +346,6 @@ pub async fn add_market_asset(
                         let from_time_str = catchup_from.clone();
                         
                         tokio::spawn(async move {
-                            eprintln!("[Catchup] Starting historical data fetch for {}", symbol_clone);
                             
                             // Get path to catchup script
                             let script_path = std::env::current_dir()
@@ -375,7 +368,7 @@ pub async fn add_market_asset(
                                 Ok(output) => {
                                     if output.status.success() {
                                         let stdout = String::from_utf8_lossy(&output.stdout);
-                                        eprintln!("[Catchup] Success: {}", stdout);
+                                        println!("[MarketData] Catchup completed for {}", symbol_clone);
                                         
                                         window_clone.emit("catchup-status", serde_json::json!({
                                             "symbol": symbol_clone,
@@ -385,7 +378,7 @@ pub async fn add_market_asset(
                                         })).ok();
                                     } else {
                                         let stderr = String::from_utf8_lossy(&output.stderr);
-                                        eprintln!("[Catchup] Failed: {}", stderr);
+                                        eprintln!("[MarketData] Catchup failed: {}", stderr);
                                         
                                         window_clone.emit("catchup-status", serde_json::json!({
                                             "symbol": symbol_clone,
@@ -396,7 +389,7 @@ pub async fn add_market_asset(
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("[Catchup] Error running script: {}", e);
+                                    eprintln!("[MarketData] Error running catchup script: {}", e);
                                     window_clone.emit("catchup-status", serde_json::json!({
                                         "symbol": symbol_clone,
                                         "gap_minutes": gap_minutes,
@@ -414,14 +407,14 @@ pub async fn add_market_asset(
             let engine_arc = state.engine.clone();
             tokio::spawn(async move {
                 if let Err(e) = save_engine_state(engine_arc).await {
-                    eprintln!("[Command] Failed to save config after add: {}", e);
+                    eprintln!("[MarketData] Failed to save config: {}", e);
                 }
             });
             
             Ok(format!("Successfully added {}", request.symbol))
         }
         Err(e) => {
-            eprintln!("[Command] Error adding asset: {}", e);
+            eprintln!("[MarketData] Error adding asset: {}", e);
             Err(format!("Failed to add asset: {}", e))
         }
     }
@@ -516,7 +509,7 @@ pub async fn stop_pipeline(
         // Stop the ingester
         if let Some(mut ingester) = pipeline.ingester {
             if let Err(e) = ingester.disconnect().await {
-                eprintln!("[Command] Error disconnecting ingester: {}", e);
+                eprintln!("[MarketData] Error disconnecting ingester: {}", e);
             }
         }
         
@@ -610,7 +603,6 @@ pub async fn save_pipeline_config(
     std::fs::write(&config_path, json)
         .map_err(|e| format!("Failed to write config file: {}", e))?;
     
-    println!("[MarketData] Saved {} pipeline configs to {:?}", config_file.pipelines.len(), config_path);
     Ok(())
 }
 
@@ -638,7 +630,6 @@ pub async fn load_pipeline_config() -> Result<PipelineConfigFile, String> {
     let config_file: PipelineConfigFile = serde_json::from_str(&json)
         .map_err(|e| format!("Failed to parse config file: {}", e))?;
     
-    println!("[MarketData] Loaded {} pipeline configs", config_file.pipelines.len());
     Ok(config_file)
 }
 
@@ -722,7 +713,6 @@ pub async fn mark_restore_completed(
 ) -> Result<(), String> {
     let mut engine = state.engine.lock().await;
     engine.restore_completed = true;
-    eprintln!("[MarketData] Restore marked as completed, auto-save now enabled");
     Ok(())
 }
 

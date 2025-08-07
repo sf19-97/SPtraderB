@@ -7,7 +7,6 @@ use chrono::Timelike;
 
 impl AssetPipeline {
     pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!("[Pipeline] Starting pipeline for {}", self.config.symbol);
         
         // Update status
         {
@@ -54,27 +53,26 @@ impl AssetPipeline {
                         // Flush if batch is full or time elapsed
                         if batch.len() >= batch_size || last_flush.elapsed() > flush_interval {
                             if let Err(e) = flush_batch(&db_pool, &tick_table, &batch).await {
-                                eprintln!("[Pipeline] Error flushing batch: {}", e);
+                                eprintln!("[MarketData] Error flushing batch: {}", e);
                             } else {
-                                println!("[Pipeline] Flushed {} ticks for {}", batch.len(), symbol);
                             }
                             batch.clear();
                             last_flush = std::time::Instant::now();
                         }
                     }
                     Err(e) => {
-                        eprintln!("[Pipeline] Error getting tick: {}", e);
+                        eprintln!("[MarketData] Error getting tick: {}", e);
                         drop(e); // Drop the error before await
                         // Try to reconnect
                         tokio::time::sleep(Duration::from_secs(5)).await;
                         if let Err(reconnect_err) = ingester.connect().await {
-                            eprintln!("[Pipeline] Reconnection failed: {}", reconnect_err);
+                            eprintln!("[MarketData] Reconnection failed: {}", reconnect_err);
                         } else {
                             // Re-subscribe after successful reconnection
                             if let Err(sub_err) = ingester.subscribe(vec![symbol.clone()]).await {
-                                eprintln!("[Pipeline] Re-subscription failed: {}", sub_err);
+                                eprintln!("[MarketData] Re-subscription failed: {}", sub_err);
                             } else {
-                                eprintln!("[Pipeline] Reconnected and subscribed to {}", symbol);
+                                println!("[MarketData] Reconnected to {}", symbol);
                             }
                         }
                     }
@@ -187,7 +185,6 @@ impl PipelineBuilder {
         );
         
         sqlx::query(&create_tick_table).execute(&self.db_pool).await?;
-        println!("[Schema] Created tick table: {}", tick_table);
         
         // Convert to hypertable
         let create_hypertable = format!(
@@ -243,7 +240,6 @@ impl PipelineBuilder {
             );
             
             sqlx::query(&create_aggregate).execute(&self.db_pool).await?;
-            println!("[Schema] Created aggregate: {}", table_name);
         }
         
         // Create cascade refresh procedure
@@ -271,7 +267,6 @@ impl PipelineBuilder {
         );
         
         sqlx::query(&create_procedure).execute(&self.db_pool).await?;
-        println!("[Schema] Created cascade procedure: {}", cascade_procedure);
         
         Ok(())
     }
@@ -305,7 +300,6 @@ impl CascadeScheduler {
                 next_target.saturating_sub(current_second)
             };
             
-            println!("[Cascade] Waiting {} seconds for clock alignment", delay_seconds);
             tokio::time::sleep(Duration::from_secs(delay_seconds as u64)).await;
             
             // Now run on schedule
@@ -314,13 +308,12 @@ impl CascadeScheduler {
             loop {
                 interval.tick().await;
                 
-                println!("[Cascade] Running {} at {}", procedure, chrono::Local::now().format("%H:%M:%S"));
                 
                 if let Err(e) = sqlx::query(&format!("CALL {}()", procedure))
                     .execute(&db_pool)
                     .await
                 {
-                    eprintln!("[Cascade] Error running {}: {}", procedure, e);
+                    eprintln!("[MarketData] Error running cascade refresh: {}", e);
                 }
             }
         });
