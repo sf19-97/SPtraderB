@@ -5,6 +5,9 @@ use tauri::{State, Emitter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+// Default historical data to fetch for new assets (2 months)
+const DEFAULT_INITIAL_HISTORY_DAYS: i64 = 60;
+
 // Add to your AppState
 #[derive(Clone)]
 pub struct MarketDataState {
@@ -269,61 +272,30 @@ pub async fn add_market_asset(
                                 println!("[MarketData] Auto-detected gap for {}, initiating catchup", 
                                     symbol_for_gap_check);
                                 
-                                // Get path to catchup script
-                                let script_path = std::env::current_dir()
-                                    .unwrap()
-                                    .join("src")
-                                    .join("market_data")
-                                    .join("historical")
-                                    .join("catchup_ingester.py");
-                                
-                                // Run Python catchup script
-                                match tokio::process::Command::new("python3")
-                                    .arg(&script_path)
-                                    .arg("--symbol")
-                                    .arg(&symbol_for_gap_check)
-                                    .arg("--from")
-                                    .arg(&last_tick.to_rfc3339())
-                                    .output()
-                                    .await
-                                {
-                                    Ok(output) => {
-                                        if output.status.success() {
-                                            let stdout = String::from_utf8_lossy(&output.stdout);
-                                            println!("[MarketData] Catchup completed for {}", symbol_for_gap_check);
-                                            
-                                            window_for_gap_check.emit("catchup-status", serde_json::json!({
-                                                "symbol": symbol_for_gap_check,
-                                                "gap_minutes": gap_minutes,
-                                                "status": "completed",
-                                                "message": stdout.trim()
-                                            })).ok();
-                                        } else {
-                                            let stderr = String::from_utf8_lossy(&output.stderr);
-                                            eprintln!("[MarketData] Catchup failed: {}", stderr);
-                                            
-                                            window_for_gap_check.emit("catchup-status", serde_json::json!({
-                                                "symbol": symbol_for_gap_check,
-                                                "gap_minutes": gap_minutes,
-                                                "status": "failed",
-                                                "error": stderr.trim()
-                                            })).ok();
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("[MarketData] Error running catchup script: {}", e);
-                                        window_for_gap_check.emit("catchup-status", serde_json::json!({
-                                            "symbol": symbol_for_gap_check,
-                                            "gap_minutes": gap_minutes,
-                                            "status": "error",
-                                            "error": e.to_string()
-                                        })).ok();
-                                    }
+                                if let Err(e) = run_historical_catchup(
+                                    symbol_for_gap_check.clone(),
+                                    last_tick,
+                                    window_for_gap_check.clone()
+                                ).await {
+                                    eprintln!("[MarketData] Catchup error: {}", e);
                                 }
                             }
                         }
                     }
                     Err(e) => {
+                        // No existing data - this is a new asset, download initial history
+                        println!("[MarketData] New asset {} detected, downloading {} days of historical data", 
+                            symbol_for_gap_check, DEFAULT_INITIAL_HISTORY_DAYS);
+                        
+                        let from_time = chrono::Utc::now() - chrono::Duration::days(DEFAULT_INITIAL_HISTORY_DAYS);
+                        
+                        if let Err(e) = run_historical_catchup(
+                            symbol_for_gap_check.clone(),
+                            from_time,
+                            window_for_gap_check.clone()
+                        ).await {
+                            eprintln!("[MarketData] Initial history download failed: {}", e);
+                        }
                     }
                 }
             });
@@ -346,57 +318,12 @@ pub async fn add_market_asset(
                         let from_time_str = catchup_from.clone();
                         
                         tokio::spawn(async move {
-                            
-                            // Get path to catchup script
-                            let script_path = std::env::current_dir()
-                                .unwrap()
-                                .join("src")
-                                .join("market_data")
-                                .join("historical")
-                                .join("catchup_ingester.py");
-                            
-                            // Run Python catchup script
-                            match tokio::process::Command::new("python3")
-                                .arg(&script_path)
-                                .arg("--symbol")
-                                .arg(&symbol_clone)
-                                .arg("--from")
-                                .arg(&from_time_str)
-                                .output()
-                                .await
-                            {
-                                Ok(output) => {
-                                    if output.status.success() {
-                                        let stdout = String::from_utf8_lossy(&output.stdout);
-                                        println!("[MarketData] Catchup completed for {}", symbol_clone);
-                                        
-                                        window_clone.emit("catchup-status", serde_json::json!({
-                                            "symbol": symbol_clone,
-                                            "gap_minutes": gap_minutes,
-                                            "status": "completed",
-                                            "message": stdout.trim()
-                                        })).ok();
-                                    } else {
-                                        let stderr = String::from_utf8_lossy(&output.stderr);
-                                        eprintln!("[MarketData] Catchup failed: {}", stderr);
-                                        
-                                        window_clone.emit("catchup-status", serde_json::json!({
-                                            "symbol": symbol_clone,
-                                            "gap_minutes": gap_minutes,
-                                            "status": "failed",
-                                            "error": stderr.trim()
-                                        })).ok();
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("[MarketData] Error running catchup script: {}", e);
-                                    window_clone.emit("catchup-status", serde_json::json!({
-                                        "symbol": symbol_clone,
-                                        "gap_minutes": gap_minutes,
-                                        "status": "error",
-                                        "error": e.to_string()
-                                    })).ok();
-                                }
+                            if let Err(e) = run_historical_catchup(
+                                symbol_clone,
+                                from_utc,
+                                window_clone
+                            ).await {
+                                eprintln!("[MarketData] Restore catchup error: {}", e);
                             }
                         });
                     }
@@ -695,6 +622,72 @@ async fn save_configs_to_file(configs: Vec<PipelineConfig>) -> Result<(), String
         .map_err(|e| format!("Failed to write config file: {}", e))?;
     
     Ok(())
+}
+
+// Helper function to run historical catchup
+async fn run_historical_catchup(
+    symbol: String,
+    from_time: chrono::DateTime<chrono::Utc>,
+    window: tauri::Window,
+) -> Result<(), String> {
+    let gap_minutes = (chrono::Utc::now() - from_time).num_minutes();
+    
+    // Get path to catchup script
+    let script_path = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current dir: {}", e))?
+        .join("src")
+        .join("market_data")
+        .join("historical")
+        .join("catchup_ingester.py");
+    
+    // Run Python catchup script
+    match tokio::process::Command::new("python3")
+        .arg(&script_path)
+        .arg("--symbol")
+        .arg(&symbol)
+        .arg("--from")
+        .arg(&from_time.to_rfc3339())
+        .output()
+        .await
+    {
+        Ok(output) => {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                println!("[MarketData] Catchup completed for {}", symbol);
+                
+                window.emit("catchup-status", serde_json::json!({
+                    "symbol": symbol,
+                    "gap_minutes": gap_minutes,
+                    "status": "completed",
+                    "message": stdout.trim()
+                })).ok();
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let error_msg = format!("Catchup failed: {}", stderr);
+                eprintln!("[MarketData] {}", error_msg);
+                
+                window.emit("catchup-status", serde_json::json!({
+                    "symbol": symbol,
+                    "gap_minutes": gap_minutes,
+                    "status": "failed",
+                    "error": stderr.trim()
+                })).ok();
+                Err(error_msg)
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("Error running catchup script: {}", e);
+            eprintln!("[MarketData] {}", error_msg);
+            window.emit("catchup-status", serde_json::json!({
+                "symbol": symbol,
+                "gap_minutes": gap_minutes,
+                "status": "error",
+                "error": e.to_string()
+            })).ok();
+            Err(error_msg)
+        }
+    }
 }
 
 // Initialize market data engine in main.rs
