@@ -184,7 +184,25 @@ pub async fn add_market_asset(
         _ => None,
     };
     
-    // Add the asset
+    // FIRST: Check if this is a new asset that needs historical data
+    let symbol_for_check = request.symbol.clone();
+    let db_pool_for_check = engine.db_pool.clone();
+    
+    // Check for existing data BEFORE starting pipeline
+    let needs_initial_history = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM forex_ticks WHERE symbol = $1"
+    )
+    .bind(&symbol_for_check)
+    .fetch_one(&db_pool_for_check)
+    .await
+    .unwrap_or(0) == 0;
+    
+    if needs_initial_history {
+        println!("[MarketData] New asset {} detected, will download {} days of historical data after pipeline starts", 
+            symbol_for_check, DEFAULT_INITIAL_HISTORY_DAYS);
+    }
+    
+    // Add the asset (this starts the pipeline)
     match engine.add_asset(request.symbol.clone(), source, profile_id, profile_name).await {
         Ok(_) => {
             // Emit event to frontend
@@ -201,14 +219,31 @@ pub async fn add_market_asset(
                 ).await;
             }
             
-            // Check for existing data gaps even if catchup_from is not provided
+            // Now handle historical data based on what we found earlier
             let symbol_for_gap_check = request.symbol.clone();
             let db_pool_clone = engine.db_pool.clone();
             let window_for_gap_check = window.clone();
+            let is_new_asset = needs_initial_history;
             
             tokio::spawn(async move {
-                // Query to detect historical gaps when adding a pipeline
-                // If we have recent data, look for the last tick before any major gap
+                // If this is a brand new asset, download initial history
+                if is_new_asset {
+                    let from_time = chrono::Utc::now() - chrono::Duration::days(DEFAULT_INITIAL_HISTORY_DAYS);
+                    
+                    // Wait a moment for the pipeline to stabilize
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    
+                    if let Err(e) = run_historical_catchup(
+                        symbol_for_gap_check.clone(),
+                        from_time,
+                        window_for_gap_check.clone()
+                    ).await {
+                        eprintln!("[MarketData] Initial history download failed: {}", e);
+                    }
+                    return;
+                }
+                
+                // Otherwise, check for gaps in existing data
                 match sqlx::query_as::<_, (Option<chrono::DateTime<chrono::Utc>>,)>(
                     r#"
                     WITH recent_data AS (
