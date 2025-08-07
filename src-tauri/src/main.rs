@@ -35,6 +35,13 @@ mod commands {
 use execution::ExecutionEngine;
 use market_data::commands::*;
 use market_data::{PipelineStatus, DataSource};
+use market_data::symbols::{
+    get_all_available_symbols,
+    get_symbol_metadata,
+    get_available_data,
+    SymbolMetadata,
+    CachedMetadata,
+};
 
 // Helper function to save pipeline state on shutdown
 async fn save_final_state(engine: Arc<Mutex<market_data::MarketDataEngine>>) -> Result<(), String> {
@@ -116,13 +123,6 @@ struct Candle {
     volume: i64,  // Note: This is tick_count (number of price updates), not traded volume
 }
 
-#[derive(Debug, Serialize, Clone)]
-struct SymbolMetadata {
-    symbol: String,
-    start_timestamp: i64,
-    end_timestamp: i64,
-    has_data: bool,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct DatabaseStatus {
@@ -163,11 +163,6 @@ struct CachedCandles {
     cached_at: i64,
 }
 
-#[derive(Clone)]
-struct CachedMetadata {
-    metadata: SymbolMetadata,
-    cached_at: i64,
-}
 
 // Helper function to emit log events to frontend
 fn emit_log<R: tauri::Runtime>(window: &impl Emitter<R>, level: &str, message: &str) {
@@ -301,33 +296,6 @@ struct DataIngestionResponse {
     message: String,
 }
 
-#[derive(Debug, Serialize)]
-struct AvailableDataItem {
-    symbol: String,
-    start_date: String,
-    end_date: String,
-    tick_count: i64,
-    candle_count_5m: i64,
-    candle_count_15m: i64,
-    candle_count_1h: i64,
-    candle_count_4h: i64,
-    candle_count_12h: i64,
-    last_updated: String,
-    size_mb: f64,
-    candles_up_to_date: bool,
-    last_candle_refresh: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct AvailableSymbol {
-    symbol: String,
-    label: String,
-    has_data: bool,
-    is_active: bool,
-    last_tick: Option<String>,
-    tick_count: Option<i64>,
-    source: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 struct DeleteDataRequest {
@@ -731,258 +699,6 @@ async fn get_ingestion_status(
 }
 
 #[tauri::command]
-async fn get_available_data(
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<Vec<AvailableDataItem>, String> {
-    emit_log(&window, "INFO", "Fetching available data summary");
-    
-    let pool = state.db_pool.lock().await;
-    
-    // Query to get summary of available data
-    let query = r#"
-        WITH tick_summary AS (
-            SELECT 
-                symbol,
-                MIN(time)::date as start_date,
-                MAX(time)::date as end_date,
-                COUNT(*) as tick_count,
-                MAX(time) as last_updated
-            FROM forex_ticks
-            GROUP BY symbol
-        ),
-        candle_summary AS (
-            SELECT 
-                t.symbol,
-                t.start_date,
-                t.end_date,
-                t.tick_count,
-                t.last_updated,
-                COALESCE(c5m.count, 0) as candle_count_5m,
-                COALESCE(c15.count, 0) as candle_count_15m,
-                COALESCE(c1h.count, 0) as candle_count_1h,
-                COALESCE(c4h.count, 0) as candle_count_4h,
-                COALESCE(c12h.count, 0) as candle_count_12h,
-                m.last_refresh_timestamp,
-                m.last_tick_timestamp
-            FROM tick_summary t
-            LEFT JOIN (
-                SELECT symbol, COUNT(*) as count 
-                FROM forex_candles_5m 
-                GROUP BY symbol
-            ) c5m ON t.symbol = c5m.symbol
-            LEFT JOIN (
-                SELECT symbol, COUNT(*) as count 
-                FROM forex_candles_15m 
-                GROUP BY symbol
-            ) c15 ON t.symbol = c15.symbol
-            LEFT JOIN (
-                SELECT symbol, COUNT(*) as count 
-                FROM forex_candles_1h 
-                GROUP BY symbol
-            ) c1h ON t.symbol = c1h.symbol
-            LEFT JOIN (
-                SELECT symbol, COUNT(*) as count 
-                FROM forex_candles_4h 
-                GROUP BY symbol
-            ) c4h ON t.symbol = c4h.symbol
-            LEFT JOIN (
-                SELECT symbol, COUNT(*) as count 
-                FROM forex_candles_12h 
-                GROUP BY symbol
-            ) c12h ON t.symbol = c12h.symbol
-            LEFT JOIN candle_refresh_metadata m ON t.symbol = m.symbol
-        )
-        SELECT * FROM candle_summary ORDER BY symbol
-    "#;
-    
-    let rows = sqlx::query(query)
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| format!("Database error: {}", e))?;
-    
-    let mut result = Vec::new();
-    
-    for row in rows {
-        let symbol: String = row.try_get("symbol").map_err(|e| format!("Failed to get symbol: {}", e))?;
-        let start_date: chrono::NaiveDate = row.try_get("start_date").map_err(|e| format!("Failed to get start_date: {}", e))?;
-        let end_date: chrono::NaiveDate = row.try_get("end_date").map_err(|e| format!("Failed to get end_date: {}", e))?;
-        let tick_count: i64 = row.try_get("tick_count").map_err(|e| format!("Failed to get tick_count: {}", e))?;
-        let last_updated: chrono::DateTime<chrono::Utc> = row.try_get("last_updated").map_err(|e| format!("Failed to get last_updated: {}", e))?;
-        let candle_count_5m: i64 = row.try_get("candle_count_5m").map_err(|e| format!("Failed to get candle_count_5m: {}", e))?;
-        let candle_count_15m: i64 = row.try_get("candle_count_15m").map_err(|e| format!("Failed to get candle_count_15m: {}", e))?;
-        let candle_count_1h: i64 = row.try_get("candle_count_1h").map_err(|e| format!("Failed to get candle_count_1h: {}", e))?;
-        let candle_count_4h: i64 = row.try_get("candle_count_4h").map_err(|e| format!("Failed to get candle_count_4h: {}", e))?;
-        let candle_count_12h: i64 = row.try_get("candle_count_12h").map_err(|e| format!("Failed to get candle_count_12h: {}", e))?;
-        
-        // Get refresh metadata
-        let last_refresh_timestamp: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_refresh_timestamp").ok();
-        let last_tick_timestamp: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick_timestamp").ok();
-        
-        // Check if candles are up to date
-        let candles_up_to_date = if let (Some(refresh_ts), Some(tick_ts)) = (last_refresh_timestamp, last_tick_timestamp) {
-            // Consider up-to-date if last refresh is within 1 hour of the last tick
-            (last_updated - refresh_ts).num_hours() <= 1 && (tick_ts >= last_updated - chrono::Duration::hours(1))
-        } else {
-            false // Never been refreshed
-        };
-        
-        // Estimate size in MB (rough approximation: 40 bytes per tick)
-        let size_mb = (tick_count as f64 * 40.0) / (1024.0 * 1024.0);
-        
-        result.push(AvailableDataItem {
-            symbol,
-            start_date: start_date.to_string(),
-            end_date: end_date.to_string(),
-            tick_count,
-            candle_count_5m,
-            candle_count_15m,
-            candle_count_1h,
-            candle_count_4h,
-            candle_count_12h,
-            last_updated: last_updated.to_rfc3339(),
-            size_mb,
-            candles_up_to_date,
-            last_candle_refresh: last_refresh_timestamp.map(|ts| ts.to_rfc3339()),
-        });
-    }
-    
-    emit_log(&window, "INFO", &format!("Found {} symbols with data", result.len()));
-    Ok(result)
-}
-
-#[tauri::command]
-async fn get_all_available_symbols(
-    state: State<'_, AppState>,
-    market_data_state: State<'_, MarketDataState>,
-) -> Result<Vec<AvailableSymbol>, String> {
-    let mut symbols_map = std::collections::HashMap::new();
-    
-    // Get symbols from database
-    let pool = state.db_pool.lock().await;
-    
-    // Query forex_ticks
-    let forex_query = r#"
-        SELECT DISTINCT symbol, COUNT(*) as tick_count, MAX(time) as last_tick
-        FROM forex_ticks
-        GROUP BY symbol
-        ORDER BY symbol
-    "#;
-    
-    let forex_rows = sqlx::query(forex_query)
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| format!("Failed to query forex symbols: {}", e))?;
-    
-    for row in forex_rows {
-        let symbol: String = row.try_get("symbol").unwrap_or_default();
-        let tick_count: i64 = row.try_get("tick_count").unwrap_or(0);
-        let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
-        
-        symbols_map.insert(symbol.clone(), AvailableSymbol {
-            symbol: symbol.clone(),
-            label: format_symbol_label(&symbol),
-            has_data: true,
-            is_active: false,
-            last_tick: last_tick.map(|t| t.to_rfc3339()),
-            tick_count: Some(tick_count),
-            source: Some("forex".to_string()),
-        });
-    }
-    
-    // Query bitcoin_ticks
-    let bitcoin_query = r#"
-        SELECT DISTINCT symbol, COUNT(*) as tick_count, MAX(time) as last_tick
-        FROM bitcoin_ticks
-        GROUP BY symbol
-        ORDER BY symbol
-    "#;
-    
-    if let Ok(bitcoin_rows) = sqlx::query(bitcoin_query).fetch_all(&*pool).await {
-        for row in bitcoin_rows {
-            let symbol: String = row.try_get("symbol").unwrap_or_default();
-            let tick_count: i64 = row.try_get("tick_count").unwrap_or(0);
-            let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
-            
-            symbols_map.insert(symbol.clone(), AvailableSymbol {
-                symbol: symbol.clone(),
-                label: format_symbol_label(&symbol),
-                has_data: true,
-                is_active: false,
-                last_tick: last_tick.map(|t| t.to_rfc3339()),
-                tick_count: Some(tick_count),
-                source: Some("bitcoin".to_string()),
-            });
-        }
-    }
-    
-    // Get active pipelines from market data engine
-    let engine = market_data_state.engine.lock().await;
-    for (symbol, pipeline) in &engine.pipelines {
-        let status = pipeline.status.lock().await;
-        let is_active = matches!(&*status, PipelineStatus::Running { connected: true, .. });
-        let last_tick = match &*status {
-            PipelineStatus::Running { last_tick, .. } => last_tick.map(|t| t.to_rfc3339()),
-            _ => None,
-        };
-        
-        let source_name = match &pipeline.config.source {
-            DataSource::Kraken { .. } => "kraken",
-            DataSource::Oanda { .. } => "oanda",
-            DataSource::Alpaca { .. } => "alpaca",
-            DataSource::Dukascopy => "dukascopy",
-            _ => "unknown",
-        };
-        
-        if let Some(existing) = symbols_map.get_mut(symbol) {
-            existing.is_active = is_active;
-            if existing.last_tick.is_none() {
-                existing.last_tick = last_tick;
-            }
-        } else {
-            symbols_map.insert(symbol.clone(), AvailableSymbol {
-                symbol: symbol.clone(),
-                label: format_symbol_label(symbol),
-                has_data: false,
-                is_active,
-                last_tick,
-                tick_count: None,
-                source: Some(source_name.to_string()),
-            });
-        }
-    }
-    
-    // Convert to sorted vector
-    let mut result: Vec<AvailableSymbol> = symbols_map.into_values().collect();
-    result.sort_by(|a, b| a.symbol.cmp(&b.symbol));
-    
-    Ok(result)
-}
-
-fn format_symbol_label(symbol: &str) -> String {
-    match symbol {
-        "EURUSD" => "EUR/USD".to_string(),
-        "GBPUSD" => "GBP/USD".to_string(),
-        "USDJPY" => "USD/JPY".to_string(),
-        "AUDUSD" => "AUD/USD".to_string(),
-        "USDCAD" => "USD/CAD".to_string(),
-        "NZDUSD" => "NZD/USD".to_string(),
-        "USDCHF" => "USD/CHF".to_string(),
-        "EURJPY" => "EUR/JPY".to_string(),
-        "EURGBP" => "EUR/GBP".to_string(),
-        "BTCUSD" => "BTC/USD".to_string(),
-        _ => {
-            // Try to format forex pairs
-            if symbol.len() == 6 {
-                format!("{}/{}", &symbol[0..3], &symbol[3..6])
-            } else {
-                symbol.to_string()
-            }
-        }
-    }
-}
-
-#[tauri::command]
 async fn delete_data_range(
     request: DeleteDataRequest,
     state: State<'_, AppState>,
@@ -1315,97 +1031,6 @@ async fn refresh_candles(
     Ok(true)
 }
 
-#[tauri::command]
-async fn get_symbol_metadata(
-    symbol: String,
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<SymbolMetadata, String> {
-    let current_time = chrono::Utc::now().timestamp();
-    
-    // Check cache first
-    {
-        let cache = state.metadata_cache.read().await;
-        if let Some(cached) = cache.get(&symbol) {
-            // Metadata cache can be valid for longer (5 minutes)
-            if current_time - cached.cached_at < 300 {
-                emit_log(&window, "DEBUG", &format!("[METADATA CACHE HIT] Returning cached metadata for {}", symbol));
-                return Ok(cached.metadata.clone());
-            }
-        }
-    }
-    
-    emit_log(&window, "INFO", &format!("[METADATA CACHE MISS] Fetching metadata for {} from database", symbol));
-    
-    let pool = state.db_pool.lock().await;
-    
-    // Optimized queries using the index efficiently
-    // First, get the earliest tick
-    let min_query = "SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1";
-    let min_result = sqlx::query(min_query)
-        .bind(&symbol)
-        .fetch_optional(&*pool)
-        .await
-        .map_err(|e| format!("Database error: {}", e))?;
-    
-    // Then get the latest tick
-    let max_query = "SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time DESC LIMIT 1";
-    let max_result = sqlx::query(max_query)
-        .bind(&symbol)
-        .fetch_optional(&*pool)
-        .await
-        .map_err(|e| format!("Database error: {}", e))?;
-    
-    // Get count separately (this is still fast with the index)
-    let count_query = "SELECT COUNT(*) as tick_count FROM forex_ticks WHERE symbol = $1";
-    let count_result = sqlx::query(count_query)
-        .bind(&symbol)
-        .fetch_optional(&*pool)
-        .await
-        .map_err(|e| format!("Database error: {}", e))?;
-    
-    // Process the three query results
-    if let (Some(min_row), Some(max_row), Some(count_row)) = (min_result, max_result, count_result) {
-        let start_time: Option<chrono::DateTime<chrono::Utc>> = min_row.try_get("time").ok();
-        let end_time: Option<chrono::DateTime<chrono::Utc>> = max_row.try_get("time").ok();
-        let tick_count: Option<i64> = count_row.try_get("tick_count").ok();
-        
-        if let (Some(start), Some(end), Some(count)) = (start_time, end_time, tick_count) {
-            if count > 0 {
-                emit_log(&window, "INFO", &format!("Found data for {}: {} to {}", 
-                         symbol, start.format("%Y-%m-%d"), end.format("%Y-%m-%d")));
-                
-                let metadata = SymbolMetadata {
-                    symbol: symbol.clone(),
-                    start_timestamp: start.timestamp(),
-                    end_timestamp: end.timestamp(),
-                    has_data: true,
-                };
-                
-                // Update cache
-                {
-                    let mut cache = state.metadata_cache.write().await;
-                    cache.insert(symbol.clone(), CachedMetadata {
-                        metadata: metadata.clone(),
-                        cached_at: current_time,
-                    });
-                    emit_log(&window, "DEBUG", &format!("[METADATA CACHE UPDATE] Cached metadata for {}", symbol));
-                }
-                
-                return Ok(metadata);
-            }
-        }
-    }
-    
-    // No data found for symbol
-    emit_log(&window, "INFO", &format!("No data found for {}", symbol));
-    Ok(SymbolMetadata {
-        symbol: symbol.clone(),
-        start_timestamp: 0,
-        end_timestamp: 0,
-        has_data: false,
-    })
-}
 
 #[derive(Debug, Deserialize)]
 struct ExportDataRequest {

@@ -10,7 +10,10 @@
     "tauri": "tauri",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "typecheck": "tsc --noEmit",
+    "check-all": "npm run typecheck && npm run lint && cd src-tauri && cargo check",
+    "errors": "node check-errors.js"
   },
   "dependencies": {
     "@mantine/charts": "^8.1.0",
