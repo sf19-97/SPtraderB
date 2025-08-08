@@ -26,7 +26,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<AppLayout />}>
-          <Route index element={<Navigate to="/trading" />} />
+          <Route index element={<Navigate to="/market-chart" />} />
           <Route path="trading" element={<TradingPage />} />
           <Route path="data" element={<DataIngestionPage />} />
           <Route path="build" element={<BuildPage />} />

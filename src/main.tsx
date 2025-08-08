@@ -10,7 +10,7 @@ import 'dayjs/locale/en';
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <MantineProvider defaultColorScheme="dark">
-      <DatesProvider settings={{ locale: 'en', timezone: 'UTC' }}>
+      <DatesProvider settings={{ locale: 'en' }}>
         <App />
       </DatesProvider>
     </MantineProvider>

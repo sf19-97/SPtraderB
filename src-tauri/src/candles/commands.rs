@@ -42,12 +42,6 @@ pub async fn get_market_candles(
         table_name
     );
 
-    println!("[Market] Fetching {} {} candles from {} to {}", 
-        symbol,
-        timeframe, 
-        from_time.format("%Y-%m-%d %H:%M:%S UTC"), 
-        to_time.format("%Y-%m-%d %H:%M:%S UTC")
-    );
 
     let rows: Vec<(DateTime<Utc>, String, String, String, String, Option<i64>)> = 
         sqlx::query_as(&query)
@@ -58,14 +52,6 @@ pub async fn get_market_candles(
             .await
             .map_err(|e| format!("Database error: {}", e))?;
     
-    println!("[Market] Fetched {} candles", rows.len());
-    
-    if !rows.is_empty() {
-        let first_time = &rows[0].0;
-        let last_time = &rows[rows.len() - 1].0;
-        println!("[Market] First candle: {} (UTC)", first_time.to_rfc3339());
-        println!("[Market] Last candle: {} (UTC)", last_time.to_rfc3339());
-    }
 
     if rows.is_empty() {
         return Ok(MarketChartResponse {
