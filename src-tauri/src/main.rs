@@ -35,13 +35,7 @@ mod commands {
 use execution::ExecutionEngine;
 use market_data::commands::*;
 use market_data::{PipelineStatus, DataSource};
-use market_data::symbols::{
-    get_all_available_symbols,
-    get_symbol_metadata,
-    get_available_data,
-    SymbolMetadata,
-    CachedMetadata,
-};
+use market_data::symbols::CachedMetadata;
 
 // Helper function to save pipeline state on shutdown
 async fn save_final_state(engine: Arc<Mutex<market_data::MarketDataEngine>>) -> Result<(), String> {
@@ -1874,8 +1868,8 @@ async fn main() {
             workspace::list_test_datasets,
             workspace::write_temp_candles,
             get_ingestion_status,
-            get_available_data,
-            get_all_available_symbols,
+            market_data::symbols::commands::get_available_data,
+            market_data::symbols::commands::get_all_available_symbols,
             get_broker_connection_status,
             get_recent_orders,
             cancel_order,
@@ -1883,7 +1877,7 @@ async fn main() {
             init_broker_from_profile,
             delete_data_range,
             refresh_candles,
-            get_symbol_metadata,
+            market_data::symbols::commands::get_symbol_metadata,
             export_test_data,
             test_orchestrator_load,
             run_orchestrator_backtest,

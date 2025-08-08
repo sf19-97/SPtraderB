@@ -89,7 +89,7 @@ pub async fn search_assets(
                 symbol: symbol.to_string(),
                 name: name.to_string(),
                 asset_class: "forex".to_string(),
-                available_sources: vec!["oanda".to_string(), "dukascopy".to_string()],
+                available_sources: vec!["oanda".to_string()],
                 is_available: true,
             });
         }
