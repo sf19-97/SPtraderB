@@ -95,9 +95,9 @@ pub mod commands {
         // Get symbols from database
         let pool = state.db_pool.lock().await;
         
-        // Query forex_ticks
+        // Query forex_ticks - optimized to avoid COUNT(*)
         let forex_query = r#"
-            SELECT DISTINCT symbol, COUNT(*) as tick_count, MAX(time) as last_tick
+            SELECT DISTINCT symbol, MAX(time) as last_tick
             FROM forex_ticks
             GROUP BY symbol
             ORDER BY symbol
@@ -110,7 +110,6 @@ pub mod commands {
         
         for row in forex_rows {
             let symbol: String = row.try_get("symbol").unwrap_or_default();
-            let tick_count: i64 = row.try_get("tick_count").unwrap_or(0);
             let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
             
             symbols_map.insert(symbol.clone(), AvailableSymbol {
@@ -119,14 +118,14 @@ pub mod commands {
                 has_data: true,
                 is_active: false,
                 last_tick: last_tick.map(|t| t.to_rfc3339()),
-                tick_count: Some(tick_count),
+                tick_count: None, // Skip expensive COUNT(*)
                 source: Some("forex".to_string()),
             });
         }
         
-        // Query bitcoin_ticks
+        // Query bitcoin_ticks - optimized to avoid COUNT(*)
         let bitcoin_query = r#"
-            SELECT DISTINCT symbol, COUNT(*) as tick_count, MAX(time) as last_tick
+            SELECT DISTINCT symbol, MAX(time) as last_tick
             FROM bitcoin_ticks
             GROUP BY symbol
             ORDER BY symbol
@@ -135,7 +134,6 @@ pub mod commands {
         if let Ok(bitcoin_rows) = sqlx::query(bitcoin_query).fetch_all(&*pool).await {
             for row in bitcoin_rows {
                 let symbol: String = row.try_get("symbol").unwrap_or_default();
-                let tick_count: i64 = row.try_get("tick_count").unwrap_or(0);
                 let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
                 
                 symbols_map.insert(symbol.clone(), AvailableSymbol {
@@ -144,7 +142,7 @@ pub mod commands {
                     has_data: true,
                     is_active: false,
                     last_tick: last_tick.map(|t| t.to_rfc3339()),
-                    tick_count: Some(tick_count),
+                    tick_count: None, // Skip expensive COUNT(*)
                     source: Some("bitcoin".to_string()),
                 });
             }
