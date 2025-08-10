@@ -136,7 +136,6 @@ struct DataRequest {
 
 struct AppState {
     db_pool: Arc<Mutex<sqlx::PgPool>>,
-    ingestion_processes: Arc<Mutex<HashMap<String, Child>>>,
     candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
     metadata_cache: Arc<RwLock<HashMap<String, CachedMetadata>>>,
     // Order execution
@@ -275,27 +274,6 @@ struct HierarchicalRequest {
     from: i64,
     to: i64,
     detail_level: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct DataIngestionRequest {
-    symbol: String,
-    start_date: String,
-    end_date: String,
-}
-
-#[derive(Debug, Serialize)]
-struct DataIngestionResponse {
-    success: bool,
-    message: String,
-}
-
-
-#[derive(Debug, Deserialize)]
-struct DeleteDataRequest {
-    symbol: String,
-    start_date: Option<String>,
-    end_date: Option<String>,
 }
 
 #[tauri::command]
@@ -1830,7 +1808,6 @@ async fn main() {
     
     let app_state = AppState { 
         db_pool: Arc::new(Mutex::new(pool)),
-        ingestion_processes: Arc::new(Mutex::new(HashMap::new())),
         candle_cache: Arc::new(RwLock::new(HashMap::new())),
         metadata_cache: Arc::new(RwLock::new(HashMap::new())),
         broker: Arc::new(RwLock::new(None)),
@@ -1850,8 +1827,6 @@ async fn main() {
             fetch_candles, 
             fetch_candles_v2, 
             check_database_connection,
-            start_data_ingestion,
-            cancel_ingestion,
             workspace::get_workspace_tree,
             workspace::read_component_file,
             workspace::save_component_file,
@@ -1867,7 +1842,6 @@ async fn main() {
             workspace::load_parquet_data,
             workspace::list_test_datasets,
             workspace::write_temp_candles,
-            get_ingestion_status,
             market_data::symbols::commands::get_available_data,
             market_data::symbols::commands::get_all_available_symbols,
             get_broker_connection_status,
@@ -1875,8 +1849,6 @@ async fn main() {
             cancel_order,
             init_execution_engine,
             init_broker_from_profile,
-            delete_data_range,
-            refresh_candles,
             market_data::symbols::commands::get_symbol_metadata,
             export_test_data,
             test_orchestrator_load,

@@ -4,7 +4,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { MatrixLogin } from './components/MatrixLogin';
 import { AppLayout } from './layouts/AppLayout';
 import { TradingPage } from './pages/TradingPage';
-import { DataIngestionPage } from './pages/DataIngestionPage';
 import { BuildPage } from './pages/BuildPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { OrdersPage } from './pages/OrdersPage';
@@ -28,7 +27,6 @@ function App() {
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Navigate to="/market-chart" />} />
           <Route path="trading" element={<TradingPage />} />
-          <Route path="data" element={<DataIngestionPage />} />
           <Route path="build" element={<BuildPage />} />
           <Route path="history" element={<OrdersPage />} />
           <Route path="settings" element={<SettingsPage />} />

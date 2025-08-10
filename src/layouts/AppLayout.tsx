@@ -24,7 +24,6 @@ export const AppLayout = () => {
   const navItems = [
     { path: '/trading', label: 'Trading', icon: IconChartLine },
     { path: '/build', label: 'Build', icon: IconCode },
-    { path: '/data', label: 'Data Manager', icon: IconDatabase },
     { path: '/market-data', label: 'Market Data', icon: IconDatabase },
     { path: '/market-chart', label: 'Market Chart', icon: IconChartCandle },
     { path: '/history', label: 'History', icon: IconHistory },

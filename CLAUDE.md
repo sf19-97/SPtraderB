@@ -45,6 +45,30 @@ To add a new asset:
 
 When in doubt, ask the user. They know more than this file.
 
+## Candle Type Architecture
+
+The codebase has multiple Candle types for different layers:
+
+### String-based (API/Database layer):
+- `BitcoinCandle` (src/commands/bitcoin_data.rs) - Bitcoin-specific API responses
+- `MarketCandle` (src/candles/mod.rs) - Generic market data API responses
+- Both use strings for prices to preserve database precision
+
+### Numeric-based (Processing layer):
+- `main::Candle` (src/main.rs) - In-memory caching with f64 for performance
+- `orchestrator::Candle` (src/orchestrator/mod.rs) - Backtesting with Decimal for precision
+
+### Special purpose:
+- `CandleData` (src/workspace.rs) - Vectorized format for bulk operations
+- `CandleUpdateNotification` (src/candle_monitor.rs) - PostgreSQL notifications
+
+### Caching Issue:
+- `AppState.candle_cache` expects `main::Candle` (numeric)
+- But `get_market_candles` returns `MarketCandle` (strings)
+- Cannot mix types without conversion
+
+Typical flow: Database (strings) → API types (strings) → Cache types (f64) → Orchestrator types (Decimal)
+
 ## Development Setup
 Rust-analyzer is configured with:
 - **checkOnSave disabled** - Run checks manually with Ctrl+Shift+P → "rust-analyzer: Run flycheck"

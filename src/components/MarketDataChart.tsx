@@ -68,7 +68,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   const currentTimeframeRef = useRef(timeframe || '1h');
   const symbolRef = useRef(symbol);
   const [isLoading, setIsLoading] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
+  const isTransitioningRef = useRef(false);
   const [chartOpacity, setChartOpacity] = useState(1);
 
   // Real-time streaming state
@@ -509,6 +509,180 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   // Rest of the component logic remains the same as AdaptiveChart
   // Using generic market data fetching and formatting...
 
+  const switchTimeframe = async (newTimeframe: string) => {
+    if (newTimeframe === currentTimeframeRef.current || isTransitioningRef.current) return;
+
+    console.log(
+      '[ResolutionTracker] Timeframe transition:',
+      currentTimeframeRef.current,
+      '→',
+      newTimeframe
+    );
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastTransitionRef.current < TRANSITION_COOLDOWN) {
+      console.log('[COOLDOWN] Too fast! Wait a bit...');
+      return;
+    }
+
+    lastTransitionRef.current = now;
+    isTransitioningRef.current = true;
+
+    // Store current view before switching
+    const timeScale = chartRef.current!.timeScale();
+    const visibleRange = timeScale.getVisibleRange();
+    const currentBarSpacing = timeScale.options().barSpacing;
+    const previousTimeframe = currentTimeframeRef.current;
+
+    console.log(
+      `[ResolutionTracker] Executing transition: ${previousTimeframe} → ${newTimeframe} at bar spacing ${currentBarSpacing}`
+    );
+
+    // Update state
+    currentTimeframeRef.current = newTimeframe;
+    setCurrentTimeframe(newTimeframe);
+    setStoreTimeframe(newTimeframe);
+    if (onTimeframeChange) {
+      onTimeframeChange(newTimeframe);
+    }
+
+    // Start fade out
+    setChartOpacity(0.2);
+
+    // Wait for fade out
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    try {
+      // Use fresh sliding window for new timeframe
+      const now = Math.floor(Date.now() / 1000);
+      const to = now + 60 * 60;
+
+      // Use appropriate window based on new timeframe
+      let from;
+      if (newTimeframe === '1m') {
+        from = now - 7 * 24 * 60 * 60; // 7 days for 1m
+      } else if (newTimeframe === '5m') {
+        from = now - 30 * 24 * 60 * 60; // 30 days for 5m
+      } else {
+        from = now - 90 * 24 * 60 * 60; // 90 days for others
+      }
+
+      // Fetch new data
+      const { data } = await fetchChartData(symbolRef.current!, newTimeframe, from, to);
+
+      if (data.length === 0) {
+        console.error(`[SWITCH] No data available for ${newTimeframe} - aborting transition`);
+        // Revert the transition
+        currentTimeframeRef.current = previousTimeframe;
+        setCurrentTimeframe(previousTimeframe);
+        setStoreTimeframe(previousTimeframe);
+        // Fade back in
+        setChartOpacity(1);
+        isTransitioningRef.current = false;
+        return;
+      }
+
+      if (data.length > 0 && seriesRef.current && chartRef.current) {
+        // Calculate new bar spacing
+        let newBarSpacing = currentBarSpacing;
+
+        if (newTimeframe === '1m' && previousTimeframe === '5m') {
+          newBarSpacing = Math.max(3, currentBarSpacing / 5);
+        } else if (newTimeframe === '5m' && previousTimeframe === '1m') {
+          newBarSpacing = Math.min(50, currentBarSpacing * 5);
+        } else if (newTimeframe === '5m' && previousTimeframe === '15m') {
+          newBarSpacing = Math.max(3, currentBarSpacing / 3);
+        } else if (newTimeframe === '15m' && previousTimeframe === '5m') {
+          newBarSpacing = Math.min(50, currentBarSpacing * 3);
+        } else if (newTimeframe === '15m' && previousTimeframe === '1h') {
+          newBarSpacing = Math.max(3, currentBarSpacing / 4);
+        } else if (newTimeframe === '1h' && previousTimeframe === '15m') {
+          newBarSpacing = Math.min(50, currentBarSpacing * 4);
+        } else if (newTimeframe === '1h' && previousTimeframe === '4h') {
+          newBarSpacing = Math.max(3, currentBarSpacing / 4);
+        } else if (newTimeframe === '4h' && previousTimeframe === '1h') {
+          newBarSpacing = Math.min(50, currentBarSpacing * 4);
+        } else if (newTimeframe === '4h' && previousTimeframe === '12h') {
+          newBarSpacing = Math.max(3, currentBarSpacing / 3);
+        } else if (newTimeframe === '12h' && previousTimeframe === '4h') {
+          newBarSpacing = Math.min(50, currentBarSpacing * 3);
+        }
+
+        // Apply bar spacing before setting data
+        chartRef.current.timeScale().applyOptions({
+          barSpacing: newBarSpacing,
+        });
+
+        // Wait for next animation frame to ensure display surface is ready
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        
+        // Set new data
+        seriesRef.current.setData(data as any);
+        // Cache with proper key using the fresh time window
+        const cacheKey = getCacheKey(symbolRef.current!, newTimeframe, from, to);
+        setCachedCandles(cacheKey, data);
+
+        // Update dateRangeRef
+        dateRangeRef.current = { from, to };
+
+        // Maintain view range
+        if (visibleRange) {
+          if (isShiftPressed && lockedLeftEdgeRef.current !== null) {
+            // Keep left edge locked
+            const currentDuration = (visibleRange.to as number) - (visibleRange.from as number);
+            const ratio =
+              newTimeframe === previousTimeframe
+                ? 1
+                : newTimeframe === '1m' && previousTimeframe === '5m'
+                  ? 5
+                  : newTimeframe === '5m' && previousTimeframe === '1m'
+                    ? 0.2
+                    : newTimeframe === '5m' && previousTimeframe === '15m'
+                      ? 3
+                      : newTimeframe === '15m' && previousTimeframe === '5m'
+                        ? 0.33
+                        : newTimeframe === '15m' && previousTimeframe === '1h'
+                          ? 4
+                          : newTimeframe === '1h' && previousTimeframe === '15m'
+                            ? 0.25
+                            : newTimeframe === '1h' && previousTimeframe === '4h'
+                              ? 4
+                              : newTimeframe === '4h' && previousTimeframe === '1h'
+                                ? 0.25
+                                : newTimeframe === '4h' && previousTimeframe === '12h'
+                                  ? 3
+                                  : newTimeframe === '12h' && previousTimeframe === '4h'
+                                    ? 0.33
+                                    : 1;
+
+            const newDuration = currentDuration / ratio;
+            const newTo = lockedLeftEdgeRef.current + newDuration;
+
+            chartRef.current.timeScale().setVisibleRange({
+              from: lockedLeftEdgeRef.current as any,
+              to: newTo as any,
+            });
+          } else {
+            // Normal behavior
+            chartRef.current.timeScale().setVisibleRange({
+              from: visibleRange.from as any,
+              to: visibleRange.to as any,
+            });
+          }
+        }
+      }
+
+      // Fade back in
+      setChartOpacity(1);
+    } catch (error) {
+      console.error('Failed to switch timeframe:', error);
+      setChartOpacity(1);
+    } finally {
+      isTransitioningRef.current = false;
+    }
+  };
+
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -697,20 +871,125 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     // CRITICAL: Monitor BAR SPACING changes instead of pixel widths
     let lastBarSpacing = 13;
 
+    // Define checkTimeframeSwitch inside useEffect to access current state/refs
+    const checkTimeframeSwitch = (barSpacing: number) => {
+      console.log(`[checkTimeframeSwitch] Called with barSpacing: ${barSpacing}`);
+      console.log(`[checkTimeframeSwitch] isTransitioningRef.current: ${isTransitioningRef.current}`);
+      console.log(`[checkTimeframeSwitch] currentTimeframeRef.current: ${currentTimeframeRef.current}`);
+      
+      if (isTransitioningRef.current) {
+        console.log('[SWITCH] Skipping - transition in progress');
+        return; // Silent skip during transitions
+      }
+
+      const currentTf = currentTimeframeRef.current;
+
+      // Enforce minimum bar spacing for 12h to prevent excessive zoom out
+      if (currentTf === '12h' && barSpacing < 3) {
+        console.log('[ZOOM LIMIT] Enforcing minimum bar spacing for 12h');
+        chartRef.current?.timeScale().applyOptions({
+          barSpacing: 3,
+        });
+        return;
+      }
+
+      // 12h → 4h (zooming in)
+      if (currentTf === '12h' && barSpacing > SWITCH_FROM_12H_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 12h bar spacing ${barSpacing} > ${SWITCH_FROM_12H_BAR_SPACING} → switching to 4h`
+        );
+        switchTimeframe('4h');
+      }
+      // 4h → 12h (zooming out)
+      else if (currentTf === '4h' && barSpacing < SWITCH_TO_12H_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 4h bar spacing ${barSpacing} < ${SWITCH_TO_12H_BAR_SPACING} → switching to 12h`
+        );
+        switchTimeframe('12h');
+      }
+      // 4h → 1h (zooming in)
+      else if (currentTf === '4h' && barSpacing > SWITCH_FROM_4H_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 4h bar spacing ${barSpacing} > ${SWITCH_FROM_4H_BAR_SPACING} → switching to 1h`
+        );
+        switchTimeframe('1h');
+      }
+      // 1h → 4h (zooming out)
+      else if (currentTf === '1h' && barSpacing < SWITCH_TO_4H_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 1h bar spacing ${barSpacing} < ${SWITCH_TO_4H_BAR_SPACING} → switching to 4h`
+        );
+        switchTimeframe('4h');
+      }
+      // 1h → 15m (zooming in)
+      else if (currentTf === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 1h bar spacing ${barSpacing} > ${SWITCH_TO_15M_BAR_SPACING} → switching to 15m`
+        );
+        switchTimeframe('15m');
+      }
+      // 15m → 1h (zooming out)
+      else if (currentTf === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 15m bar spacing ${barSpacing} < ${SWITCH_TO_1H_BAR_SPACING} → switching to 1h`
+        );
+        switchTimeframe('1h');
+      }
+      // 15m → 5m (zooming in)
+      else if (currentTf === '15m' && barSpacing > SWITCH_TO_5M_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 15m bar spacing ${barSpacing} > ${SWITCH_TO_5M_BAR_SPACING} → switching to 5m`
+        );
+        switchTimeframe('5m');
+      }
+      // 5m → 15m (zooming out)
+      else if (currentTf === '5m' && barSpacing < SWITCH_FROM_5M_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 5m bar spacing ${barSpacing} < ${SWITCH_FROM_5M_BAR_SPACING} → switching to 15m`
+        );
+        switchTimeframe('15m');
+      }
+      // 5m → 1m (zooming in)
+      else if (currentTf === '5m' && barSpacing > SWITCH_TO_1M_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 5m bar spacing ${barSpacing} > ${SWITCH_TO_1M_BAR_SPACING} → switching to 1m`
+        );
+        switchTimeframe('1m');
+      }
+      // 1m → 5m (zooming out)
+      else if (currentTf === '1m' && barSpacing < SWITCH_FROM_1M_BAR_SPACING) {
+        console.log(
+          `[SWITCH] 1m bar spacing ${barSpacing} < ${SWITCH_FROM_1M_BAR_SPACING} → switching to 5m`
+        );
+        switchTimeframe('5m');
+      }
+    };
+
     checkIntervalRef.current = setInterval(() => {
-      if (!chartRef.current || isTransitioning) return;
+      if (!chartRef.current) {
+        console.log('[ResolutionTracker] Chart not ready');
+        return;
+      }
+      
+      if (isTransitioningRef.current) {
+        console.log('[ResolutionTracker] Skipping check - transition in progress');
+        return;
+      }
 
       try {
         const currentBarSpacing = chartRef.current.timeScale().options().barSpacing;
 
         if (currentBarSpacing !== lastBarSpacing) {
           console.log(
-            `[ResolutionTracker] Current timeframe: ${currentTimeframeRef.current}, bar spacing: ${currentBarSpacing}`
+            `[ResolutionTracker] Current timeframe: ${currentTimeframeRef.current}, bar spacing: ${currentBarSpacing} (was: ${lastBarSpacing})`
           );
+          console.log(`[ResolutionTracker] isTransitioningRef.current = ${isTransitioningRef.current}`);
+          console.log(`[ResolutionTracker] About to call checkTimeframeSwitch`);
           lastBarSpacing = currentBarSpacing;
           checkTimeframeSwitch(currentBarSpacing);
         }
       } catch (e) {
+        console.error('[ResolutionTracker] Error in interval:', e);
         // Chart might be disposed, clear interval
         if (checkIntervalRef.current) {
           clearInterval(checkIntervalRef.current);
@@ -878,7 +1157,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     if (
       timeframe &&
       timeframe !== currentTimeframeRef.current &&
-      !isTransitioning &&
+      !isTransitioningRef.current &&
       initialLoadDoneRef.current
     ) {
       console.log(`[EXTERNAL] Switching to ${timeframe} from external control`);
@@ -1073,7 +1352,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       // Now start the interval, properly aligned
       intervalId = setInterval(() => {
         // Only refresh if we have a chart and not loading or transitioning
-        if (chartRef.current && !isLoading && !isTransitioning) {
+        if (chartRef.current && !isLoading && !isTransitioningRef.current) {
           console.log('[MarketChart] Periodic refresh check at', new Date().toLocaleTimeString());
 
           // For periodic updates, only fetch recent data
@@ -1182,7 +1461,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       if (timeoutId) clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isTransitioning]); // Re-create interval when transitioning state changes
+  }, []); // No dependencies needed since we use refs
 
   // Countdown timer lifecycle management
   useEffect(() => {
@@ -1232,254 +1511,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [currentTimeframe, updateCountdown]); // Restart when timeframe changes
-
-  // Add the checkTimeframeSwitch function
-  const checkTimeframeSwitch = (barSpacing: number) => {
-    if (isTransitioning) {
-      return; // Silent skip during transitions
-    }
-
-    const currentTf = currentTimeframeRef.current;
-
-    // Enforce minimum bar spacing for 12h to prevent excessive zoom out
-    if (currentTf === '12h' && barSpacing < 3) {
-      console.log('[ZOOM LIMIT] Enforcing minimum bar spacing for 12h');
-      chartRef.current?.timeScale().applyOptions({
-        barSpacing: 3,
-      });
-      return;
-    }
-
-    // 12h → 4h (zooming in)
-    if (currentTf === '12h' && barSpacing > SWITCH_FROM_12H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 12h bar spacing ${barSpacing} > ${SWITCH_FROM_12H_BAR_SPACING} → switching to 4h`
-      );
-      switchTimeframe('4h');
-    }
-    // 4h → 12h (zooming out)
-    else if (currentTf === '4h' && barSpacing < SWITCH_TO_12H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 4h bar spacing ${barSpacing} < ${SWITCH_TO_12H_BAR_SPACING} → switching to 12h`
-      );
-      switchTimeframe('12h');
-    }
-    // 4h → 1h (zooming in)
-    else if (currentTf === '4h' && barSpacing > SWITCH_FROM_4H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 4h bar spacing ${barSpacing} > ${SWITCH_FROM_4H_BAR_SPACING} → switching to 1h`
-      );
-      switchTimeframe('1h');
-    }
-    // 1h → 4h (zooming out)
-    else if (currentTf === '1h' && barSpacing < SWITCH_TO_4H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 1h bar spacing ${barSpacing} < ${SWITCH_TO_4H_BAR_SPACING} → switching to 4h`
-      );
-      switchTimeframe('4h');
-    }
-    // 1h → 15m (zooming in)
-    else if (currentTf === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 1h bar spacing ${barSpacing} > ${SWITCH_TO_15M_BAR_SPACING} → switching to 15m`
-      );
-      switchTimeframe('15m');
-    }
-    // 15m → 1h (zooming out)
-    else if (currentTf === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 15m bar spacing ${barSpacing} < ${SWITCH_TO_1H_BAR_SPACING} → switching to 1h`
-      );
-      switchTimeframe('1h');
-    }
-    // 15m → 5m (zooming in)
-    else if (currentTf === '15m' && barSpacing > SWITCH_TO_5M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 15m bar spacing ${barSpacing} > ${SWITCH_TO_5M_BAR_SPACING} → switching to 5m`
-      );
-      switchTimeframe('5m');
-    }
-    // 5m → 15m (zooming out)
-    else if (currentTf === '5m' && barSpacing < SWITCH_FROM_5M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 5m bar spacing ${barSpacing} < ${SWITCH_FROM_5M_BAR_SPACING} → switching to 15m`
-      );
-      switchTimeframe('15m');
-    }
-    // 5m → 1m (zooming in)
-    else if (currentTf === '5m' && barSpacing > SWITCH_TO_1M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 5m bar spacing ${barSpacing} > ${SWITCH_TO_1M_BAR_SPACING} → switching to 1m`
-      );
-      switchTimeframe('1m');
-    }
-    // 1m → 5m (zooming out)
-    else if (currentTf === '1m' && barSpacing < SWITCH_FROM_1M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 1m bar spacing ${barSpacing} < ${SWITCH_FROM_1M_BAR_SPACING} → switching to 5m`
-      );
-      switchTimeframe('5m');
-    }
-  };
-
-  const switchTimeframe = async (newTimeframe: string) => {
-    if (newTimeframe === currentTimeframeRef.current || isTransitioning) return;
-
-    console.log(
-      '[ResolutionTracker] Timeframe transition:',
-      currentTimeframeRef.current,
-      '→',
-      newTimeframe
-    );
-
-    // Check cooldown
-    const now = Date.now();
-    if (now - lastTransitionRef.current < TRANSITION_COOLDOWN) {
-      console.log('[COOLDOWN] Too fast! Wait a bit...');
-      return;
-    }
-
-    lastTransitionRef.current = now;
-    setIsTransitioning(true);
-
-    // Store current view before switching
-    const timeScale = chartRef.current!.timeScale();
-    const visibleRange = timeScale.getVisibleRange();
-    const currentBarSpacing = timeScale.options().barSpacing;
-    const previousTimeframe = currentTimeframeRef.current;
-
-    console.log(
-      `[ResolutionTracker] Executing transition: ${previousTimeframe} → ${newTimeframe} at bar spacing ${currentBarSpacing}`
-    );
-
-    // Update state
-    currentTimeframeRef.current = newTimeframe;
-    setCurrentTimeframe(newTimeframe);
-    setStoreTimeframe(newTimeframe);
-    if (onTimeframeChange) {
-      onTimeframeChange(newTimeframe);
-    }
-
-    // Start fade out
-    setChartOpacity(0.2);
-
-    // Wait for fade out
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    try {
-      // Use fresh sliding window for new timeframe
-      const now = Math.floor(Date.now() / 1000);
-      const to = now + 60 * 60;
-
-      // Use appropriate window based on new timeframe
-      let from;
-      if (newTimeframe === '1m') {
-        from = now - 7 * 24 * 60 * 60; // 7 days for 1m
-      } else if (newTimeframe === '5m') {
-        from = now - 30 * 24 * 60 * 60; // 30 days for 5m
-      } else {
-        from = now - 90 * 24 * 60 * 60; // 90 days for others
-      }
-
-      // Fetch new data
-      const { data } = await fetchChartData(symbolRef.current!, newTimeframe, from, to);
-
-      if (data.length > 0 && seriesRef.current && chartRef.current) {
-        // Calculate new bar spacing
-        let newBarSpacing = currentBarSpacing;
-
-        if (newTimeframe === '1m' && previousTimeframe === '5m') {
-          newBarSpacing = Math.max(3, currentBarSpacing / 5);
-        } else if (newTimeframe === '5m' && previousTimeframe === '1m') {
-          newBarSpacing = Math.min(50, currentBarSpacing * 5);
-        } else if (newTimeframe === '5m' && previousTimeframe === '15m') {
-          newBarSpacing = Math.max(3, currentBarSpacing / 3);
-        } else if (newTimeframe === '15m' && previousTimeframe === '5m') {
-          newBarSpacing = Math.min(50, currentBarSpacing * 3);
-        } else if (newTimeframe === '15m' && previousTimeframe === '1h') {
-          newBarSpacing = Math.max(3, currentBarSpacing / 4);
-        } else if (newTimeframe === '1h' && previousTimeframe === '15m') {
-          newBarSpacing = Math.min(50, currentBarSpacing * 4);
-        } else if (newTimeframe === '1h' && previousTimeframe === '4h') {
-          newBarSpacing = Math.max(3, currentBarSpacing / 4);
-        } else if (newTimeframe === '4h' && previousTimeframe === '1h') {
-          newBarSpacing = Math.min(50, currentBarSpacing * 4);
-        } else if (newTimeframe === '4h' && previousTimeframe === '12h') {
-          newBarSpacing = Math.max(3, currentBarSpacing / 3);
-        } else if (newTimeframe === '12h' && previousTimeframe === '4h') {
-          newBarSpacing = Math.min(50, currentBarSpacing * 3);
-        }
-
-        // Apply bar spacing before setting data
-        chartRef.current.timeScale().applyOptions({
-          barSpacing: newBarSpacing,
-        });
-
-        // Set new data
-        seriesRef.current.setData(data as any);
-        // Cache with proper key using the fresh time window
-        const cacheKey = getCacheKey(symbolRef.current!, newTimeframe, from, to);
-        setCachedCandles(cacheKey, data);
-
-        // Update dateRangeRef
-        dateRangeRef.current = { from, to };
-
-        // Maintain view range
-        if (visibleRange) {
-          if (isShiftPressed && lockedLeftEdgeRef.current !== null) {
-            // Keep left edge locked
-            const currentDuration = (visibleRange.to as number) - (visibleRange.from as number);
-            const ratio =
-              newTimeframe === previousTimeframe
-                ? 1
-                : newTimeframe === '1m' && previousTimeframe === '5m'
-                  ? 5
-                  : newTimeframe === '5m' && previousTimeframe === '1m'
-                    ? 0.2
-                    : newTimeframe === '5m' && previousTimeframe === '15m'
-                      ? 3
-                      : newTimeframe === '15m' && previousTimeframe === '5m'
-                        ? 0.33
-                        : newTimeframe === '15m' && previousTimeframe === '1h'
-                          ? 4
-                          : newTimeframe === '1h' && previousTimeframe === '15m'
-                            ? 0.25
-                            : newTimeframe === '1h' && previousTimeframe === '4h'
-                              ? 4
-                              : newTimeframe === '4h' && previousTimeframe === '1h'
-                                ? 0.25
-                                : newTimeframe === '4h' && previousTimeframe === '12h'
-                                  ? 3
-                                  : newTimeframe === '12h' && previousTimeframe === '4h'
-                                    ? 0.33
-                                    : 1;
-
-            const newDuration = currentDuration / ratio;
-            const newTo = lockedLeftEdgeRef.current + newDuration;
-
-            chartRef.current.timeScale().setVisibleRange({
-              from: lockedLeftEdgeRef.current as any,
-              to: newTo as any,
-            });
-          } else {
-            // Normal behavior
-            chartRef.current.timeScale().setVisibleRange({
-              from: visibleRange.from as any,
-              to: visibleRange.to as any,
-            });
-          }
-        }
-      }
-
-      // Fade back in
-      setChartOpacity(1);
-    } catch (error) {
-      console.error('Failed to switch timeframe:', error);
-      setChartOpacity(1);
-    } finally {
-      setIsTransitioning(false);
-    }
-  };
 
   // Render fullscreen version
   if (isFullscreen) {
