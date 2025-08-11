@@ -54,7 +54,6 @@ impl AssetPipeline {
                         if batch.len() >= batch_size || last_flush.elapsed() > flush_interval {
                             if let Err(e) = flush_batch(&db_pool, &tick_table, &batch).await {
                                 eprintln!("[MarketData] Error flushing batch: {}", e);
-                            } else {
                             }
                             batch.clear();
                             last_flush = std::time::Instant::now();
@@ -287,7 +286,7 @@ impl CascadeScheduler {
             // Calculate initial delay to align with clock
             let now = chrono::Local::now();
             let current_second = now.second();
-            let targets = vec![1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56];
+            let targets = [1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56];
             
             let next_target = targets.iter()
                 .find(|&&t| t > current_second)

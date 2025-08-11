@@ -160,7 +160,7 @@ export const SettingsPage = () => {
           list: { backgroundColor: '#1a1a1a', borderBottom: '1px solid #333' },
           tab: {
             color: '#888',
-            '&[data-active="true"]': {
+            '&[data-active]': {
               color: '#fff',
               borderBottomColor: '#4a9eff',
             },

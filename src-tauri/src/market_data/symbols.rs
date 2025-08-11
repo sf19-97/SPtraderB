@@ -195,7 +195,6 @@ pub mod commands {
     pub async fn get_symbol_metadata(
         symbol: String,
         state: State<'_, AppState>,
-        window: Window,
     ) -> Result<SymbolMetadata, String> {
         let current_time = chrono::Utc::now().timestamp();
         

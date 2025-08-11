@@ -5,7 +5,6 @@ use log::{error, info, warn};
 use redis::aio::Connection;
 use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, Client as RedisClient, Value};
-use serde_json;
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use std::sync::Arc;

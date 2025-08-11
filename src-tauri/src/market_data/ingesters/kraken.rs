@@ -25,7 +25,7 @@ impl KrakenIngester {
         if let Some(trades) = data.get(1)?.as_array() {
             for trade in trades {
                 if let Some(trade_array) = trade.as_array() {
-                    let price = trade_array.get(0)?.as_str()?.parse::<f64>().ok()?;
+                    let price = trade_array.first()?.as_str()?.parse::<f64>().ok()?;
                     let volume = trade_array.get(1)?.as_str()?.parse::<f64>().ok()?;
                     let timestamp = trade_array.get(2)?.as_f64()?;
                     let side = trade_array.get(3)?.as_str()?;

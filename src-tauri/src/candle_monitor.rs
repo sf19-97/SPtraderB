@@ -66,7 +66,7 @@ impl CandleUpdateMonitor {
             ).await {
                 Ok(Ok(notification)) => {
                     // Parse the notification payload
-                    if let Ok(update) = serde_json::from_str::<CandleUpdateNotification>(&notification.payload()) {
+                    if let Ok(update) = serde_json::from_str::<CandleUpdateNotification>(notification.payload()) {
                         println!("[CandleMonitor] Candle update: {} {}", update.symbol, update.timeframe);
                         
                         // Emit specific event for this timeframe
@@ -77,7 +77,7 @@ impl CandleUpdateMonitor {
                         window.emit("candle-update", &update).ok();
                     }
                 }
-                Ok(Err(e)) => {
+                Ok(Err(_)) => {
                     // Connection closed, try to reconnect
                     println!("[CandleMonitor] Connection closed, reconnecting...");
                     listener = PgListener::connect(database_url).await?;

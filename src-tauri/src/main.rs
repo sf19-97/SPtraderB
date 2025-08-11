@@ -366,7 +366,7 @@ async fn fetch_candles_v2(
     emit_log(&window, "DEBUG", &format!("[V2] Query: {}", query));
 
     let pool = state.db_pool.lock().await;
-    let rows = sqlx::query_as::<_, (i64, f64, f64, f64, f64, i64)>(&query)
+    let rows = sqlx::query_as::<_, (i64, f64, f64, f64, f64, i64)>(query)
         .bind(&request.symbol)
         .bind(request.from)
         .bind(request.to)

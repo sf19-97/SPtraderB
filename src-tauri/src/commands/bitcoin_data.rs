@@ -300,7 +300,7 @@ pub async fn get_bitcoin_24h_stats(
         
         let change = current_price - price_24h_ago;
         let change_percent = if price_24h_ago != 0.0 {
-            ((current_price - price_24h_ago) / price_24h_ago * 100.0)
+            (current_price - price_24h_ago) / price_24h_ago * 100.0
         } else {
             0.0
         };

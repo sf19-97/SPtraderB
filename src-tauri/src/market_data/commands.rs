@@ -317,7 +317,7 @@ pub async fn add_market_asset(
                             }
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         // No existing data - this is a new asset, download initial history
                         println!("[MarketData] New asset {} detected, downloading {} days of historical data", 
                             symbol_for_gap_check, DEFAULT_INITIAL_HISTORY_DAYS);
@@ -350,7 +350,6 @@ pub async fn add_market_asset(
                         // Spawn catchup task
                         let symbol_clone = request.symbol.clone();
                         let window_clone = window.clone();
-                        let from_time_str = catchup_from.clone();
                         
                         tokio::spawn(async move {
                             if let Err(e) = run_historical_catchup(
@@ -667,21 +666,26 @@ async fn run_historical_catchup(
 ) -> Result<(), String> {
     let gap_minutes = (chrono::Utc::now() - from_time).num_minutes();
     
-    // Get path to catchup script
-    let script_path = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current dir: {}", e))?
+    // Get path to catchup script relative to the Cargo manifest directory
+    let script_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("src")
         .join("market_data")
         .join("historical")
         .join("catchup_ingester.py");
     
-    // Run Python catchup script
-    match tokio::process::Command::new("python3")
-        .arg(&script_path)
+    // Run Python catchup script - use full path to ensure we get the right Python
+    let python_path = if std::path::Path::new("/Users/sebastian/anaconda3/bin/python3").exists() {
+        "/Users/sebastian/anaconda3/bin/python3"
+    } else {
+        "python3"
+    };
+    
+    match tokio::process::Command::new(python_path)
+        .arg(script_path)
         .arg("--symbol")
         .arg(&symbol)
         .arg("--from")
-        .arg(&from_time.to_rfc3339())
+        .arg(from_time.to_rfc3339())
         .output()
         .await
     {
@@ -701,6 +705,9 @@ async fn run_historical_catchup(
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let error_msg = format!("Catchup failed: {}", stderr);
                 eprintln!("[MarketData] {}", error_msg);
+                
+                // Log full error for debugging
+                eprintln!("[MarketData] Full catchup error output:\n{}", stderr);
                 
                 window.emit("catchup-status", serde_json::json!({
                     "symbol": symbol,

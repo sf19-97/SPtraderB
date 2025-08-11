@@ -211,7 +211,6 @@ impl MarketDataEngine {
                         Ok(json) => {
                             if let Err(e) = std::fs::write(&config_path, json) {
                                 eprintln!("[MarketData] Auto-save write failed: {}", e);
-                            } else {
                             }
                         }
                         Err(e) => eprintln!("[MarketData] Auto-save serialization failed: {}", e),
@@ -405,9 +404,6 @@ impl PipelineBuilder {
         ];
         let cascade_procedure = format!("cascade_{}_aggregate_refresh", table_prefix);
         
-        // Create tables if they don't exist
-        self.create_schema(&tick_table, &aggregate_tables, &cascade_procedure, source).await?;
-        
         Ok(PipelineConfig {
             symbol: symbol.clone(),
             asset_class: asset_info.class.clone(),
@@ -418,22 +414,6 @@ impl PipelineBuilder {
             profile_id: None, // Will be set by caller
             profile_name: None, // Will be set by caller
         })
-    }
-    
-    async fn create_schema(
-        &self,
-        tick_table: &str,
-        aggregate_tables: &[(String, String)],
-        cascade_procedure: &str,
-        _source: &DataSource,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // This is where we'd create tables dynamically
-        // For now, we'll assume they exist or log what needs to be created
-        
-        
-        // TODO: Actual SQL creation here
-        
-        Ok(())
     }
 }
 
