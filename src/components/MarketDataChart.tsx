@@ -1355,22 +1355,16 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         if (chartRef.current && !isLoading && !isTransitioningRef.current) {
           console.log('[MarketChart] Periodic refresh check at', new Date().toLocaleTimeString());
 
-          // For periodic updates, only fetch recent data
-          const now = Math.floor(Date.now() / 1000);
-          const to = now;
-
-          // Only fetch last few minutes for updates
-          let from;
-          if (currentTimeframeRef.current === '1m') {
-            from = now - 10 * 60; // Last 10 minutes only
-          } else if (currentTimeframeRef.current === '5m') {
-            from = now - 60 * 60; // Last 1 hour
-          } else {
-            from = now - 24 * 60 * 60; // Last 1 day
-          }
-
-          // Reload data
-          fetchChartData(symbolRef.current!, currentTimeframeRef.current, from, to)
+          // CRITICAL FIX: Use the same date range as initial load to hit cache
+          // Problem: Was using Date.now() which created different timestamps every refresh
+          // Solution: Reuse the initial date range stored in dateRangeRef
+          // This ensures the backend cache key matches and we get cached data
+          if (dateRangeRef.current) {
+            const { from, to } = dateRangeRef.current;
+            
+            // Reload data with EXACT SAME range as initial load
+            // Backend will normalize these timestamps for cache key generation
+            fetchChartData(symbolRef.current!, currentTimeframeRef.current, from, to)
             .then(({ data }) => {
               if (data.length > 0 && seriesRef.current) {
                 const currentData = seriesRef.current.data();
@@ -1453,8 +1447,11 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
               }
             })
             .catch((error) => console.error('[MarketChart] Periodic refresh error:', error));
+          }
         }
-      }, 5000); // Every 5 seconds, aligned with cascade schedule
+      }, 30000); // PERFORMANCE FIX: Changed from 5s to 30s
+      // Was hammering the database with requests every 5 seconds
+      // Combined with timestamp normalization, this dramatically reduces load
     }, delaySeconds * 1000);
 
     return () => {
