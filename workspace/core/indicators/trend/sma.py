@@ -18,6 +18,7 @@ __metadata__ = {
     'author': 'system',
     'inputs': ['close'],
     'outputs': ['sma'],
+    'lookback_required': 200,  # Default to 200, but ideally should be 2x period
     'parameters': {
         'period': {
             'type': 'int',
@@ -93,19 +94,14 @@ class SMA(Indicator):
 if __name__ == "__main__":
     print(f"Testing {__metadata__['name']} indicator...")
     
-    # Create sample data
-    dates = pd.date_range('2024-01-01', periods=100, freq='D')
-    np.random.seed(42)
-    prices = 100 + np.cumsum(np.random.randn(100) * 0.5)
+    # Import the unified data loader
+    from core.data.loader import load_data_from_env
     
-    test_data = pd.DataFrame({
-        'date': dates,
-        'open': prices + np.random.randn(100) * 0.1,
-        'high': prices + abs(np.random.randn(100) * 0.2),
-        'low': prices - abs(np.random.randn(100) * 0.2),
-        'close': prices,
-        'volume': np.random.randint(1000, 10000, 100)
-    })
+    # Load data using the unified interface
+    test_data = load_data_from_env()
+    
+    print(f"Loaded {len(test_data)} rows of data")
+    print(f"Date range: {test_data.index[0]} to {test_data.index[-1]}")
     
     # Calculate SMA
     indicator = SMA(period=20)

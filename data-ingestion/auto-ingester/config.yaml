@@ -1,0 +1,33 @@
+# Auto Ingester Configuration
+
+cloud_monitor:
+  # Replace with your actual API endpoint
+  url:  "https://cm8jm78grb.execute-api.us-west-2.amazonaws.com/default/dukascopy-monitor"
+  poll_interval: 900  # 15 minutes in seconds
+  timeout: 30
+
+database:
+  url: "postgresql://postgres@localhost:5432/forex_trading"
+
+symbols:
+  - EURUSD
+  - USDJPY
+  # Add more symbols as needed:
+  # - GBPUSD
+  # - USDCHF
+  # - AUDUSD
+
+ingestion:
+  # How many days to ingest at once when catching up
+  batch_days: 7
+  # How often to retry failed ingestions
+  retry_attempts: 3
+  retry_delay: 60
+  # Path to the Dukascopy ingester script
+  ingester_script: "../dukascopy_ingester.py"
+
+logging:
+  level: INFO
+  file: "auto_ingester.log"
+  max_size: 10485760  # 10MB
+  backup_count: 5

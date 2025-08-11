@@ -8,8 +8,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use std::time::Instant;
 use tauri::Emitter;
 use std::fs::File;
+use std::io::Write;
 use arrow::array::{Array, Float64Array, StringArray, TimestampMillisecondArray};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use tempfile::NamedTempFile;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FileNode {
@@ -287,66 +289,6 @@ class NewSignal(Signal):
     def metadata(self) -> Dict[str, Any]:
         return __metadata__
 "#,
-        "order" => r#"""
-Order: New Order Executor
-"""
-import pandas as pd
-from typing import Dict, Any, Optional
-from core.base.order import Order
-
-__metadata_version__ = 1
-__metadata__ = {
-    'name': 'new_order',
-    'category': 'market',
-    'version': '0.1.0',
-    'description': 'TODO: Add description',
-    'author': 'system',
-    'status': 'prototype',
-    'order_types': ['market', 'limit'],
-    'parameters': {
-        'size': {
-            'type': 'float',
-            'default': 1.0,
-            'min': 0.0,
-            'description': 'Order size'
-        }
-    },
-    'tags': ['TODO']
-}
-
-class NewOrder(Order):
-    """
-    TODO: Add order executor description
-    """
-    
-    def __init__(self, size: float = 1.0, **params):
-        self.size = size
-        self.params = params
-    
-    def execute(self, market_state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute order
-        
-        Args:
-            market_state: Current market data and conditions
-            
-        Returns:
-            Order details to be sent to exchange
-        """
-        # TODO: Implement execution logic
-        order = {
-            'type': 'market',
-            'side': 'buy',
-            'size': self.size,
-            'symbol': market_state.get('symbol', 'UNKNOWN'),
-            'timestamp': pd.Timestamp.now()
-        }
-        return order
-    
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        return __metadata__
-"#,
         "strategy" => r#"name: new_strategy
 type: strategy
 version: 0.1.0
@@ -360,8 +302,7 @@ dependencies:
     # - core.indicators.trend.ema
   signals:
     # - core.signals.entry.oversold
-  orders:
-    # - core.orders.execution_algos.market
+  # Orders removed - use orchestrator for execution
 
 # Strategy parameters
 parameters:
@@ -414,29 +355,47 @@ exit:
 
 #[derive(Debug, Serialize)]
 pub struct RunResult {
-    success: bool,
-    execution_time_ms: f64,
-    output_lines: usize,
-    error_lines: usize,
+    pub success: bool,
+    pub execution_time_ms: f64,
+    pub output_lines: usize,
+    pub error_lines: usize,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 #[tauri::command]
 pub async fn get_indicator_categories() -> Result<Vec<String>, String> {
+    get_component_categories("indicator".to_string()).await
+}
+
+#[tauri::command]
+pub async fn get_component_categories(component_type: String) -> Result<Vec<String>, String> {
     let current_dir = env::current_dir().map_err(|e| e.to_string())?;
-    let indicators_path = current_dir.parent()
+    let workspace_path = current_dir.parent()
         .ok_or("Failed to get parent directory")?
-        .join("workspace")
-        .join("core")
-        .join("indicators");
+        .join("workspace");
     
-    if !indicators_path.exists() {
-        return Ok(Vec::new());
+    let component_path = match component_type.as_str() {
+        "indicator" => workspace_path.join("core").join("indicators"),
+        "signal" => workspace_path.join("core").join("signals"),
+        _ => return Err(format!("Invalid component type: {}", component_type)),
+    };
+    
+    if !component_path.exists() {
+        // Return default categories if directory doesn't exist
+        let defaults = match component_type.as_str() {
+            "indicator" => vec!["momentum", "trend", "volatility", "volume", "microstructure"],
+            "signal" => vec![], // No default categories - signals are flat
+            "order" => vec!["execution_algos", "risk_filters", "smart_routing"],
+            _ => vec![],
+        };
+        return Ok(defaults.into_iter().map(String::from).collect());
     }
     
     let mut categories = Vec::new();
     
-    // Read all subdirectories in the indicators folder
-    for entry in fs::read_dir(&indicators_path).map_err(|e| e.to_string())? {
+    // Read all subdirectories in the component folder
+    for entry in fs::read_dir(&component_path).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         
@@ -487,11 +446,7 @@ pub async fn get_workspace_components() -> Result<Vec<ComponentInfo>, String> {
         scan_component_directory(&signals_path, "signal", &mut components)?;
     }
     
-    // Scan orders
-    let orders_path = workspace_path.join("core").join("orders");
-    if orders_path.exists() {
-        scan_component_directory(&orders_path, "order", &mut components)?;
-    }
+    // Orders removed - no longer scanning orders directory
     
     // Scan strategies
     let strategies_path = workspace_path.join("strategies");
@@ -654,8 +609,8 @@ pub async fn rename_component_file(
     old_path: String, 
     new_name: String
 ) -> Result<String, String> {
-    // Validate paths
-    if old_path.contains("..") || new_name.contains("..") || new_name.contains("/") || new_name.contains("\\") {
+    // Validate paths - allow forward slashes in new_name for moving files
+    if old_path.contains("..") || new_name.contains("..") || new_name.contains("\\") {
         return Err("Invalid file path or name".to_string());
     }
     
@@ -675,10 +630,30 @@ pub async fn rename_component_file(
         return Err("File not found".to_string());
     }
     
-    // Get the parent directory and create new path
-    let parent = old_full_path.parent()
-        .ok_or("Failed to get parent directory")?;
-    let new_full_path = parent.join(&new_name);
+    // Determine if this is a move or rename operation
+    let new_full_path = if new_name.contains('/') {
+        // It's a move operation - new_name is a relative path
+        let new_path = workspace_path.join(&new_name);
+        
+        // Ensure the new path is still within workspace
+        if !new_path.starts_with(&workspace_path) {
+            return Err("Access denied: destination outside workspace".to_string());
+        }
+        
+        // Ensure the target directory exists
+        if let Some(parent) = new_path.parent() {
+            if !parent.exists() {
+                return Err("Target directory does not exist".to_string());
+            }
+        }
+        
+        new_path
+    } else {
+        // It's a simple rename in the same directory
+        let parent = old_full_path.parent()
+            .ok_or("Failed to get parent directory")?;
+        parent.join(&new_name)
+    };
     
     // Check if new file already exists
     if new_full_path.exists() {
@@ -723,9 +698,13 @@ pub async fn delete_component_folder(folder_path: String) -> Result<(), String> 
         return Err("Folder not found".to_string());
     }
     
-    // Only allow deletion of custom category folders
-    if !full_path.starts_with(workspace_path.join("core").join("indicators")) {
-        return Err("Can only delete custom indicator category folders".to_string());
+    // Only allow deletion of custom category folders in core components
+    let is_valid_component_path = full_path.starts_with(workspace_path.join("core").join("indicators")) ||
+                                  full_path.starts_with(workspace_path.join("core").join("signals")) ||
+                                  full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    if !is_valid_component_path {
+        return Err("Can only delete custom category folders in core components".to_string());
     }
     
     // Don't delete default categories
@@ -733,8 +712,18 @@ pub async fn delete_component_folder(folder_path: String) -> Result<(), String> 
         .and_then(|n| n.to_str())
         .ok_or("Invalid folder name")?;
     
-    let default_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
-    if default_categories.contains(&folder_name) {
+    // Define default categories for each component type
+    let is_indicator_path = full_path.starts_with(workspace_path.join("core").join("indicators"));
+    let is_signal_path = full_path.starts_with(workspace_path.join("core").join("signals"));
+    let is_order_path = full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    let default_indicator_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
+    let default_signal_categories: [&str; 0] = []; // No default categories for signals
+    let default_order_categories = ["execution_algos", "risk_filters", "smart_routing"];
+    
+    if (is_indicator_path && default_indicator_categories.contains(&folder_name)) ||
+       (is_signal_path && default_signal_categories.contains(&folder_name)) ||
+       (is_order_path && default_order_categories.contains(&folder_name)) {
         return Err("Cannot delete default category folders".to_string());
     }
     
@@ -783,9 +772,13 @@ pub async fn rename_component_folder(
         return Err("Access denied: folder outside workspace".to_string());
     }
     
-    // Only allow renaming of custom category folders
-    if !old_full_path.starts_with(workspace_path.join("core").join("indicators")) {
-        return Err("Can only rename custom indicator category folders".to_string());
+    // Only allow renaming of custom category folders in core components
+    let is_valid_component_path = old_full_path.starts_with(workspace_path.join("core").join("indicators")) ||
+                                  old_full_path.starts_with(workspace_path.join("core").join("signals")) ||
+                                  old_full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    if !is_valid_component_path {
+        return Err("Can only rename custom category folders in core components".to_string());
     }
     
     // Don't rename default categories
@@ -793,8 +786,18 @@ pub async fn rename_component_folder(
         .and_then(|n| n.to_str())
         .ok_or("Invalid folder name")?;
     
-    let default_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
-    if default_categories.contains(&old_folder_name) {
+    // Define default categories for each component type
+    let is_indicator_path = old_full_path.starts_with(workspace_path.join("core").join("indicators"));
+    let is_signal_path = old_full_path.starts_with(workspace_path.join("core").join("signals"));
+    let is_order_path = old_full_path.starts_with(workspace_path.join("core").join("orders"));
+    
+    let default_indicator_categories = ["momentum", "trend", "volatility", "volume", "microstructure"];
+    let default_signal_categories: [&str; 0] = []; // No default categories for signals
+    let default_order_categories = ["execution_algos", "risk_filters", "smart_routing"];
+    
+    if (is_indicator_path && default_indicator_categories.contains(&old_folder_name)) ||
+       (is_signal_path && default_signal_categories.contains(&old_folder_name)) ||
+       (is_order_path && default_order_categories.contains(&old_folder_name)) {
         return Err("Cannot rename default category folders".to_string());
     }
     
@@ -867,6 +870,7 @@ pub async fn list_test_datasets() -> Result<Vec<String>, String> {
 pub async fn run_component(
     file_path: String,
     dataset: Option<String>,
+    env_vars: Option<std::collections::HashMap<String, String>>,
     window: tauri::Window,
 ) -> Result<RunResult, String> {
     // Validate path
@@ -909,6 +913,13 @@ pub async fn run_component(
         cmd.env("TEST_DATASET", dataset_name);
     }
     
+    // Add additional environment variables if provided
+    if let Some(env_vars) = env_vars {
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+    }
+    
     // Emit start event
     window.emit("component-run-start", serde_json::json!({
         "file": file_path,
@@ -927,6 +938,8 @@ pub async fn run_component(
     
     let mut output_lines = 0;
     let mut error_lines = 0;
+    let mut stdout_content = String::new();
+    let mut stderr_content = String::new();
     
     // Create readers
     let stdout_reader = BufReader::new(stdout);
@@ -940,32 +953,38 @@ pub async fn run_component(
     let stdout_task = tokio::spawn(async move {
         let mut lines = stdout_reader.lines();
         let mut count = 0;
+        let mut content = String::new();
         
         while let Ok(Some(line)) = lines.next_line().await {
             window_stdout.emit("component-output", serde_json::json!({
                 "type": "stdout",
-                "line": line,
+                "line": line.clone(),
                 "timestamp": chrono::Local::now().format("%H:%M:%S%.3f").to_string()
             })).ok();
+            content.push_str(&line);
+            content.push('\n');
             count += 1;
         }
-        count
+        (count, content)
     });
     
     // Task to read stderr
     let stderr_task = tokio::spawn(async move {
         let mut lines = stderr_reader.lines();
         let mut count = 0;
+        let mut content = String::new();
         
         while let Ok(Some(line)) = lines.next_line().await {
             window_stderr.emit("component-output", serde_json::json!({
                 "type": "stderr", 
-                "line": line,
+                "line": line.clone(),
                 "timestamp": chrono::Local::now().format("%H:%M:%S%.3f").to_string()
             })).ok();
+            content.push_str(&line);
+            content.push('\n');
             count += 1;
         }
-        count
+        (count, content)
     });
     
     // Wait for process with timeout
@@ -995,8 +1014,12 @@ pub async fn run_component(
     };
     
     // Wait for output tasks to complete
-    output_lines = stdout_task.await.unwrap_or(0);
-    error_lines = stderr_task.await.unwrap_or(0);
+    let (stdout_lines, stdout_str) = stdout_task.await.unwrap_or((0, String::new()));
+    let (stderr_lines, stderr_str) = stderr_task.await.unwrap_or((0, String::new()));
+    output_lines = stdout_lines;
+    error_lines = stderr_lines;
+    stdout_content = stdout_str;
+    stderr_content = stderr_str;
     
     let execution_time_ms = start_time.elapsed().as_millis() as f64;
     
@@ -1013,6 +1036,8 @@ pub async fn run_component(
         execution_time_ms,
         output_lines,
         error_lines,
+        stdout: stdout_content,
+        stderr: stderr_content,
     })
 }
 
@@ -1148,4 +1173,39 @@ pub async fn load_parquet_data(dataset_name: String) -> Result<ChartData, String
         low: lows,
         close: closes,
     })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CandleData {
+    time: Vec<i64>,
+    open: Vec<f64>,
+    high: Vec<f64>,
+    low: Vec<f64>,
+    close: Vec<f64>,
+}
+
+#[tauri::command]
+pub async fn write_temp_candles(candles: CandleData) -> Result<String, String> {
+    // Create a temporary file
+    let mut temp_file = NamedTempFile::new()
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    
+    // Get the path before we move the file
+    let _temp_path = temp_file.path().to_string_lossy().to_string();
+    
+    // Serialize the candle data to JSON
+    let json_data = serde_json::to_string(&candles)
+        .map_err(|e| format!("Failed to serialize candle data: {}", e))?;
+    
+    // Write to the temp file
+    temp_file.write_all(json_data.as_bytes())
+        .map_err(|e| format!("Failed to write candle data: {}", e))?;
+    
+    // Keep the file from being deleted by persisting it
+    let persisted_path = temp_file.into_temp_path();
+    let final_path = persisted_path.to_string_lossy().to_string();
+    persisted_path.keep()
+        .map_err(|e| format!("Failed to persist temp file: {}", e))?;
+    
+    Ok(final_path)
 }

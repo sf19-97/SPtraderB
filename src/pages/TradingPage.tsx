@@ -4,8 +4,7 @@ import { Box, Indicator } from '@mantine/core';
 import { MarketDataBar } from '../components/MarketDataBar';
 import { TradingRightSidebar } from '../components/TradingRightSidebar';
 import AdaptiveChart from '../components/AdaptiveChart';
-import { AdaptiveChartV2 } from '../components/AdaptiveChartV2';
-import { useTrading } from '../contexts/TradingContext';
+import { useTradingStore } from '../stores/useTradingStore';
 import { invoke } from '@tauri-apps/api/core';
 
 interface DatabaseStatus {
@@ -17,8 +16,8 @@ interface DatabaseStatus {
 
 export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const { selectedPair, selectedTimeframe, chartVersion } = useTrading();
-  const [v2DetailLevel, setV2DetailLevel] = useState<string>('1h');
+  const { selectedPair, selectedTimeframe } = useTradingStore();
+  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>({
     connected: false,
     database_name: 'forex_trading',
@@ -59,31 +58,27 @@ export const TradingPage = () => {
 
         {/* Chart area */}
         <Box style={{ flex: 1, background: '#0a0a0a', position: 'relative' }}>
-          {chartVersion === 'v1' ? (
-            <AdaptiveChart 
-              symbol={selectedPair}
-              timeframe={selectedTimeframe}
-            />
-          ) : (
-            <AdaptiveChartV2 
-              symbol={selectedPair}
-              timeframe={selectedTimeframe}
-              onDetailLevelChange={setV2DetailLevel}
-            />
-          )}
+          <AdaptiveChart
+            symbol={selectedPair}
+            timeframe={selectedTimeframe}
+            isFullscreen={isChartFullscreen}
+            onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
+          />
         </Box>
 
         {/* Bottom status bar */}
-        <Box style={{
-          height: '30px',
-          background: '#1a1a1a',
-          borderTop: '1px solid #333',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 20px',
-          fontSize: '12px',
-          color: '#888'
-        }}>
+        <Box
+          style={{
+            height: '30px',
+            background: '#1a1a1a',
+            borderTop: '1px solid #333',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 20px',
+            fontSize: '12px',
+            color: '#888',
+          }}
+        >
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Indicator
               inline
@@ -100,7 +95,7 @@ export const TradingPage = () => {
       </Box>
 
       {/* Right sidebar - collapsible */}
-      <TradingRightSidebar 
+      <TradingRightSidebar
         collapsed={rightCollapsed}
         onToggle={() => setRightCollapsed(!rightCollapsed)}
       />

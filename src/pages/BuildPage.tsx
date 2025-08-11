@@ -1,15 +1,14 @@
 // src/pages/BuildPage.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useBuild } from '../contexts/BuildContext';
+import { useBuildStore } from '../stores/useBuildStore';
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  Container, 
-  Title, 
-  Text, 
-  Paper, 
-  Group, 
-  Button, 
+import {
+  Title,
+  Text,
+  Paper,
+  Group,
+  Button,
   TextInput,
   Badge,
   Grid,
@@ -20,26 +19,23 @@ import {
   UnstyledButton,
   Tabs,
   Loader,
-  Center
+  Center,
 } from '@mantine/core';
-import { 
-  IconCode, 
-  IconBolt, 
-  IconTrendingUp, 
-  IconGitBranch, 
-  IconClock, 
-  IconSearch, 
-  IconPlus, 
+import {
+  IconBolt,
+  IconGitBranch,
+  IconClock,
+  IconSearch,
+  IconPlus,
   IconPlayerPlay,
   IconGitCommit,
-  IconCircleCheck,
   IconArrowRight,
   IconFileCode,
   IconBox,
   IconStack3,
   IconActivity,
   IconTerminal2,
-  IconChartBar
+  IconChartBar,
 } from '@tabler/icons-react';
 
 interface ComponentInfo {
@@ -53,16 +49,15 @@ interface ComponentInfo {
 
 export const BuildPage = () => {
   const navigate = useNavigate();
-  const { 
-    searchTerm, 
-    setSearchTerm, 
-    selectedCategory, 
+  const {
+    searchTerm,
+    setSearchTerm,
+    selectedCategory,
     setSelectedCategory,
     scrollPosition,
     setScrollPosition,
-    setLastOpenedComponent,
-    addToRecentComponents
-  } = useBuild();
+    addRecentComponent,
+  } = useBuildStore();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [realComponents, setRealComponents] = useState<ComponentInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -79,14 +74,14 @@ export const BuildPage = () => {
         setIsLoading(false);
       }
     };
-    
+
     loadComponents();
   }, []);
 
   // Transform real components into the display format
   const components = {
     indicators: realComponents
-      .filter(c => c.component_type === 'indicator')
+      .filter((c) => c.component_type === 'indicator')
       .map((c, idx) => ({
         id: idx + 1,
         name: c.name,
@@ -98,10 +93,10 @@ export const BuildPage = () => {
         language: 'python',
         dependencies: [],
         category: c.category,
-        path: c.path
+        path: c.path,
       })),
     signals: realComponents
-      .filter(c => c.component_type === 'signal')
+      .filter((c) => c.component_type === 'signal')
       .map((c, idx) => ({
         id: idx + 1,
         name: c.name,
@@ -112,24 +107,11 @@ export const BuildPage = () => {
         status: c.status || 'prototype',
         indicators: [],
         complexity: 'medium',
-        path: c.path
+        path: c.path,
       })),
-    orders: realComponents
-      .filter(c => c.component_type === 'order')
-      .map((c, idx) => ({
-        id: idx + 1,
-        name: c.name,
-        description: c.has_metadata ? 'Order with metadata' : 'Order without metadata',
-        lastModified: 'Recently',
-        avgFillTime: '2.0s',
-        slippage: '0.03%',
-        status: c.status || 'prototype',
-        venues: ['Exchange'],
-        type: 'market',
-        path: c.path
-      })),
+    orders: [], // Orders removed - moving to orchestrator architecture
     strategies: realComponents
-      .filter(c => c.component_type === 'strategy')
+      .filter((c) => c.component_type === 'strategy')
       .map((c, idx) => ({
         id: idx + 1,
         name: c.name,
@@ -141,10 +123,9 @@ export const BuildPage = () => {
         components: {
           indicators: 2,
           signals: 1,
-          orders: 1
         },
-        path: c.path
-      }))
+        path: c.path,
+      })),
   };
 
   const stats = {
@@ -153,33 +134,35 @@ export const BuildPage = () => {
     liveStrategies: 0,
     lastBuild: 'Recently',
     codeLines: '1,000+',
-    gitCommits: 50
+    gitCommits: 50,
   };
 
   const launchIDE = (type: string, item: any) => {
     // Store component info before navigating
     if (item) {
-      const componentInfo = {
-        type,
+      addRecentComponent({
+        type: type as 'indicator' | 'signal' | 'strategy',
         name: item.name,
-        path: item.path || ''
-      };
-      setLastOpenedComponent(componentInfo);
-      addToRecentComponents(componentInfo);
+        path: item.path || '',
+        description: item.description,
+        category: item.category,
+        author: item.author,
+        version: item.version,
+      });
     }
-    
+
     const params = new URLSearchParams({
       type,
       file: item ? item.name : 'new',
-      path: item ? item.path || '' : ''
+      path: item ? item.path || '' : '',
     });
     navigate(`/ide?${params.toString()}`);
   };
 
   const getStatusColor = (status: string) => {
-    switch(status) {
+    switch (status) {
       case 'ready':
-      case 'active':  // Keep for backwards compatibility
+      case 'active': // Keep for backwards compatibility
       case 'live':
         return 'green';
       case 'in_progress':
@@ -197,9 +180,10 @@ export const BuildPage = () => {
   // Filter components based on search
   const filterComponents = (items: any[]) => {
     if (!searchTerm) return items;
-    return items.filter(item => 
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchTerm.toLowerCase())
+    return items.filter(
+      (item) =>
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchTerm.toLowerCase())
     );
   };
 
@@ -245,22 +229,28 @@ export const BuildPage = () => {
   }, []); // Empty dependency array - set up once on mount
 
   return (
-    <Box id="build-page-container" style={{ minHeight: '100vh', background: '#0a0a0a', position: 'relative' }}>
+    <Box
+      id="build-page-container"
+      style={{ minHeight: '100vh', background: '#0a0a0a', position: 'relative' }}
+    >
       {/* Animated Background */}
-      <Box 
-        style={{ 
-          position: 'fixed', 
-          inset: 0, 
-          overflow: 'hidden', 
+      <Box
+        style={{
+          position: 'fixed',
+          inset: 0,
+          overflow: 'hidden',
           pointerEvents: 'none',
-          opacity: 0.3
+          opacity: 0.3,
         }}
       >
-        <Box style={{ 
-          position: 'absolute', 
-          inset: 0, 
-          background: 'linear-gradient(to bottom right, rgba(59, 130, 246, 0.05), rgba(147, 51, 234, 0.05), rgba(236, 72, 153, 0.05))' 
-        }} />
+        <Box
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(to bottom right, rgba(59, 130, 246, 0.05), rgba(147, 51, 234, 0.05), rgba(236, 72, 153, 0.05))',
+          }}
+        />
       </Box>
 
       <Box style={{ position: 'relative', zIndex: 10, padding: '2rem' }}>
@@ -268,22 +258,24 @@ export const BuildPage = () => {
         <Box mb="xl">
           <Group justify="space-between" mb="xl">
             <div>
-              <Title 
-                order={1} 
+              <Title
+                order={1}
                 mb="xs"
-                style={{ 
+                style={{
                   fontSize: '2.5rem',
                   background: 'linear-gradient(to right, #60a5fa, #a78bfa, #f472b6)',
                   WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent'
+                  WebkitTextFillColor: 'transparent',
                 }}
               >
                 Build Center
               </Title>
-              <Text size="xl" c="dimmed">Your trading system components</Text>
+              <Text size="xl" c="dimmed">
+                Your trading system components
+              </Text>
             </div>
-            <Button 
-              size="lg" 
+            <Button
+              size="lg"
               leftSection={<IconTerminal2 size={20} />}
               variant="gradient"
               gradient={{ from: 'blue', to: 'cyan', deg: 90 }}
@@ -296,39 +288,99 @@ export const BuildPage = () => {
           {/* Stats Bar */}
           <Grid mb="xl">
             <Grid.Col span={{ base: 12, xs: 6, sm: 4, md: 2 }}>
-              <Paper p="md" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                <Text size="sm" c="dimmed" mb={4}>Components</Text>
-                <Text size="xl" fw={700}>{stats.totalComponents}</Text>
+              <Paper
+                p="md"
+                style={{
+                  background: 'rgba(31, 41, 55, 0.5)',
+                  border: '1px solid rgba(75, 85, 99, 0.3)',
+                }}
+              >
+                <Text size="sm" c="dimmed" mb={4}>
+                  Components
+                </Text>
+                <Text size="xl" fw={700}>
+                  {stats.totalComponents}
+                </Text>
               </Paper>
             </Grid.Col>
             <Grid.Col span={{ base: 12, xs: 6, sm: 4, md: 2 }}>
-              <Paper p="md" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                <Text size="sm" c="dimmed" mb={4}>Active Tests</Text>
-                <Text size="xl" fw={700} c="yellow">{stats.activeBacktests}</Text>
+              <Paper
+                p="md"
+                style={{
+                  background: 'rgba(31, 41, 55, 0.5)',
+                  border: '1px solid rgba(75, 85, 99, 0.3)',
+                }}
+              >
+                <Text size="sm" c="dimmed" mb={4}>
+                  Active Tests
+                </Text>
+                <Text size="xl" fw={700} c="yellow">
+                  {stats.activeBacktests}
+                </Text>
               </Paper>
             </Grid.Col>
             <Grid.Col span={{ base: 12, xs: 6, sm: 4, md: 2 }}>
-              <Paper p="md" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                <Text size="sm" c="dimmed" mb={4}>Live Strategies</Text>
-                <Text size="xl" fw={700} c="green">{stats.liveStrategies}</Text>
+              <Paper
+                p="md"
+                style={{
+                  background: 'rgba(31, 41, 55, 0.5)',
+                  border: '1px solid rgba(75, 85, 99, 0.3)',
+                }}
+              >
+                <Text size="sm" c="dimmed" mb={4}>
+                  Live Strategies
+                </Text>
+                <Text size="xl" fw={700} c="green">
+                  {stats.liveStrategies}
+                </Text>
               </Paper>
             </Grid.Col>
             <Grid.Col span={{ base: 12, xs: 6, sm: 4, md: 2 }}>
-              <Paper p="md" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                <Text size="sm" c="dimmed" mb={4}>Code Lines</Text>
-                <Text size="xl" fw={700}>{stats.codeLines}</Text>
+              <Paper
+                p="md"
+                style={{
+                  background: 'rgba(31, 41, 55, 0.5)',
+                  border: '1px solid rgba(75, 85, 99, 0.3)',
+                }}
+              >
+                <Text size="sm" c="dimmed" mb={4}>
+                  Code Lines
+                </Text>
+                <Text size="xl" fw={700}>
+                  {stats.codeLines}
+                </Text>
               </Paper>
             </Grid.Col>
             <Grid.Col span={{ base: 12, xs: 6, sm: 4, md: 2 }}>
-              <Paper p="md" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                <Text size="sm" c="dimmed" mb={4}>Git Commits</Text>
-                <Text size="xl" fw={700}>{stats.gitCommits}</Text>
+              <Paper
+                p="md"
+                style={{
+                  background: 'rgba(31, 41, 55, 0.5)',
+                  border: '1px solid rgba(75, 85, 99, 0.3)',
+                }}
+              >
+                <Text size="sm" c="dimmed" mb={4}>
+                  Git Commits
+                </Text>
+                <Text size="xl" fw={700}>
+                  {stats.gitCommits}
+                </Text>
               </Paper>
             </Grid.Col>
             <Grid.Col span={{ base: 12, xs: 6, sm: 4, md: 2 }}>
-              <Paper p="md" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-                <Text size="sm" c="dimmed" mb={4}>Last Build</Text>
-                <Text size="sm" fw={500}>{stats.lastBuild}</Text>
+              <Paper
+                p="md"
+                style={{
+                  background: 'rgba(31, 41, 55, 0.5)',
+                  border: '1px solid rgba(75, 85, 99, 0.3)',
+                }}
+              >
+                <Text size="sm" c="dimmed" mb={4}>
+                  Last Build
+                </Text>
+                <Text size="sm" fw={500}>
+                  {stats.lastBuild}
+                </Text>
               </Paper>
             </Grid.Col>
           </Grid>
@@ -342,21 +394,21 @@ export const BuildPage = () => {
               leftSection={<IconSearch size={16} />}
               style={{ flex: 1 }}
               styles={{
-                input: { 
-                  background: 'rgba(31, 41, 55, 0.5)', 
+                input: {
+                  background: 'rgba(31, 41, 55, 0.5)',
                   border: '1px solid rgba(75, 85, 99, 0.3)',
                   '&:focus': {
-                    borderColor: 'rgba(59, 130, 246, 0.5)'
-                  }
-                }
+                    borderColor: 'rgba(59, 130, 246, 0.5)',
+                  },
+                },
               }}
             />
           </Group>
         </Box>
 
         {/* Tabs for categories */}
-        <Tabs 
-          value={selectedCategory} 
+        <Tabs
+          value={selectedCategory}
           onChange={(value) => setSelectedCategory(value || 'all')}
           mb="xl"
         >
@@ -364,7 +416,6 @@ export const BuildPage = () => {
             <Tabs.Tab value="all">All</Tabs.Tab>
             <Tabs.Tab value="indicators">📊 Indicators</Tabs.Tab>
             <Tabs.Tab value="signals">⚡ Signals</Tabs.Tab>
-            <Tabs.Tab value="orders">📈 Orders</Tabs.Tab>
             <Tabs.Tab value="strategies">🎯 Strategies</Tabs.Tab>
           </Tabs.List>
         </Tabs>
@@ -375,462 +426,443 @@ export const BuildPage = () => {
             <Loader size="lg" />
           </Center>
         ) : (
-        <Grid gutter="md">
-          {/* Indicators */}
-          {(selectedCategory === 'all' || selectedCategory === 'indicators') && (
-            <>
-              {selectedCategory === 'all' && (
-                <Grid.Col span={12}>
-                  <Group gap="xs" mb="md">
-                    <Text size="xl" fw={700}>📊 Indicators</Text>
-                    <Text size="sm" c="dimmed">({filterComponents(components.indicators).length})</Text>
-                  </Group>
-                </Grid.Col>
-              )}
-              {filterComponents(components.indicators).map(indicator => (
-                <Grid.Col key={indicator.id} span={{ base: 12, sm: 6, lg: 4 }}>
-                  <Card
-                    p="lg"
-                    withBorder
-                    style={{ 
-                      background: 'rgba(31, 41, 55, 0.5)', 
-                      borderColor: hoveredItem === `indicator-${indicator.id}` ? 'rgba(59, 130, 246, 0.5)' : 'rgba(75, 85, 99, 0.3)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      transform: hoveredItem === `indicator-${indicator.id}` ? 'translateY(-2px)' : 'translateY(0)'
-                    }}
-                    onMouseEnter={() => setHoveredItem(`indicator-${indicator.id}`)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => launchIDE('indicator', indicator)}
-                  >
-                    <Group justify="space-between" align="flex-start" mb="md">
-                      <div>
-                        <Group gap="xs" mb={4}>
-                          <Text size="lg" fw={600}>{indicator.name}</Text>
-                          <Badge color={getStatusColor(indicator.status)} size="sm">
-                            {indicator.status}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" c="dimmed">{indicator.description}</Text>
-                      </div>
-                      <IconFileCode 
-                        size={20} 
-                        style={{ 
-                          color: hoveredItem === `indicator-${indicator.id}` ? '#60a5fa' : '#6b7280',
-                          transition: 'color 0.2s ease'
-                        }} 
-                      />
+          <Grid gutter="md">
+            {/* Indicators */}
+            {(selectedCategory === 'all' || selectedCategory === 'indicators') && (
+              <>
+                {selectedCategory === 'all' && (
+                  <Grid.Col span={12}>
+                    <Group gap="xs" mb="md">
+                      <Text size="xl" fw={700}>
+                        📊 Indicators
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        ({filterComponents(components.indicators).length})
+                      </Text>
                     </Group>
-                    
-                    <Grid gutter="xs" mb="md">
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Performance:</Text>
-                        <Text size="sm" c="green" fw={500}>{indicator.performance}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Used in:</Text>
-                        <Text size="sm">{indicator.usage} signals</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Language:</Text>
-                        <Text size="sm">{indicator.language}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Category:</Text>
-                        <Text size="sm">{indicator.category}</Text>
-                      </Grid.Col>
-                    </Grid>
-                    
-                    <Group justify="space-between" align="center">
-                      <Group gap={4}>
-                        <IconClock size={12} style={{ color: '#6b7280' }} />
-                        <Text size="xs" c="dimmed">{indicator.lastModified}</Text>
-                      </Group>
-                      <IconArrowRight 
-                        size={16} 
-                        style={{ 
-                          color: hoveredItem === `indicator-${indicator.id}` ? '#60a5fa' : '#6b7280',
-                          transform: hoveredItem === `indicator-${indicator.id}` ? 'translateX(4px)' : 'translateX(0)',
-                          transition: 'all 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                  </Card>
-                </Grid.Col>
-              ))}
-              <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}>
-                <Card
-                  p="lg"
-                  withBorder
-                  style={{ 
-                    background: 'rgba(31, 41, 55, 0.3)', 
-                    borderColor: 'rgba(75, 85, 99, 0.5)',
-                    borderStyle: 'dashed',
-                    cursor: 'pointer',
-                    minHeight: '200px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      borderColor: 'rgba(59, 130, 246, 0.5)',
-                      background: 'rgba(31, 41, 55, 0.4)'
-                    }
-                  }}
-                  onClick={() => launchIDE('indicator', null)}
-                >
-                  <Stack align="center" gap="sm">
-                    <IconPlus size={48} style={{ color: '#6b7280' }} />
-                    <Text c="dimmed">Create New Indicator</Text>
-                  </Stack>
-                </Card>
-              </Grid.Col>
-            </>
-          )}
-
-          {/* Signals */}
-          {(selectedCategory === 'all' || selectedCategory === 'signals') && (
-            <>
-              {selectedCategory === 'all' && (
-                <Grid.Col span={12}>
-                  <Group gap="xs" mb="md" mt="xl">
-                    <Text size="xl" fw={700}>⚡ Signals</Text>
-                    <Text size="sm" c="dimmed">({filterComponents(components.signals).length})</Text>
-                  </Group>
-                </Grid.Col>
-              )}
-              {filterComponents(components.signals).map(signal => (
-                <Grid.Col key={signal.id} span={{ base: 12, sm: 6, lg: 4 }}>
-                  <Card
-                    p="lg"
-                    withBorder
-                    style={{ 
-                      background: 'rgba(31, 41, 55, 0.5)', 
-                      borderColor: hoveredItem === `signal-${signal.id}` ? 'rgba(251, 191, 36, 0.5)' : 'rgba(75, 85, 99, 0.3)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      transform: hoveredItem === `signal-${signal.id}` ? 'translateY(-2px)' : 'translateY(0)'
-                    }}
-                    onMouseEnter={() => setHoveredItem(`signal-${signal.id}`)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => launchIDE('signal', signal)}
-                  >
-                    <Group justify="space-between" align="flex-start" mb="md">
-                      <div>
-                        <Group gap="xs" mb={4}>
-                          <Text size="lg" fw={600}>{signal.name}</Text>
-                          <Badge color={getStatusColor(signal.status)} size="sm">
-                            {signal.status}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" c="dimmed">{signal.description}</Text>
-                      </div>
-                      <IconBolt 
-                        size={20} 
-                        style={{ 
-                          color: hoveredItem === `signal-${signal.id}` ? '#fbbf24' : '#6b7280',
-                          transition: 'color 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                    
-                    <Grid gutter="xs" mb="md">
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Accuracy:</Text>
-                        <Text size="sm" c="green" fw={500}>{signal.accuracy}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Triggers:</Text>
-                        <Text size="sm">{signal.triggers}/day</Text>
-                      </Grid.Col>
-                      <Grid.Col span={12}>
-                        <Text size="xs" c="dimmed">Uses:</Text>
-                        <Text size="xs">{signal.indicators.join(', ')}</Text>
-                      </Grid.Col>
-                    </Grid>
-                    
-                    <Group justify="space-between" align="center">
-                      <Group gap={4}>
-                        <IconClock size={12} style={{ color: '#6b7280' }} />
-                        <Text size="xs" c="dimmed">{signal.lastModified}</Text>
-                      </Group>
-                      <IconArrowRight 
-                        size={16} 
-                        style={{ 
-                          color: hoveredItem === `signal-${signal.id}` ? '#fbbf24' : '#6b7280',
-                          transform: hoveredItem === `signal-${signal.id}` ? 'translateX(4px)' : 'translateX(0)',
-                          transition: 'all 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                  </Card>
-                </Grid.Col>
-              ))}
-              <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}>
-                <Card
-                  p="lg"
-                  withBorder
-                  style={{ 
-                    background: 'rgba(31, 41, 55, 0.3)', 
-                    borderColor: 'rgba(75, 85, 99, 0.5)',
-                    borderStyle: 'dashed',
-                    cursor: 'pointer',
-                    minHeight: '200px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      borderColor: 'rgba(251, 191, 36, 0.5)',
-                      background: 'rgba(31, 41, 55, 0.4)'
-                    }
-                  }}
-                  onClick={() => launchIDE('signal', null)}
-                >
-                  <Stack align="center" gap="sm">
-                    <IconPlus size={48} style={{ color: '#6b7280' }} />
-                    <Text c="dimmed">Create New Signal</Text>
-                  </Stack>
-                </Card>
-              </Grid.Col>
-            </>
-          )}
-
-          {/* Order Types */}
-          {(selectedCategory === 'all' || selectedCategory === 'orders') && (
-            <>
-              {selectedCategory === 'all' && (
-                <Grid.Col span={12}>
-                  <Group gap="xs" mb="md" mt="xl">
-                    <Text size="xl" fw={700}>📈 Order Execution</Text>
-                    <Text size="sm" c="dimmed">({filterComponents(components.orders).length})</Text>
-                  </Group>
-                </Grid.Col>
-              )}
-              {filterComponents(components.orders).map(order => (
-                <Grid.Col key={order.id} span={{ base: 12, sm: 6, lg: 4 }}>
-                  <Card
-                    p="lg"
-                    withBorder
-                    style={{ 
-                      background: 'rgba(31, 41, 55, 0.5)', 
-                      borderColor: hoveredItem === `order-${order.id}` ? 'rgba(34, 197, 94, 0.5)' : 'rgba(75, 85, 99, 0.3)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      transform: hoveredItem === `order-${order.id}` ? 'translateY(-2px)' : 'translateY(0)'
-                    }}
-                    onMouseEnter={() => setHoveredItem(`order-${order.id}`)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => launchIDE('order', order)}
-                  >
-                    <Group justify="space-between" align="flex-start" mb="md">
-                      <div>
-                        <Group gap="xs" mb={4}>
-                          <Text size="lg" fw={600}>{order.name}</Text>
-                          <Badge color={getStatusColor(order.status)} size="sm">
-                            {order.status}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" c="dimmed">{order.description}</Text>
-                      </div>
-                      <IconTrendingUp 
-                        size={20} 
-                        style={{ 
-                          color: hoveredItem === `order-${order.id}` ? '#22c55e' : '#6b7280',
-                          transition: 'color 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                    
-                    <Grid gutter="xs" mb="md">
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Avg Fill:</Text>
-                        <Text size="sm" c="green" fw={500}>{order.avgFillTime}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Slippage:</Text>
-                        <Text size="sm">{order.slippage}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Type:</Text>
-                        <Text size="sm">{order.type}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <Text size="xs" c="dimmed">Venues:</Text>
-                        <Text size="xs">{order.venues.join(', ')}</Text>
-                      </Grid.Col>
-                    </Grid>
-                    
-                    <Group justify="space-between" align="center">
-                      <Group gap={4}>
-                        <IconClock size={12} style={{ color: '#6b7280' }} />
-                        <Text size="xs" c="dimmed">{order.lastModified}</Text>
-                      </Group>
-                      <IconArrowRight 
-                        size={16} 
-                        style={{ 
-                          color: hoveredItem === `order-${order.id}` ? '#22c55e' : '#6b7280',
-                          transform: hoveredItem === `order-${order.id}` ? 'translateX(4px)' : 'translateX(0)',
-                          transition: 'all 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                  </Card>
-                </Grid.Col>
-              ))}
-              <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}>
-                <Card
-                  p="lg"
-                  withBorder
-                  style={{ 
-                    background: 'rgba(31, 41, 55, 0.3)', 
-                    borderColor: 'rgba(75, 85, 99, 0.5)',
-                    borderStyle: 'dashed',
-                    cursor: 'pointer',
-                    minHeight: '200px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      borderColor: 'rgba(34, 197, 94, 0.5)',
-                      background: 'rgba(31, 41, 55, 0.4)'
-                    }
-                  }}
-                  onClick={() => launchIDE('order', null)}
-                >
-                  <Stack align="center" gap="sm">
-                    <IconPlus size={48} style={{ color: '#6b7280' }} />
-                    <Text c="dimmed">Create New Order Type</Text>
-                  </Stack>
-                </Card>
-              </Grid.Col>
-            </>
-          )}
-
-          {/* Strategies */}
-          {(selectedCategory === 'all' || selectedCategory === 'strategies') && (
-            <>
-              {selectedCategory === 'all' && (
-                <Grid.Col span={12}>
-                  <Group gap="xs" mb="md" mt="xl">
-                    <Text size="xl" fw={700}>🎯 Strategies</Text>
-                    <Text size="sm" c="dimmed">({filterComponents(components.strategies).length})</Text>
-                  </Group>
-                </Grid.Col>
-              )}
-              {filterComponents(components.strategies).map(strategy => (
-                <Grid.Col key={strategy.id} span={{ base: 12, lg: 6 }}>
-                  <Card
-                    p="lg"
-                    withBorder
-                    style={{ 
-                      background: 'rgba(31, 41, 55, 0.5)', 
-                      borderColor: hoveredItem === `strategy-${strategy.id}` ? 'rgba(168, 85, 247, 0.5)' : 'rgba(75, 85, 99, 0.3)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      transform: hoveredItem === `strategy-${strategy.id}` ? 'translateY(-2px)' : 'translateY(0)'
-                    }}
-                    onMouseEnter={() => setHoveredItem(`strategy-${strategy.id}`)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => launchIDE('strategy', strategy)}
-                  >
-                    <Group justify="space-between" align="flex-start" mb="md">
-                      <div>
-                        <Group gap="xs" mb={4}>
-                          <Text size="lg" fw={600}>{strategy.name}</Text>
-                          <Badge color={getStatusColor(strategy.status)} size="sm">
-                            {strategy.status}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" c="dimmed">{strategy.description}</Text>
-                      </div>
-                      <IconBox 
-                        size={20} 
-                        style={{ 
-                          color: hoveredItem === `strategy-${strategy.id}` ? '#a855f7' : '#6b7280',
-                          transition: 'color 0.2s ease'
-                        }} 
-                      />
-                    </Group>
-                    
-                    <Grid gutter="xs" mb="md">
-                      <Grid.Col span={4}>
-                        <Text size="xs" c="dimmed">Sharpe:</Text>
-                        <Text size="sm" c="green" fw={500}>{strategy.sharpe}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={4}>
-                        <Text size="xs" c="dimmed">Win Rate:</Text>
-                        <Text size="sm">{strategy.winRate}</Text>
-                      </Grid.Col>
-                      <Grid.Col span={4}>
-                        <Text size="xs" c="dimmed">Components:</Text>
-                        <Text size="sm">
-                          {strategy.components.indicators}i {strategy.components.signals}s {strategy.components.orders}o
-                        </Text>
-                      </Grid.Col>
-                    </Grid>
-                    
-                    <Group justify="space-between" align="center">
-                      <Group gap={4}>
-                        <IconClock size={12} style={{ color: '#6b7280' }} />
-                        <Text size="xs" c="dimmed">{strategy.lastModified}</Text>
-                      </Group>
-                      <Group gap="xs">
-                        <ActionIcon variant="subtle" size="sm" color="gray">
-                          <IconPlayerPlay size={16} />
-                        </ActionIcon>
-                        <ActionIcon variant="subtle" size="sm" color="gray">
-                          <IconChartBar size={16} />
-                        </ActionIcon>
-                        <IconArrowRight 
-                          size={16} 
-                          style={{ 
-                            color: hoveredItem === `strategy-${strategy.id}` ? '#a855f7' : '#6b7280',
-                            transform: hoveredItem === `strategy-${strategy.id}` ? 'translateX(4px)' : 'translateX(0)',
-                            transition: 'all 0.2s ease'
-                          }} 
+                  </Grid.Col>
+                )}
+                {filterComponents(components.indicators).map((indicator) => (
+                  <Grid.Col key={indicator.id} span={{ base: 12, sm: 6, lg: 4 }}>
+                    <Card
+                      p="lg"
+                      withBorder
+                      style={{
+                        background: 'rgba(31, 41, 55, 0.5)',
+                        borderColor:
+                          hoveredItem === `indicator-${indicator.id}`
+                            ? 'rgba(59, 130, 246, 0.5)'
+                            : 'rgba(75, 85, 99, 0.3)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        transform:
+                          hoveredItem === `indicator-${indicator.id}`
+                            ? 'translateY(-2px)'
+                            : 'translateY(0)',
+                      }}
+                      onMouseEnter={() => setHoveredItem(`indicator-${indicator.id}`)}
+                      onMouseLeave={() => setHoveredItem(null)}
+                      onClick={() => launchIDE('indicator', indicator)}
+                    >
+                      <Group justify="space-between" align="flex-start" mb="md">
+                        <div>
+                          <Group gap="xs" mb={4}>
+                            <Text size="lg" fw={600}>
+                              {indicator.name}
+                            </Text>
+                            <Badge color={getStatusColor(indicator.status)} size="sm">
+                              {indicator.status}
+                            </Badge>
+                          </Group>
+                          <Text size="sm" c="dimmed">
+                            {indicator.description}
+                          </Text>
+                        </div>
+                        <IconFileCode
+                          size={20}
+                          style={{
+                            color:
+                              hoveredItem === `indicator-${indicator.id}` ? '#60a5fa' : '#6b7280',
+                            transition: 'color 0.2s ease',
+                          }}
                         />
                       </Group>
-                    </Group>
+
+                      <Grid gutter="xs" mb="md">
+                        <Grid.Col span={6}>
+                          <Text size="xs" c="dimmed">
+                            Performance:
+                          </Text>
+                          <Text size="sm" c="green" fw={500}>
+                            {indicator.performance}
+                          </Text>
+                        </Grid.Col>
+                        <Grid.Col span={6}>
+                          <Text size="xs" c="dimmed">
+                            Used in:
+                          </Text>
+                          <Text size="sm">{indicator.usage} signals</Text>
+                        </Grid.Col>
+                        <Grid.Col span={6}>
+                          <Text size="xs" c="dimmed">
+                            Language:
+                          </Text>
+                          <Text size="sm">{indicator.language}</Text>
+                        </Grid.Col>
+                        <Grid.Col span={6}>
+                          <Text size="xs" c="dimmed">
+                            Category:
+                          </Text>
+                          <Text size="sm">{indicator.category}</Text>
+                        </Grid.Col>
+                      </Grid>
+
+                      <Group justify="space-between" align="center">
+                        <Group gap={4}>
+                          <IconClock size={12} style={{ color: '#6b7280' }} />
+                          <Text size="xs" c="dimmed">
+                            {indicator.lastModified}
+                          </Text>
+                        </Group>
+                        <IconArrowRight
+                          size={16}
+                          style={{
+                            color:
+                              hoveredItem === `indicator-${indicator.id}` ? '#60a5fa' : '#6b7280',
+                            transform:
+                              hoveredItem === `indicator-${indicator.id}`
+                                ? 'translateX(4px)'
+                                : 'translateX(0)',
+                            transition: 'all 0.2s ease',
+                          }}
+                        />
+                      </Group>
+                    </Card>
+                  </Grid.Col>
+                ))}
+                <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}>
+                  <Card
+                    p="lg"
+                    withBorder
+                    style={{
+                      background: 'rgba(31, 41, 55, 0.3)',
+                      borderColor: 'rgba(75, 85, 99, 0.5)',
+                      borderStyle: 'dashed',
+                      cursor: 'pointer',
+                      minHeight: '200px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        borderColor: 'rgba(59, 130, 246, 0.5)',
+                        background: 'rgba(31, 41, 55, 0.4)',
+                      },
+                    }}
+                    onClick={() => launchIDE('indicator', null)}
+                  >
+                    <Stack align="center" gap="sm">
+                      <IconPlus size={48} style={{ color: '#6b7280' }} />
+                      <Text c="dimmed">Create New Indicator</Text>
+                    </Stack>
                   </Card>
                 </Grid.Col>
-              ))}
-              <Grid.Col span={{ base: 12, lg: 6 }}>
-                <Card
-                  p="lg"
-                  withBorder
-                  style={{ 
-                    background: 'rgba(31, 41, 55, 0.3)', 
-                    borderColor: 'rgba(75, 85, 99, 0.5)',
-                    borderStyle: 'dashed',
-                    cursor: 'pointer',
-                    minHeight: '200px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      borderColor: 'rgba(168, 85, 247, 0.5)',
-                      background: 'rgba(31, 41, 55, 0.4)'
-                    }
-                  }}
-                  onClick={() => launchIDE('strategy', null)}
-                >
-                  <Stack align="center" gap="sm">
-                    <IconPlus size={48} style={{ color: '#6b7280' }} />
-                    <Text c="dimmed">Create New Strategy</Text>
-                  </Stack>
-                </Card>
-              </Grid.Col>
-            </>
-          )}
-        </Grid>
+              </>
+            )}
+
+            {/* Signals */}
+            {(selectedCategory === 'all' || selectedCategory === 'signals') && (
+              <>
+                {selectedCategory === 'all' && (
+                  <Grid.Col span={12}>
+                    <Group gap="xs" mb="md" mt="xl">
+                      <Text size="xl" fw={700}>
+                        ⚡ Signals
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        ({filterComponents(components.signals).length})
+                      </Text>
+                    </Group>
+                  </Grid.Col>
+                )}
+                {filterComponents(components.signals).map((signal) => (
+                  <Grid.Col key={signal.id} span={{ base: 12, sm: 6, lg: 4 }}>
+                    <Card
+                      p="lg"
+                      withBorder
+                      style={{
+                        background: 'rgba(31, 41, 55, 0.5)',
+                        borderColor:
+                          hoveredItem === `signal-${signal.id}`
+                            ? 'rgba(251, 191, 36, 0.5)'
+                            : 'rgba(75, 85, 99, 0.3)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        transform:
+                          hoveredItem === `signal-${signal.id}`
+                            ? 'translateY(-2px)'
+                            : 'translateY(0)',
+                      }}
+                      onMouseEnter={() => setHoveredItem(`signal-${signal.id}`)}
+                      onMouseLeave={() => setHoveredItem(null)}
+                      onClick={() => launchIDE('signal', signal)}
+                    >
+                      <Group justify="space-between" align="flex-start" mb="md">
+                        <div>
+                          <Group gap="xs" mb={4}>
+                            <Text size="lg" fw={600}>
+                              {signal.name}
+                            </Text>
+                            <Badge color={getStatusColor(signal.status)} size="sm">
+                              {signal.status}
+                            </Badge>
+                          </Group>
+                          <Text size="sm" c="dimmed">
+                            {signal.description}
+                          </Text>
+                        </div>
+                        <IconBolt
+                          size={20}
+                          style={{
+                            color: hoveredItem === `signal-${signal.id}` ? '#fbbf24' : '#6b7280',
+                            transition: 'color 0.2s ease',
+                          }}
+                        />
+                      </Group>
+
+                      <Grid gutter="xs" mb="md">
+                        <Grid.Col span={6}>
+                          <Text size="xs" c="dimmed">
+                            Accuracy:
+                          </Text>
+                          <Text size="sm" c="green" fw={500}>
+                            {signal.accuracy}
+                          </Text>
+                        </Grid.Col>
+                        <Grid.Col span={6}>
+                          <Text size="xs" c="dimmed">
+                            Triggers:
+                          </Text>
+                          <Text size="sm">{signal.triggers}/day</Text>
+                        </Grid.Col>
+                        <Grid.Col span={12}>
+                          <Text size="xs" c="dimmed">
+                            Uses:
+                          </Text>
+                          <Text size="xs">{signal.indicators.join(', ')}</Text>
+                        </Grid.Col>
+                      </Grid>
+
+                      <Group justify="space-between" align="center">
+                        <Group gap={4}>
+                          <IconClock size={12} style={{ color: '#6b7280' }} />
+                          <Text size="xs" c="dimmed">
+                            {signal.lastModified}
+                          </Text>
+                        </Group>
+                        <IconArrowRight
+                          size={16}
+                          style={{
+                            color: hoveredItem === `signal-${signal.id}` ? '#fbbf24' : '#6b7280',
+                            transform:
+                              hoveredItem === `signal-${signal.id}`
+                                ? 'translateX(4px)'
+                                : 'translateX(0)',
+                            transition: 'all 0.2s ease',
+                          }}
+                        />
+                      </Group>
+                    </Card>
+                  </Grid.Col>
+                ))}
+                <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}>
+                  <Card
+                    p="lg"
+                    withBorder
+                    style={{
+                      background: 'rgba(31, 41, 55, 0.3)',
+                      borderColor: 'rgba(75, 85, 99, 0.5)',
+                      borderStyle: 'dashed',
+                      cursor: 'pointer',
+                      minHeight: '200px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        borderColor: 'rgba(251, 191, 36, 0.5)',
+                        background: 'rgba(31, 41, 55, 0.4)',
+                      },
+                    }}
+                    onClick={() => launchIDE('signal', null)}
+                  >
+                    <Stack align="center" gap="sm">
+                      <IconPlus size={48} style={{ color: '#6b7280' }} />
+                      <Text c="dimmed">Create New Signal</Text>
+                    </Stack>
+                  </Card>
+                </Grid.Col>
+              </>
+            )}
+
+            {/* Strategies */}
+            {(selectedCategory === 'all' || selectedCategory === 'strategies') && (
+              <>
+                {selectedCategory === 'all' && (
+                  <Grid.Col span={12}>
+                    <Group gap="xs" mb="md" mt="xl">
+                      <Text size="xl" fw={700}>
+                        🎯 Strategies
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        ({filterComponents(components.strategies).length})
+                      </Text>
+                    </Group>
+                  </Grid.Col>
+                )}
+                {filterComponents(components.strategies).map((strategy) => (
+                  <Grid.Col key={strategy.id} span={{ base: 12, lg: 6 }}>
+                    <Card
+                      p="lg"
+                      withBorder
+                      style={{
+                        background: 'rgba(31, 41, 55, 0.5)',
+                        borderColor:
+                          hoveredItem === `strategy-${strategy.id}`
+                            ? 'rgba(168, 85, 247, 0.5)'
+                            : 'rgba(75, 85, 99, 0.3)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        transform:
+                          hoveredItem === `strategy-${strategy.id}`
+                            ? 'translateY(-2px)'
+                            : 'translateY(0)',
+                      }}
+                      onMouseEnter={() => setHoveredItem(`strategy-${strategy.id}`)}
+                      onMouseLeave={() => setHoveredItem(null)}
+                      onClick={() => launchIDE('strategy', strategy)}
+                    >
+                      <Group justify="space-between" align="flex-start" mb="md">
+                        <div>
+                          <Group gap="xs" mb={4}>
+                            <Text size="lg" fw={600}>
+                              {strategy.name}
+                            </Text>
+                            <Badge color={getStatusColor(strategy.status)} size="sm">
+                              {strategy.status}
+                            </Badge>
+                          </Group>
+                          <Text size="sm" c="dimmed">
+                            {strategy.description}
+                          </Text>
+                        </div>
+                        <IconBox
+                          size={20}
+                          style={{
+                            color:
+                              hoveredItem === `strategy-${strategy.id}` ? '#a855f7' : '#6b7280',
+                            transition: 'color 0.2s ease',
+                          }}
+                        />
+                      </Group>
+
+                      <Grid gutter="xs" mb="md">
+                        <Grid.Col span={4}>
+                          <Text size="xs" c="dimmed">
+                            Sharpe:
+                          </Text>
+                          <Text size="sm" c="green" fw={500}>
+                            {strategy.sharpe}
+                          </Text>
+                        </Grid.Col>
+                        <Grid.Col span={4}>
+                          <Text size="xs" c="dimmed">
+                            Win Rate:
+                          </Text>
+                          <Text size="sm">{strategy.winRate}</Text>
+                        </Grid.Col>
+                        <Grid.Col span={4}>
+                          <Text size="xs" c="dimmed">
+                            Components:
+                          </Text>
+                          <Text size="sm">
+                            {strategy.components.indicators}i {strategy.components.signals}s
+                          </Text>
+                        </Grid.Col>
+                      </Grid>
+
+                      <Group justify="space-between" align="center">
+                        <Group gap={4}>
+                          <IconClock size={12} style={{ color: '#6b7280' }} />
+                          <Text size="xs" c="dimmed">
+                            {strategy.lastModified}
+                          </Text>
+                        </Group>
+                        <Group gap="xs">
+                          <ActionIcon variant="subtle" size="sm" color="gray">
+                            <IconPlayerPlay size={16} />
+                          </ActionIcon>
+                          <ActionIcon variant="subtle" size="sm" color="gray">
+                            <IconChartBar size={16} />
+                          </ActionIcon>
+                          <IconArrowRight
+                            size={16}
+                            style={{
+                              color:
+                                hoveredItem === `strategy-${strategy.id}` ? '#a855f7' : '#6b7280',
+                              transform:
+                                hoveredItem === `strategy-${strategy.id}`
+                                  ? 'translateX(4px)'
+                                  : 'translateX(0)',
+                              transition: 'all 0.2s ease',
+                            }}
+                          />
+                        </Group>
+                      </Group>
+                    </Card>
+                  </Grid.Col>
+                ))}
+                <Grid.Col span={{ base: 12, lg: 6 }}>
+                  <Card
+                    p="lg"
+                    withBorder
+                    style={{
+                      background: 'rgba(31, 41, 55, 0.3)',
+                      borderColor: 'rgba(75, 85, 99, 0.5)',
+                      borderStyle: 'dashed',
+                      cursor: 'pointer',
+                      minHeight: '200px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        borderColor: 'rgba(168, 85, 247, 0.5)',
+                        background: 'rgba(31, 41, 55, 0.4)',
+                      },
+                    }}
+                    onClick={() => launchIDE('strategy', null)}
+                  >
+                    <Stack align="center" gap="sm">
+                      <IconPlus size={48} style={{ color: '#6b7280' }} />
+                      <Text c="dimmed">Create New Strategy</Text>
+                    </Stack>
+                  </Card>
+                </Grid.Col>
+              </>
+            )}
+          </Grid>
         )}
 
         {/* Quick Actions Bar */}
-        <Paper p="lg" mt="xl" style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}>
-          <Text size="lg" fw={600} mb="md">Quick Actions</Text>
+        <Paper
+          p="lg"
+          mt="xl"
+          style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid rgba(75, 85, 99, 0.3)' }}
+        >
+          <Text size="lg" fw={600} mb="md">
+            Quick Actions
+          </Text>
           <Grid>
             <Grid.Col span={{ base: 6, sm: 3 }}>
               <UnstyledButton
@@ -845,8 +877,8 @@ export const BuildPage = () => {
                   transition: 'all 0.2s ease',
                   '&:hover': {
                     background: 'rgba(55, 65, 81, 0.8)',
-                    borderColor: 'rgba(59, 130, 246, 0.3)'
-                  }
+                    borderColor: 'rgba(59, 130, 246, 0.3)',
+                  },
                 }}
               >
                 <Stack align="center" gap="xs">
@@ -868,8 +900,8 @@ export const BuildPage = () => {
                   transition: 'all 0.2s ease',
                   '&:hover': {
                     background: 'rgba(55, 65, 81, 0.8)',
-                    borderColor: 'rgba(34, 197, 94, 0.3)'
-                  }
+                    borderColor: 'rgba(34, 197, 94, 0.3)',
+                  },
                 }}
               >
                 <Stack align="center" gap="xs">
@@ -891,8 +923,8 @@ export const BuildPage = () => {
                   transition: 'all 0.2s ease',
                   '&:hover': {
                     background: 'rgba(55, 65, 81, 0.8)',
-                    borderColor: 'rgba(251, 191, 36, 0.3)'
-                  }
+                    borderColor: 'rgba(251, 191, 36, 0.3)',
+                  },
                 }}
               >
                 <Stack align="center" gap="xs">
@@ -914,8 +946,8 @@ export const BuildPage = () => {
                   transition: 'all 0.2s ease',
                   '&:hover': {
                     background: 'rgba(55, 65, 81, 0.8)',
-                    borderColor: 'rgba(168, 85, 247, 0.3)'
-                  }
+                    borderColor: 'rgba(168, 85, 247, 0.3)',
+                  },
                 }}
               >
                 <Stack align="center" gap="xs">

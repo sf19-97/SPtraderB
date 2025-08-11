@@ -1,3 +1,33 @@
 {
-  "recommendations": ["tauri-apps.tauri-vscode", "rust-lang.rust-analyzer"]
+  "recommendations": [
+    // Already installed
+    "tauri-apps.tauri-vscode",
+    "rust-lang.rust-analyzer",
+    
+    // Debugging
+    "vadimcn.vscode-lldb",
+    "usernamehw.errorlens",
+    
+    // Rust development
+    "tamasfe.even-better-toml",
+    
+    // JavaScript/TypeScript
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    
+    // Database
+    "mtxr.sqltools",
+    "mtxr.sqltools-driver-pg",
+    
+    // API testing
+    "rangav.vscode-thunder-client",
+    
+    // Git
+    "eamodio.gitlens",
+    
+    // Optional but useful
+    "gruntfuggly.todo-tree",
+    "wayou.vscode-todo-highlight",
+    "streetsidesoftware.code-spell-checker"
+  ]
 }

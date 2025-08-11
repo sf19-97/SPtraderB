@@ -1,23 +1,38 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Box, Text, Group } from '@mantine/core';
 import { consoleInterceptor } from '../utils/consoleInterceptor';
+import { useChartStore } from '../stores/useChartStore';
 
 export const ResolutionTracker: React.FC = () => {
-  const [currentResolution, setCurrentResolution] = useState<string>('1h');
+  const { currentTimeframe } = useChartStore();
+  const [currentResolution, setCurrentResolution] = useState<string>(currentTimeframe);
   const [timeframeChanged, setTimeframeChanged] = useState(false);
-  const prevResolutionRef = useRef<string>('1h');
+  const prevResolutionRef = useRef<string>(currentTimeframe);
+
+  // Sync with Zustand store changes
+  useEffect(() => {
+    if (currentTimeframe !== prevResolutionRef.current) {
+      console.log('[ResolutionTracker] Zustand timeframe changed:', currentTimeframe);
+      setCurrentResolution(currentTimeframe);
+      setTimeframeChanged(true);
+      prevResolutionRef.current = currentTimeframe;
+
+      // Reset the glow effect after animation
+      setTimeout(() => setTimeframeChanged(false), 550);
+    }
+  }, [currentTimeframe]);
 
   useEffect(() => {
     // Start intercepting console logs
     consoleInterceptor.start();
-    
-    // Subscribe to timeframe changes
+
+    // Subscribe to timeframe changes from console logs as backup
     const unsubscribe = consoleInterceptor.subscribe((timeframe) => {
       if (timeframe !== prevResolutionRef.current) {
         setCurrentResolution(timeframe);
         setTimeframeChanged(true);
         prevResolutionRef.current = timeframe;
-        
+
         // Reset the glow effect after animation (match chart's 550ms total)
         setTimeout(() => setTimeframeChanged(false), 550);
       }
@@ -53,7 +68,7 @@ export const ResolutionTracker: React.FC = () => {
           }
         `}
       </style>
-      
+
       <Box
         style={{
           background: 'linear-gradient(145deg, #1a1a1a, #0a0a0a)',
@@ -78,7 +93,7 @@ export const ResolutionTracker: React.FC = () => {
             {currentResolution.toUpperCase()}
           </Text>
         </Group>
-        
+
         {/* Glow effect on change */}
         {timeframeChanged && (
           <Box

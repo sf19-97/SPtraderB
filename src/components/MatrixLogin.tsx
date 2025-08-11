@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './MatrixLogin.css';
 
 interface MatrixLoginProps {
@@ -31,116 +31,173 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   const [showAccess, setShowAccess] = useState(false);
   const [accessText, setAccessText] = useState('');
   const [frameCount, setFrameCount] = useState(0);
-  const [cornerChars, setCornerChars] = useState<{[key: string]: string}>({});
-  const [cornerGlitch, setCornerGlitch] = useState<{[key: string]: boolean}>({});
-  const [cornerFlicker, setCornerFlicker] = useState<{[key: string]: number}>({});
-  const [flickerTimers, setFlickerTimers] = useState<{[key: string]: number}>({});
-  const [glitchTimers, setGlitchTimers] = useState<{[key: string]: number}>({});
+  const [cornerChars, setCornerChars] = useState<{ [key: string]: string }>({});
+  const [cornerGlitch, setCornerGlitch] = useState<{ [key: string]: boolean }>({});
+  const [cornerFlicker, setCornerFlicker] = useState<{ [key: string]: number }>({});
+  const [flickerTimers, setFlickerTimers] = useState<{ [key: string]: number }>({});
+  const [glitchTimers, setGlitchTimers] = useState<{ [key: string]: number }>({});
   const linesRef = useRef<MatrixLine[]>([]);
   const availableColumnsRef = useRef<number[]>([]);
   const startTimeRef = useRef<number>(Date.now());
 
   // Glitch mapping for stable characters
-  const glyphMap: {[key: string]: string} = {
-    S: "5",
-    P: "ﾎ",
-    T: "ﾃ",
-    R: "ﾗ",
-    A: "ﾍ",
-    D: "ｺ",
-    E: "ﾖ",
-    R2: "ﾙ"
+  const glyphMap: { [key: string]: string } = {
+    S: '5',
+    P: 'ﾎ',
+    T: 'ﾃ',
+    R: 'ﾗ',
+    A: 'ﾍ',
+    D: 'ｺ',
+    E: 'ﾖ',
+    R2: 'ﾙ',
   };
 
   // Matrix rain characters - exact from Python
   const KATAKANA_CHARS = [
-    "ﾓ", "ｴ", "ﾔ", "ｷ", "ｵ", "ｶ", "ｹ", "ｻ", "ｽ", "ﾖ", "ﾀ",
-    "ﾜ", "ﾈ", "ﾇ", "ﾅ", "ﾋ", "ﾎ", "ｱ", "ｳ", "ｾ", "ﾐ", "ﾗ",
-    "ﾘ", "ﾂ", "ﾃ", "ﾆ", "ﾊ", "ｿ", "ｺ", "ｼ", "ﾏ", "ﾑ",
-    "ﾒ", "ﾍ", "ｲ", "ｸ", "ﾁ", "ﾄ", "ﾉ", "ﾌ", "ﾙ", "ﾚ",
-    "ﾛ", "ﾝ"
+    'ﾓ',
+    'ｴ',
+    'ﾔ',
+    'ｷ',
+    'ｵ',
+    'ｶ',
+    'ｹ',
+    'ｻ',
+    'ｽ',
+    'ﾖ',
+    'ﾀ',
+    'ﾜ',
+    'ﾈ',
+    'ﾇ',
+    'ﾅ',
+    'ﾋ',
+    'ﾎ',
+    'ｱ',
+    'ｳ',
+    'ｾ',
+    'ﾐ',
+    'ﾗ',
+    'ﾘ',
+    'ﾂ',
+    'ﾃ',
+    'ﾆ',
+    'ﾊ',
+    'ｿ',
+    'ｺ',
+    'ｼ',
+    'ﾏ',
+    'ﾑ',
+    'ﾒ',
+    'ﾍ',
+    'ｲ',
+    'ｸ',
+    'ﾁ',
+    'ﾄ',
+    'ﾉ',
+    'ﾌ',
+    'ﾙ',
+    'ﾚ',
+    'ﾛ',
+    'ﾝ',
   ];
 
   const MATRIX_SYMBOLS = [
-    "0", "1", "2", "3", "4", "5", "7", "8", "9", "Z",
-    ":", ".", "=", "*", "+", "-", "<", ">", "|", "¦"
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '7',
+    '8',
+    '9',
+    'Z',
+    ':',
+    '.',
+    '=',
+    '*',
+    '+',
+    '-',
+    '<',
+    '>',
+    '|',
+    '¦',
   ];
 
   const ALL_CHARS = [...KATAKANA_CHARS, ...MATRIX_SYMBOLS];
 
   // Corner text configurations matching Python timing
-  const cornerTextConfig: {[key: string]: CornerChar} = {
-    'S': {
+  const cornerTextConfig: { [key: string]: CornerChar } = {
+    S: {
       current: '',
       final: 'S',
-      glitchChars: ["Z", "7", "ﾓ", "ｷ", "ﾂ", "ﾊ"],
-      startFrame: 45,  // 0.75s at 60fps
-      glitchDuration: 12
+      glitchChars: ['Z', '7', 'ﾓ', 'ｷ', 'ﾂ', 'ﾊ'],
+      startFrame: 45, // 0.75s at 60fps
+      glitchDuration: 12,
     },
-    'P': {
+    P: {
       current: '',
-      final: 'P', 
-      glitchChars: ["9", "ﾖ", "ｻ", "ﾘ", "ｱ", "ﾒ"],
+      final: 'P',
+      glitchChars: ['9', 'ﾖ', 'ｻ', 'ﾘ', 'ｱ', 'ﾒ'],
       startFrame: 57,
-      glitchDuration: 12
+      glitchDuration: 12,
     },
-    'T': {
+    T: {
       current: '',
       final: 'T',
-      glitchChars: ["ﾈ", "ﾋ", "ｿ", "ﾜ", "ｴ", "ﾑ", "ﾗ", "ｵ", "ﾅ"],
+      glitchChars: ['ﾈ', 'ﾋ', 'ｿ', 'ﾜ', 'ｴ', 'ﾑ', 'ﾗ', 'ｵ', 'ﾅ'],
       startFrame: 81,
-      glitchDuration: 12
+      glitchDuration: 12,
     },
-    'R': {
+    R: {
       current: '',
       final: 'R',
-      glitchChars: ["ﾈ", "ﾋ", "ｿ", "ﾜ", "ｴ", "ﾑ", "ﾗ", "ｵ", "ﾅ"],
+      glitchChars: ['ﾈ', 'ﾋ', 'ｿ', 'ﾜ', 'ｴ', 'ﾑ', 'ﾗ', 'ｵ', 'ﾅ'],
       startFrame: 91,
-      glitchDuration: 12
+      glitchDuration: 12,
     },
-    'A': {
+    A: {
       current: '',
       final: 'A',
-      glitchChars: ["ﾈ", "ﾋ", "ｿ", "ﾜ", "ｴ", "ﾑ", "ﾗ", "ｵ", "ﾅ"],
+      glitchChars: ['ﾈ', 'ﾋ', 'ｿ', 'ﾜ', 'ｴ', 'ﾑ', 'ﾗ', 'ｵ', 'ﾅ'],
       startFrame: 101,
-      glitchDuration: 12
+      glitchDuration: 12,
     },
-    'D': {
+    D: {
       current: '',
       final: 'D',
-      glitchChars: ["ﾈ", "ﾋ", "ｿ", "ﾜ", "ｴ", "ﾑ", "ﾗ", "ｵ", "ﾅ"],
+      glitchChars: ['ﾈ', 'ﾋ', 'ｿ', 'ﾜ', 'ｴ', 'ﾑ', 'ﾗ', 'ｵ', 'ﾅ'],
       startFrame: 111,
-      glitchDuration: 12
+      glitchDuration: 12,
     },
-    'E': {
+    E: {
       current: '',
       final: 'E',
-      glitchChars: ["ﾈ", "ﾋ", "ｿ", "ﾜ", "ｴ", "ﾑ", "ﾗ", "ｵ", "ﾅ"],
+      glitchChars: ['ﾈ', 'ﾋ', 'ｿ', 'ﾜ', 'ｴ', 'ﾑ', 'ﾗ', 'ｵ', 'ﾅ'],
       startFrame: 121,
-      glitchDuration: 12
+      glitchDuration: 12,
     },
-    'R2': {
+    R2: {
       current: '',
       final: 'R',
-      glitchChars: ["ﾈ", "ﾋ", "ｿ", "ﾜ", "ｴ", "ﾑ", "ﾗ", "ｵ", "ﾅ"],
+      glitchChars: ['ﾈ', 'ﾋ', 'ｿ', 'ﾜ', 'ｴ', 'ﾑ', 'ﾗ', 'ｵ', 'ﾅ'],
       startFrame: 131,
-      glitchDuration: 12
-    }
+      glitchDuration: 12,
+    },
   };
 
   // Update frame counter and corner text
   useEffect(() => {
     const frameInterval = setInterval(() => {
-      setFrameCount(prev => {
+      setFrameCount((prev) => {
         const newFrame = prev + 1;
-        
+
         // Update corner characters based on frame
-        const newCornerChars: {[key: string]: string} = {};
-        const newCornerGlitch: {[key: string]: boolean} = {};
-        const newCornerFlicker: {[key: string]: number} = {};
-        const newGlitchTimers: {[key: string]: number} = {...glitchTimers};
-        const newFlickerTimers: {[key: string]: number} = {...flickerTimers};
-        
+        const newCornerChars: { [key: string]: string } = {};
+        const newCornerGlitch: { [key: string]: boolean } = {};
+        const newCornerFlicker: { [key: string]: number } = {};
+        const newGlitchTimers: { [key: string]: number } = { ...glitchTimers };
+        const newFlickerTimers: { [key: string]: number } = { ...flickerTimers };
+
         Object.entries(cornerTextConfig).forEach(([key, config]) => {
           if (newFrame >= config.startFrame) {
             const framesSinceStart = newFrame - config.startFrame;
@@ -160,7 +217,8 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
                 newCornerGlitch[key] = true;
                 newCornerFlicker[key] = 1;
                 newGlitchTimers[key]--;
-              } else if (Math.random() < 0.005) { // 0.5% chance to start glitch
+              } else if (Math.random() < 0.005) {
+                // 0.5% chance to start glitch
                 // Start new glitch
                 newCornerChars[key] = glyphMap[key];
                 newCornerGlitch[key] = true;
@@ -170,13 +228,14 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
                 // Normal state - but check for flicker
                 newCornerChars[key] = config.final;
                 newCornerGlitch[key] = false;
-                
+
                 // Handle flickering
                 if (newFlickerTimers[key] > 0) {
                   // Currently flickering
                   newCornerFlicker[key] = Math.random() * 0.5 + 0.3; // 0.3-0.8 opacity
                   newFlickerTimers[key]--;
-                } else if (Math.random() < 0.003) { // 0.3% chance to start flicker (was 2%)
+                } else if (Math.random() < 0.003) {
+                  // 0.3% chance to start flicker (was 2%)
                   // Start new flicker
                   newCornerFlicker[key] = Math.random() * 0.5 + 0.3;
                   newFlickerTimers[key] = Math.floor(Math.random() * 3) + 2; // 2-5 frames
@@ -187,7 +246,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
             }
           }
         });
-        
+
         setCornerChars(newCornerChars);
         setCornerGlitch(newCornerGlitch);
         setCornerFlicker(newCornerFlicker);
@@ -208,7 +267,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
       if (e.key === 'Enter') {
         if (typedText.toLowerCase() === 'redpill') {
           setShowAccess(true);
-          
+
           // ACCESS GRANTED reveal with Python timing
           const text = 'ACCESS GRANTED';
           let index = 0;
@@ -225,9 +284,9 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
         }
         setTypedText('');
       } else if (e.key === 'Backspace') {
-        setTypedText(prev => prev.slice(0, -1));
+        setTypedText((prev) => prev.slice(0, -1));
       } else if (e.key.length === 1) {
-        setTypedText(prev => (prev + e.key).slice(-20));
+        setTypedText((prev) => (prev + e.key).slice(-20));
       }
     };
 
@@ -248,9 +307,9 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
 
     const charSize = 16;
     const cols = Math.floor(canvas.width / charSize);
-    
+
     // Initialize available columns
-    availableColumnsRef.current = Array.from({length: cols}, (_, i) => i);
+    availableColumnsRef.current = Array.from({ length: cols }, (_, i) => i);
     linesRef.current = [];
 
     let animationId: number;
@@ -273,9 +332,9 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
             const colIndex = Math.floor(Math.random() * availableColumnsRef.current.length);
             const x = availableColumnsRef.current[colIndex];
             availableColumnsRef.current.splice(colIndex, 1);
-            
+
             const length = Math.floor(Math.random() * (canvas.height / charSize - 6)) + 3;
-            
+
             linesRef.current.push({
               x: x * charSize,
               y: -1,
@@ -285,24 +344,24 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
               chars: new Map(),
               leadChar: ALL_CHARS[Math.floor(Math.random() * ALL_CHARS.length)],
               asyncScrollCount: 0,
-              asyncScrollRate: Math.floor(Math.random() * 5) // 0-4 like Python
+              asyncScrollRate: Math.floor(Math.random() * 5), // 0-4 like Python
             });
           }
         }
 
         // Update line positions
         const toRemove: number[] = [];
-        
+
         linesRef.current.forEach((line, index) => {
           // Check if it's time to move this line (async scrolling)
           if (line.asyncScrollCount === line.asyncScrollRate) {
             line.asyncScrollCount = 0;
-            
+
             // Move positions down
             line.y += 1;
             line.leadY += 1;
             line.lastY += 1;
-            
+
             // Update lead character when line moves
             line.leadChar = ALL_CHARS[Math.floor(Math.random() * ALL_CHARS.length)];
 
@@ -328,7 +387,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
         });
 
         // Remove completed lines
-        toRemove.reverse().forEach(index => {
+        toRemove.reverse().forEach((index) => {
           linesRef.current.splice(index, 1);
         });
       }
@@ -342,21 +401,21 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
             line.chars.set(y, ALL_CHARS[Math.floor(Math.random() * ALL_CHARS.length)]);
             char = line.chars.get(y)!;
           }
-          
+
           // Calculate distance from lead for opacity
           const distanceFromLead = line.leadY - y;
           let opacity = 1;
-          
+
           // Fade based on distance from lead
           if (distanceFromLead > 0 && distanceFromLead <= line.length) {
             opacity = Math.max(0.1, 1 - (distanceFromLead / line.length) * 0.8);
           }
-          
+
           // Add random flicker (0.2% chance - very rare)
           if (Math.random() < 0.002) {
-            opacity *= (Math.random() * 0.6 + 0.2); // Flicker to 20-80% brightness
+            opacity *= Math.random() * 0.6 + 0.2; // Flicker to 20-80% brightness
           }
-          
+
           // Green with variable opacity
           const greenValue = Math.floor(255 * opacity);
           ctx.fillStyle = `rgba(0, ${greenValue}, 65, ${opacity})`;
@@ -386,7 +445,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       const newCols = Math.floor(canvas.width / charSize);
-      availableColumnsRef.current = Array.from({length: newCols}, (_, i) => i);
+      availableColumnsRef.current = Array.from({ length: newCols }, (_, i) => i);
       linesRef.current = [];
     };
     window.addEventListener('resize', handleResize);
@@ -400,94 +459,135 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   return (
     <div className="matrix-container">
       <canvas ref={canvasRef} className="matrix-canvas" />
-      
+
       {/* S P text with proper timing */}
-      <div className="corner-text top-left" style={{ fontFamily: 'monospace', fontSize: '16px', left: '120px', top: '112px' }}>
+      <div
+        className="corner-text top-left"
+        style={{ fontFamily: 'monospace', fontSize: '16px', left: '120px', top: '112px' }}
+      >
         {cornerChars['S'] && (
-          <span style={{ 
-            color: cornerGlitch['S'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['S'] || 1,
-            textShadow: cornerGlitch['S'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['S']}</span>
+          <span
+            style={{
+              color: cornerGlitch['S'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['S'] || 1,
+              textShadow: cornerGlitch['S'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['S']}
+          </span>
         )}
         {cornerChars['P'] && (
-          <span style={{ 
-            color: cornerGlitch['P'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold', 
-            marginLeft: '8px',
-            opacity: cornerFlicker['P'] || 1,
-            textShadow: cornerGlitch['P'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['P']}</span>
+          <span
+            style={{
+              color: cornerGlitch['P'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              marginLeft: '8px',
+              opacity: cornerFlicker['P'] || 1,
+              textShadow: cornerGlitch['P'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['P']}
+          </span>
         )}
       </div>
-      
+
       {/* TRADER text with proper timing */}
-      <div className="corner-text bottom-right" style={{ fontFamily: 'monospace', fontSize: '16px', right: '120px', bottom: '128px' }}>
+      <div
+        className="corner-text bottom-right"
+        style={{ fontFamily: 'monospace', fontSize: '16px', right: '120px', bottom: '128px' }}
+      >
         {cornerChars['T'] && (
-          <span style={{ 
-            color: cornerGlitch['T'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['T'] || 1,
-            textShadow: cornerGlitch['T'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['T']}</span>
+          <span
+            style={{
+              color: cornerGlitch['T'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['T'] || 1,
+              textShadow: cornerGlitch['T'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['T']}
+          </span>
         )}
         {cornerChars['R'] && (
-          <span style={{ 
-            color: cornerGlitch['R'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['R'] || 1,
-            textShadow: cornerGlitch['R'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['R']}</span>
+          <span
+            style={{
+              color: cornerGlitch['R'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['R'] || 1,
+              textShadow: cornerGlitch['R'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['R']}
+          </span>
         )}
         {cornerChars['A'] && (
-          <span style={{ 
-            color: cornerGlitch['A'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['A'] || 1,
-            textShadow: cornerGlitch['A'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['A']}</span>
+          <span
+            style={{
+              color: cornerGlitch['A'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['A'] || 1,
+              textShadow: cornerGlitch['A'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['A']}
+          </span>
         )}
         {cornerChars['D'] && (
-          <span style={{ 
-            color: cornerGlitch['D'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['D'] || 1,
-            textShadow: cornerGlitch['D'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['D']}</span>
+          <span
+            style={{
+              color: cornerGlitch['D'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['D'] || 1,
+              textShadow: cornerGlitch['D'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['D']}
+          </span>
         )}
         {cornerChars['E'] && (
-          <span style={{ 
-            color: cornerGlitch['E'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['E'] || 1,
-            textShadow: cornerGlitch['E'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['E']}</span>
+          <span
+            style={{
+              color: cornerGlitch['E'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['E'] || 1,
+              textShadow: cornerGlitch['E'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['E']}
+          </span>
         )}
         {cornerChars['R2'] && (
-          <span style={{ 
-            color: cornerGlitch['R2'] ? '#00FF41' : '#FFF', 
-            fontWeight: 'bold',
-            opacity: cornerFlicker['R2'] || 1,
-            textShadow: cornerGlitch['R2'] ? '0 0 4px #00FF41' : 'none'
-          }}>{cornerChars['R2']}</span>
+          <span
+            style={{
+              color: cornerGlitch['R2'] ? '#00FF41' : '#FFF',
+              fontWeight: 'bold',
+              opacity: cornerFlicker['R2'] || 1,
+              textShadow: cornerGlitch['R2'] ? '0 0 4px #00FF41' : 'none',
+            }}
+          >
+            {cornerChars['R2']}
+          </span>
         )}
       </div>
-      
+
       {/* ACCESS GRANTED */}
       {showAccess && (
-        <div className="access-granted" style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          color: '#00FF00',
-          fontSize: '24px',
-          fontFamily: 'monospace',
-          fontWeight: 'bold',
-          letterSpacing: '8px',
-          textShadow: '0 0 10px #00FF00'
-        }}>
+        <div
+          className="access-granted"
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            color: '#00FF00',
+            fontSize: '24px',
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            letterSpacing: '8px',
+            textShadow: '0 0 10px #00FF00',
+          }}
+        >
           {accessText}
         </div>
       )}

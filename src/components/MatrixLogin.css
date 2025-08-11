@@ -18,7 +18,7 @@
 
 .corner-text {
   position: absolute;
-  color: #FFF;
+  color: #fff;
   font-family: monospace;
   font-size: 16px;
   font-weight: bold;
@@ -35,12 +35,12 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: #00FF00;
+  color: #00ff00;
   font-size: 24px;
   font-family: monospace;
   font-weight: bold;
   letter-spacing: 8px;
-  text-shadow: 0 0 10px #00FF00;
+  text-shadow: 0 0 10px #00ff00;
   z-index: 20;
 }
 
@@ -49,7 +49,7 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: #00FF00;
+  color: #00ff00;
   font-family: monospace;
   text-align: center;
   z-index: 20;
@@ -67,8 +67,8 @@
 
 .matrix-input {
   background: transparent;
-  border: 1px solid #00FF00;
-  color: #00FF00;
+  border: 1px solid #00ff00;
+  color: #00ff00;
   padding: 10px 20px;
   font-size: 16px;
   font-family: monospace;
@@ -79,11 +79,11 @@
 }
 
 .matrix-input::placeholder {
-  color: #00FF0080;
+  color: #00ff0080;
 }
 
 .matrix-input:focus {
-  box-shadow: 0 0 5px #00FF00;
+  box-shadow: 0 0 5px #00ff00;
 }
 
 /* Remove any unwanted glitch effects from original */

@@ -1,0 +1,42 @@
+name: "EMA Crossover Strategy"
+version: "1.0.0"
+author: "Test"
+description: "Simple EMA crossover strategy to test vectorized backtest"
+
+dependencies:
+  indicators:
+    - core.indicators.trend.ema
+  signals:
+    - core.signals.ema_crossover
+
+parameters:
+  fast_period: 12
+  slow_period: 26
+
+signal_config:
+  ema_crossover:
+    fast_period: 12
+    slow_period: 26
+
+entry:
+  when:
+    - signal: ema_crossover
+      outputs:
+        crossover_type: golden_cross
+  action: buy
+  size: 0.1
+
+exit:
+  signal_exit:
+    when:
+      - signal: ema_crossover
+        outputs:
+          crossover_type: death_cross
+    action: close_all
+
+risk:
+  max_positions: 1
+  position_size: 0.1
+  stop_loss: 0.02
+  take_profit: 0.05
+  max_drawdown: 0.15

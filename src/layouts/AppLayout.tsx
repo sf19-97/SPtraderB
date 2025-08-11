@@ -4,14 +4,16 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { IconDatabase } from '@tabler/icons-react';
 
-import { 
-  IconChartLine, 
-  IconTestPipe, 
-  IconCode, 
-  IconHistory, 
+import {
+  IconChartLine,
+  IconCode,
+  IconHistory,
   IconSettings,
   IconChevronLeft,
-  IconChevronRight 
+  IconChevronRight,
+  IconRobot,
+  IconCurrencyBitcoin,
+  IconChartCandle,
 } from '@tabler/icons-react';
 
 export const AppLayout = () => {
@@ -21,10 +23,12 @@ export const AppLayout = () => {
 
   const navItems = [
     { path: '/trading', label: 'Trading', icon: IconChartLine },
-    { path: '/backtest', label: 'Backtest', icon: IconTestPipe },
     { path: '/build', label: 'Build', icon: IconCode },
-    { path: '/data', label: 'Data Manager', icon: IconDatabase }, // Add this
+    { path: '/market-data', label: 'Market Data', icon: IconDatabase },
+    { path: '/market-chart', label: 'Market Chart', icon: IconChartCandle },
     { path: '/history', label: 'History', icon: IconHistory },
+    { path: '/orchestrator', label: 'Orchestrator', icon: IconRobot },
+    { path: '/bitcoin-test', label: 'Bitcoin Test', icon: IconCurrencyBitcoin },
   ];
 
   return (
@@ -57,14 +61,9 @@ export const AppLayout = () => {
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
-                  
+
                   return (
-                    <Tooltip 
-                      key={item.path}
-                      label={item.label} 
-                      position="right"
-                      withArrow
-                    >
+                    <Tooltip key={item.path} label={item.label} position="right" withArrow>
                       <ActionIcon
                         variant={isActive ? 'light' : 'subtle'}
                         color={isActive ? 'cyan' : 'gray'}
@@ -86,6 +85,7 @@ export const AppLayout = () => {
                 color="gray"
                 size="lg"
                 style={{ width: '100%' }}
+                onClick={() => navigate('/settings')}
               >
                 <IconSettings size={20} />
               </ActionIcon>
@@ -113,15 +113,10 @@ export const AppLayout = () => {
             <Stack h="100%" p="md" justify="space-between" gap={0}>
               <div>
                 <Group justify="space-between" mb="xl">
-                  <Text 
-                    className="sp-trader-logo" 
-                    size="lg" 
-                    fw={700}
-                    c="white"
-                  >
+                  <Text className="sp-trader-logo" size="lg" fw={700} c="white">
                     SPTrader
                   </Text>
-                  
+
                   <ActionIcon
                     onClick={() => setCollapsed(true)}
                     variant="subtle"
@@ -136,7 +131,7 @@ export const AppLayout = () => {
                   {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path;
-                    
+
                     return (
                       <NavLink
                         key={item.path}

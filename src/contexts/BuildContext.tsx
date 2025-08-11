@@ -11,11 +11,11 @@ interface BuildContextType {
   searchTerm: string;
   selectedCategory: string;
   scrollPosition: number;
-  
+
   // Component tracking
   lastOpenedComponent: LastOpenedComponent | null;
   recentComponents: LastOpenedComponent[];
-  
+
   // Actions
   setSearchTerm: (term: string) => void;
   setSelectedCategory: (category: string) => void;
@@ -38,14 +38,14 @@ export const BuildProvider = ({ children }: { children: ReactNode }) => {
   const [searchTerm, setSearchTerm] = useState(() => {
     return localStorage.getItem(STORAGE_KEYS.searchTerm) || '';
   });
-  
+
   const [selectedCategory, setSelectedCategory] = useState(() => {
     return localStorage.getItem(STORAGE_KEYS.selectedCategory) || 'all';
   });
-  
+
   const [scrollPosition, setScrollPosition] = useState(0);
   const [lastOpenedComponent, setLastOpenedComponent] = useState<LastOpenedComponent | null>(null);
-  
+
   const [recentComponents, setRecentComponents] = useState<LastOpenedComponent[]>(() => {
     const stored = localStorage.getItem(STORAGE_KEYS.recentComponents);
     return stored ? JSON.parse(stored) : [];
@@ -65,10 +65,10 @@ export const BuildProvider = ({ children }: { children: ReactNode }) => {
   }, [recentComponents]);
 
   const addToRecentComponents = (component: LastOpenedComponent) => {
-    setRecentComponents(prev => {
+    setRecentComponents((prev) => {
       // Remove if already exists to avoid duplicates
-      const filtered = prev.filter(c => 
-        !(c.type === component.type && c.name === component.name)
+      const filtered = prev.filter(
+        (c) => !(c.type === component.type && c.name === component.name)
       );
       // Add to beginning and limit to 10 items
       return [component, ...filtered].slice(0, 10);
@@ -76,18 +76,21 @@ export const BuildProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <BuildContext.Provider value={{
-      searchTerm,
-      selectedCategory,
-      scrollPosition,
-      lastOpenedComponent,
-      recentComponents,
-      setSearchTerm,
-      setSelectedCategory,
-      setScrollPosition,
-      setLastOpenedComponent,
-      addToRecentComponents,
-    }}>
+    <BuildContext.Provider
+      value={{
+        searchTerm,
+        selectedCategory,
+        scrollPosition,
+        lastOpenedComponent,
+        recentComponents,
+        // Actions
+        setSearchTerm,
+        setSelectedCategory,
+        setScrollPosition,
+        setLastOpenedComponent,
+        addToRecentComponents,
+      }}
+    >
       {children}
     </BuildContext.Provider>
   );
