@@ -20,16 +20,29 @@ src-tauri/WixTools/
 
 # Python
 data-ingestion/venv/
+venv/
+__pycache__/
 data-ingestion/__pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 *.egg-info/
+*.egg
+.pytest_cache/
 
 # Database
 pgdata/
 *.log
+*.error.log
+*.backup
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.#*
 
 # Environment variables
 .env
