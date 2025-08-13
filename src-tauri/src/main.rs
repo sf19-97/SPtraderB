@@ -243,8 +243,8 @@ async fn fetch_candles(
     {
         let mut cache = state.candle_cache.write().await;
         
-        // Simple LRU: if cache is full (>10 entries), remove oldest
-        if cache.len() >= 10 {
+        // Simple LRU: if cache is full (>100 entries), remove oldest
+        if cache.len() >= 100 {
             // Find the oldest entry
             if let Some(oldest_key) = cache.iter()
                 .min_by_key(|(_, v)| v.cached_at)

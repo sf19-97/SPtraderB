@@ -80,9 +80,23 @@ export const useChartStore = create<ChartState>()(
       setCurrentSymbol: (symbol) => set({ currentSymbol: symbol }),
       setCurrentTimeframe: (timeframe) => set({ currentTimeframe: timeframe }),
 
-      // Cache key generator
+      // Cache key generator - MUST match backend normalization
       getCacheKey: (symbol, timeframe, from, to) => {
-        return `${symbol}-${timeframe}-${from}-${to}`;
+        // CRITICAL: Match backend timestamp normalization from candles/commands.rs
+        const normalizationFactor: Record<string, number> = {
+          '1m': 300,      // 5 minutes
+          '5m': 900,      // 15 minutes
+          '15m': 3600,    // 1 hour
+          '1h': 7200,     // 2 hours
+          '4h': 14400,    // 4 hours
+          '12h': 43200,   // 12 hours
+        };
+        
+        const factor = normalizationFactor[timeframe] || 3600;
+        const normalizedFrom = Math.floor(from / factor) * factor;
+        const normalizedTo = Math.floor(to / factor) * factor;
+        
+        return `${symbol}-${timeframe}-${normalizedFrom}-${normalizedTo}`;
       },
 
       // Get cached candles
@@ -124,7 +138,7 @@ export const useChartStore = create<ChartState>()(
         const newCache = new Map(get().candleCache);
 
         // Simple LRU: if cache is too big, remove oldest
-        if (newCache.size >= 20) {
+        if (newCache.size >= 100) {
           const oldestKey = Array.from(newCache.entries()).sort(
             (a, b) => a[1].timestamp - b[1].timestamp
           )[0][0];
