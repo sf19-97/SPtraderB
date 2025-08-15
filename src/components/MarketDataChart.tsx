@@ -118,10 +118,8 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   const initialLoadDoneRef = useRef(false);
 
   // CRITICAL: Use bar spacing thresholds, not pixel widths
-  const SWITCH_TO_1M_BAR_SPACING = 40; // When 5m bars are spread this wide, switch to 1m
   const SWITCH_TO_5M_BAR_SPACING = 35; // When 15m bars are spread this wide, switch to 5m
   const SWITCH_TO_15M_BAR_SPACING = 32; // When 1h bars are spread this wide, switch to 15m
-  const SWITCH_FROM_1M_BAR_SPACING = 6; // When 1m bars are squeezed this tight, switch to 5m
   const SWITCH_FROM_5M_BAR_SPACING = 7; // When 5m bars are squeezed this tight, switch to 15m
   const SWITCH_TO_1H_BAR_SPACING = 8; // When 15m bars are squeezed this tight, switch to 1h
   const SWITCH_TO_4H_BAR_SPACING = 8; // When 1h bars are squeezed this tight, switch to 4h
@@ -140,8 +138,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   // Get timeframe duration in seconds
   const getTimeframeSeconds = (timeframe: string): number => {
     switch (timeframe) {
-      case '1m':
-        return 60;
       case '5m':
         return 5 * 60;
       case '15m':
@@ -177,9 +173,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
     // Calculate seconds until next candle boundary
     switch (currentTimeframeRef.current) {
-      case '1m':
-        secondsRemaining = 60 - seconds;
-        break;
       case '5m':
         secondsRemaining = (5 - (minutes % 5)) * 60 - seconds;
         break;
@@ -236,9 +229,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
             // Calculate the new candle time based on timeframe
             let newCandleTime;
             const tf = currentTimeframeRef.current;
-            if (tf === '1m') {
-              newCandleTime = Math.floor(now / 60) * 60;
-            } else if (tf === '5m') {
+            if (tf === '5m') {
               newCandleTime = Math.floor(now / 300) * 300;
             } else if (tf === '15m') {
               newCandleTime = Math.floor(now / 900) * 900;
@@ -322,9 +313,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           // Calculate the new candle time based on timeframe
           let newCandleTime;
           const tf = currentTimeframeRef.current;
-          if (tf === '1m') {
-            newCandleTime = Math.floor(now / 60) * 60;
-          } else if (tf === '5m') {
+          if (tf === '5m') {
             newCandleTime = Math.floor(now / 300) * 300;
           } else if (tf === '15m') {
             newCandleTime = Math.floor(now / 900) * 900;
@@ -367,9 +356,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         const now = Math.floor(Date.now() / 1000);
         const to = now + 60 * 60;
         let from;
-        if (currentTimeframeRef.current === '1m') {
-          from = now - 7 * 24 * 60 * 60;
-        } else if (currentTimeframeRef.current === '5m') {
+        if (currentTimeframeRef.current === '5m') {
           from = now - 30 * 24 * 60 * 60;
         } else {
           from = now - 90 * 24 * 60 * 60;
@@ -421,9 +408,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         to = now + 60 * 60; // 1 hour into future
 
         // Use smaller window for high-frequency timeframes
-        if (tf === '1m') {
-          from = now - 7 * 24 * 60 * 60; // 7 days for 1m candles
-        } else if (tf === '5m') {
+        if (tf === '5m') {
           from = now - 30 * 24 * 60 * 60; // 30 days for 5m candles
         } else {
           from = now - 90 * 24 * 60 * 60; // 90 days for others
@@ -560,9 +545,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
       // Use appropriate window based on new timeframe
       let from;
-      if (newTimeframe === '1m') {
-        from = now - 7 * 24 * 60 * 60; // 7 days for 1m
-      } else if (newTimeframe === '5m') {
+      if (newTimeframe === '5m') {
         from = now - 30 * 24 * 60 * 60; // 30 days for 5m
       } else {
         from = now - 90 * 24 * 60 * 60; // 90 days for others
@@ -587,11 +570,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         // Calculate new bar spacing
         let newBarSpacing = currentBarSpacing;
 
-        if (newTimeframe === '1m' && previousTimeframe === '5m') {
-          newBarSpacing = Math.max(3, currentBarSpacing / 5);
-        } else if (newTimeframe === '5m' && previousTimeframe === '1m') {
-          newBarSpacing = Math.min(50, currentBarSpacing * 5);
-        } else if (newTimeframe === '5m' && previousTimeframe === '15m') {
+        if (newTimeframe === '5m' && previousTimeframe === '15m') {
           newBarSpacing = Math.max(3, currentBarSpacing / 3);
         } else if (newTimeframe === '15m' && previousTimeframe === '5m') {
           newBarSpacing = Math.min(50, currentBarSpacing * 3);
@@ -634,11 +613,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
             const ratio =
               newTimeframe === previousTimeframe
                 ? 1
-                : newTimeframe === '1m' && previousTimeframe === '5m'
-                  ? 5
-                  : newTimeframe === '5m' && previousTimeframe === '1m'
-                    ? 0.2
-                    : newTimeframe === '5m' && previousTimeframe === '15m'
+                : newTimeframe === '5m' && previousTimeframe === '15m'
                       ? 3
                       : newTimeframe === '15m' && previousTimeframe === '5m'
                         ? 0.33
@@ -949,20 +924,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         );
         switchTimeframe('15m');
       }
-      // 5m → 1m (zooming in)
-      else if (currentTf === '5m' && barSpacing > SWITCH_TO_1M_BAR_SPACING) {
-        console.log(
-          `[SWITCH] 5m bar spacing ${barSpacing} > ${SWITCH_TO_1M_BAR_SPACING} → switching to 1m`
-        );
-        switchTimeframe('1m');
-      }
-      // 1m → 5m (zooming out)
-      else if (currentTf === '1m' && barSpacing < SWITCH_FROM_1M_BAR_SPACING) {
-        console.log(
-          `[SWITCH] 1m bar spacing ${barSpacing} < ${SWITCH_FROM_1M_BAR_SPACING} → switching to 5m`
-        );
-        switchTimeframe('5m');
-      }
     };
 
     checkIntervalRef.current = setInterval(() => {
@@ -1088,9 +1049,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
         // Use appropriate window based on timeframe
         let from;
-        if (currentTimeframeRef.current === '1m') {
-          from = now - 7 * 24 * 60 * 60; // 7 days for 1m
-        } else if (currentTimeframeRef.current === '5m') {
+        if (currentTimeframeRef.current === '5m') {
           from = now - 30 * 24 * 60 * 60; // 30 days for 5m
         } else {
           from = now - 90 * 24 * 60 * 60; // 90 days for others
@@ -1111,9 +1070,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           if (chartRef.current) {
             let daysToShow = 7; // Default for 1h
 
-            if (currentTimeframeRef.current === '1m')
-              daysToShow = 0.02; // ~30 minutes
-            else if (currentTimeframeRef.current === '5m')
+            if (currentTimeframeRef.current === '5m')
               daysToShow = 0.083; // ~2 hours
             else if (currentTimeframeRef.current === '15m') daysToShow = 2;
             else if (currentTimeframeRef.current === '1h') daysToShow = 7;
@@ -1196,9 +1153,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       const now = Math.floor(Date.now() / 1000);
       const to = now + 60 * 60;
       let from;
-      if (currentTimeframeRef.current === '1m') {
-        from = now - 7 * 24 * 60 * 60;
-      } else if (currentTimeframeRef.current === '5m') {
+      if (currentTimeframeRef.current === '5m') {
         from = now - 30 * 24 * 60 * 60;
       } else {
         from = now - 90 * 24 * 60 * 60;
@@ -1260,9 +1215,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
                 // Use appropriate window based on timeframe
                 let from;
-                if (currentTimeframeRef.current === '1m') {
-                  from = now - 7 * 24 * 60 * 60; // 7 days for 1m
-                } else if (currentTimeframeRef.current === '5m') {
+                if (currentTimeframeRef.current === '5m') {
                   from = now - 30 * 24 * 60 * 60; // 30 days for 5m
                 } else {
                   from = now - 90 * 24 * 60 * 60; // 90 days for others
