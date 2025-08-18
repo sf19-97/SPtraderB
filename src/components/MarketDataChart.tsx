@@ -928,14 +928,14 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
           // Show appropriate default view based on timeframe
           if (chartRef.current) {
-            let daysToShow = 7; // Default for 1h
+            let daysToShow = 30; // Default - show more data to prevent auto-switch
 
             if (currentTimeframeRef.current === '5m')
-              daysToShow = 0.083; // ~2 hours
-            else if (currentTimeframeRef.current === '15m') daysToShow = 2;
-            else if (currentTimeframeRef.current === '1h') daysToShow = 7;
-            else if (currentTimeframeRef.current === '4h') daysToShow = 30;
-            else if (currentTimeframeRef.current === '12h') daysToShow = 60;
+              daysToShow = 2; // 2 days for 5m
+            else if (currentTimeframeRef.current === '15m') daysToShow = 7; // 1 week
+            else if (currentTimeframeRef.current === '1h') daysToShow = 30; // 1 month
+            else if (currentTimeframeRef.current === '4h') daysToShow = 60; // 2 months
+            else if (currentTimeframeRef.current === '12h') daysToShow = 90; // 3 months
 
             const timeRange = daysToShow * 24 * 60 * 60;
             const endTime = data[data.length - 1].time;
