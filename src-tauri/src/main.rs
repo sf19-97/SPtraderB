@@ -113,13 +113,6 @@ struct Candle {
 }
 
 
-#[derive(Debug, Serialize, Deserialize)]
-struct DatabaseStatus {
-    connected: bool,
-    database_name: String,
-    host: String,
-    error: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 struct DataRequest {
@@ -272,38 +265,6 @@ struct HierarchicalRequest {
     detail_level: String,
 }
 
-#[tauri::command]
-async fn check_database_connection(
-    state: State<'_, AppState>,
-) -> Result<DatabaseStatus, String> {
-    let pool = state.db_pool.lock().await;
-    
-    // Try to execute a simple query to check if connection is alive
-    match sqlx::query("SELECT current_database(), inet_server_addr()::text")
-        .fetch_one(&*pool)
-        .await
-    {
-        Ok(row) => {
-            let db_name: String = row.try_get(0).unwrap_or_else(|_| "unknown".to_string());
-            let host: Option<String> = row.try_get(1).ok();
-            
-            Ok(DatabaseStatus {
-                connected: true,
-                database_name: db_name,
-                host: host.unwrap_or_else(|| "localhost".to_string()),
-                error: None,
-            })
-        },
-        Err(e) => {
-            Ok(DatabaseStatus {
-                connected: false,
-                database_name: "forex_trading".to_string(),
-                host: "localhost".to_string(),
-                error: Some(format!("Connection error: {}", e)),
-            })
-        }
-    }
-}
 
 #[tauri::command]
 async fn fetch_candles_v2(
@@ -1211,8 +1172,7 @@ async fn main() {
         .manage(market_data_state)
         .invoke_handler(tauri::generate_handler![
             fetch_candles, 
-            fetch_candles_v2, 
-            check_database_connection,
+            fetch_candles_v2,
             workspace::get_workspace_tree,
             workspace::read_component_file,
             workspace::save_component_file,

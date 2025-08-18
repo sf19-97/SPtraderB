@@ -14,8 +14,8 @@ import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweig
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useChartStore } from '../stores/useChartStore';
-import { ActionIcon, Group, Text, Box } from '@mantine/core';
-import { IconMaximize, IconMinimize } from '@tabler/icons-react';
+import { Box } from '@mantine/core';
+import { chartDataCoordinator, type SymbolMetadata } from '../services/ChartDataCoordinator';
 
 interface ChartData {
   time: number; // Unix timestamp
@@ -33,12 +33,6 @@ interface MarketDataChartProps {
   onToggleFullscreen?: () => void;
 }
 
-interface SymbolMetadata {
-  symbol: string;
-  start_timestamp: number;
-  end_timestamp: number;
-  has_data: boolean;
-}
 
 interface MarketTick {
   timestamp: string;
@@ -66,7 +60,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
   const [currentTimeframe, setCurrentTimeframe] = useState(timeframe || '1h');
   const currentTimeframeRef = useRef(timeframe || '1h');
-  const symbolRef = useRef(symbol);
+  const symbolRef = useRef(symbol || 'EURUSD');
   const [isLoading, setIsLoading] = useState(false);
   const isTransitioningRef = useRef(false);
   const [chartOpacity, setChartOpacity] = useState(1);
@@ -382,19 +376,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     }
   }, []);
 
-  // Resize chart when fullscreen mode changes
-  useEffect(() => {
-    if (chartRef.current) {
-      // Small delay to allow DOM to update
-      setTimeout(() => {
-        chartRef.current?.applyOptions({
-          width: chartContainerRef.current?.clientWidth || 0,
-          height: chartContainerRef.current?.clientHeight || 0,
-        });
-      }, 50);
-    }
-  }, [isFullscreen]);
-
   const fetchChartData = async (
     sym: string,
     tf: string,
@@ -402,89 +383,20 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     to?: number
   ): Promise<{ data: ChartData[]; metadata: SymbolMetadata | null }> => {
     try {
-      // Calculate date range if not provided
-      if (!from || !to) {
-        const now = Math.floor(Date.now() / 1000);
-        to = now + 60 * 60; // 1 hour into future
-
-        // Use smaller window for high-frequency timeframes
-        if (tf === '5m') {
-          from = now - 30 * 24 * 60 * 60; // 30 days for 5m candles
-        } else {
-          from = now - 90 * 24 * 60 * 60; // 90 days for others
-        }
-      }
-
-      // Always update the date range ref so periodic refresh works
-      dateRangeRef.current = { from: from!, to: to! };
-
-      console.log(
-        `[MarketChart] Fetching ${tf} data from ${new Date(from * 1000).toISOString()} to ${new Date(to * 1000).toISOString()}`
-      );
-      console.log(`[MarketChart] Timestamps - from: ${from}, to: ${to}`);
-
-      // Use the generic market candles command that routes to correct tables
-      const response = await invoke<any>('get_market_candles', {
-        symbol: sym,
-        timeframe: tf,
-        from: from,
-        to: to,
+      // Use coordinator for all data fetches
+      const data = await chartDataCoordinator.fetchChartData(sym, tf, {
+        range: from && to ? { from, to } : undefined
       });
 
-      console.log(`[MarketChart] Received ${response.data?.length || 0} candles`);
+      // Don't update dateRangeRef here - it should only be set during initial load
 
-      if (response.data && response.data.length > 0) {
-        const chartData = response.data.map((candle: any, index: number) => {
-          // Log the raw time string received for first few candles
-          if (index < 3) {
-            console.log(`[MarketChart] Raw candle ${index} time string:`, candle.time);
-            console.log(`[MarketChart] Parsed as Date:`, new Date(candle.time));
-            console.log(
-              `[MarketChart] Unix timestamp:`,
-              Math.floor(new Date(candle.time).getTime() / 1000)
-            );
-          }
+      // Get metadata separately if needed
+      const metadata = await chartDataCoordinator.getSymbolMetadata(sym);
 
-          return {
-            time: Math.floor(new Date(candle.time).getTime() / 1000),
-            open: parseFloat(candle.open),
-            high: parseFloat(candle.high),
-            low: parseFloat(candle.low),
-            close: parseFloat(candle.close),
-          };
-        });
-
-        // Log first and last candle times for debugging
-        if (chartData.length > 0) {
-          const firstDate = new Date(chartData[0].time * 1000);
-          const lastDate = new Date(chartData[chartData.length - 1].time * 1000);
-          console.log(
-            '[MarketChart] First candle:',
-            firstDate.toISOString(),
-            '(Local:',
-            firstDate.toLocaleString(),
-            ')'
-          );
-          console.log(
-            '[MarketChart] Last candle:',
-            lastDate.toISOString(),
-            '(Local:',
-            lastDate.toLocaleString(),
-            ')'
-          );
-
-          // Check if data is behind current time
-          const now = new Date();
-          const hoursBehind = (now.getTime() - lastDate.getTime()) / (1000 * 60 * 60);
-          console.log('[MarketChart] Data is', hoursBehind.toFixed(1), 'hours behind current time');
-        }
-
-        return {
-          data: chartData,
-          metadata: response.metadata || null,
-        };
-      }
-      return { data: [], metadata: null };
+      return {
+        data,
+        metadata
+      };
     } catch (error) {
       console.error(`Error fetching market chart data for ${sym} ${tf}:`, error);
       return { data: [], metadata: null };
@@ -602,8 +514,8 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         const cacheKey = getCacheKey(symbolRef.current!, newTimeframe, from, to);
         setCachedCandles(cacheKey, data);
 
-        // Update dateRangeRef
-        dateRangeRef.current = { from, to };
+        // Set default range in coordinator for the new timeframe
+        chartDataCoordinator.setDefaultRange(symbolRef.current!, newTimeframe, from, to);
 
         // Maintain view range
         if (visibleRange) {
@@ -1054,6 +966,18 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         } else {
           from = now - 90 * 24 * 60 * 60; // 90 days for others
         }
+        
+        // Set this as the default range for this symbol/timeframe combination
+        chartDataCoordinator.setDefaultRange(
+          symbol || 'EURUSD',
+          currentTimeframeRef.current,
+          from,
+          to
+        );
+        
+        // Store this range for periodic refresh to use
+        dateRangeRef.current = { from, to };
+        
         const { data } = await fetchChartData(
           symbol || 'EURUSD',
           currentTimeframeRef.current,
@@ -1149,22 +1073,12 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       placeholderTimeRef.current = null;
       hasTriggeredNewCandleRef.current = false;
 
-      // Reload data for new symbol
-      const now = Math.floor(Date.now() / 1000);
-      const to = now + 60 * 60;
-      let from;
-      if (currentTimeframeRef.current === '5m') {
-        from = now - 30 * 24 * 60 * 60;
-      } else {
-        from = now - 90 * 24 * 60 * 60;
-      }
-
-      fetchChartData(symbol, currentTimeframeRef.current, from, to)
+      // Reload data for new symbol using coordinator's default range
+      fetchChartData(symbol, currentTimeframeRef.current)
         .then(({ data }) => {
           if (data.length > 0 && seriesRef.current) {
             seriesRef.current.setData(data as any);
-            const cacheKey = getCacheKey(symbol, currentTimeframeRef.current, from, to);
-            setCachedCandles(cacheKey, data);
+            // Cache will be handled by the coordinator
           }
         })
         .catch((error) => console.error('[MarketDataChart] Error loading new symbol:', error))
@@ -1462,140 +1376,9 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     };
   }, [currentTimeframe, updateCountdown]); // Restart when timeframe changes
 
-  // Render fullscreen version
-  if (isFullscreen) {
-    return (
-      <>
-        {/* Fullscreen overlay */}
-        <Box
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: '#151515',
-            zIndex: 100,
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {/* Header with close button */}
-          <Group justify="space-between" mb="sm">
-            <Text size="lg" fw={500} c="white">
-              {symbol} - {currentTimeframe} Chart
-            </Text>
-            {onToggleFullscreen && (
-              <ActionIcon
-                onClick={onToggleFullscreen}
-                variant="subtle"
-                color="gray"
-                size="md"
-                title="Exit fullscreen"
-              >
-                <IconMinimize size={20} />
-              </ActionIcon>
-            )}
-          </Group>
-
-          {/* Chart container */}
-          <Box style={{ flex: 1, position: 'relative' }}>
-            <div
-              ref={chartContainerRef}
-              style={{
-                width: '100%',
-                height: '100%',
-                background: '#0a0a0a',
-                position: 'relative',
-                opacity: chartOpacity,
-                transition: 'opacity 300ms ease-in-out',
-                borderRadius: '4px',
-              }}
-            >
-              {isLoading && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    background: 'rgba(0,0,0,0.7)',
-                    color: '#fff',
-                    padding: '5px 10px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                  }}
-                >
-                  Loading...
-                </div>
-              )}
-
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '10px',
-                  left: '10px',
-                  background: 'rgba(0,0,0,0.7)',
-                  color: '#00ff88',
-                  padding: '5px 10px',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {currentTimeframe}
-                {isShiftPressed && (
-                  <span style={{ marginLeft: '10px', color: '#ff9900' }}>[LOCK LEFT]</span>
-                )}
-              </div>
-            </div>
-          </Box>
-        </Box>
-
-        {/* Dark overlay backdrop */}
-        <Box
-          onClick={onToggleFullscreen}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            zIndex: 99,
-            cursor: 'pointer',
-          }}
-        />
-      </>
-    );
-  }
-
-  // Regular mode with maximize button
+  // Regular mode
   return (
     <Box style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {/* Maximize button in top-right corner */}
-      {onToggleFullscreen && (
-        <ActionIcon
-          onClick={onToggleFullscreen}
-          variant="subtle"
-          color="gray"
-          size="sm"
-          style={{
-            position: 'absolute',
-            top: 40,
-            right: 8,
-            zIndex: 10,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            '&:hover': {
-              backgroundColor: 'rgba(0,0,0,0.9)',
-            },
-          }}
-          title="Fullscreen"
-        >
-          <IconMaximize size={16} />
-        </ActionIcon>
-      )}
-
       <div
         ref={chartContainerRef}
         style={{
