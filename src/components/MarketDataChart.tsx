@@ -82,16 +82,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
   // Zustand store
   const {
-    getCachedCandles,
-    setCachedCandles,
-    getCacheKey,
-    invalidateCache,
-    saveViewState,
-    getViewState,
-    setCurrentSymbol,
     setCurrentTimeframe: setStoreTimeframe,
-    getCachedMetadata,
-    setCachedMetadata,
   } = useChartStore();
 
   // Transition cooldown tracking
@@ -105,8 +96,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   // Interval tracking
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Date range tracking
-  const dateRangeRef = useRef<{ from: number; to: number } | null>(null);
 
   // Track if initial load has been done
   const initialLoadDoneRef = useRef(false);
@@ -341,38 +330,8 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         }
       }
 
-      // Schedule fetch for real data
-      setTimeout(() => {
-        console.log('[MarketChart] Fetching real candle data...');
-        // Invalidate cache and fetch fresh data
-        invalidateCache(`${symbolRef.current}-${currentTimeframeRef.current}`);
-
-        const now = Math.floor(Date.now() / 1000);
-        const to = now + 60 * 60;
-        let from;
-        if (currentTimeframeRef.current === '5m') {
-          from = now - 30 * 24 * 60 * 60;
-        } else {
-          from = now - 90 * 24 * 60 * 60;
-        }
-
-        fetchChartData(symbolRef.current!, currentTimeframeRef.current, from, to)
-          .then(({ data }) => {
-            if (data.length > 0 && seriesRef.current) {
-              seriesRef.current.setData(data as any);
-              const cacheKey = getCacheKey(
-                symbolRef.current!,
-                currentTimeframeRef.current,
-                from,
-                to
-              );
-              setCachedCandles(cacheKey, data);
-              console.log('[MarketChart] Real candle data loaded');
-              placeholderTimeRef.current = null;
-            }
-          })
-          .catch((error) => console.error('[MarketChart] Failed to load new candle:', error));
-      }, 2000); // Wait 2 seconds for cascade refresh to complete
+      // Periodic refresh will handle fetching real data
+      // No need for duplicate fetch here
     }
   }, []);
 
@@ -451,20 +410,8 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     try {
-      // Use fresh sliding window for new timeframe
-      const now = Math.floor(Date.now() / 1000);
-      const to = now + 60 * 60;
-
-      // Use appropriate window based on new timeframe
-      let from;
-      if (newTimeframe === '5m') {
-        from = now - 30 * 24 * 60 * 60; // 30 days for 5m
-      } else {
-        from = now - 90 * 24 * 60 * 60; // 90 days for others
-      }
-
-      // Fetch new data
-      const { data } = await fetchChartData(symbolRef.current!, newTimeframe, from, to);
+      // Let coordinator use its default range for this timeframe
+      const { data } = await fetchChartData(symbolRef.current!, newTimeframe);
 
       if (data.length === 0) {
         console.error(`[SWITCH] No data available for ${newTimeframe} - aborting transition`);
@@ -510,12 +457,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         
         // Set new data
         seriesRef.current.setData(data as any);
-        // Cache with proper key using the fresh time window
-        const cacheKey = getCacheKey(symbolRef.current!, newTimeframe, from, to);
-        setCachedCandles(cacheKey, data);
-
-        // Set default range in coordinator for the new timeframe
-        chartDataCoordinator.setDefaultRange(symbolRef.current!, newTimeframe, from, to);
 
         // Maintain view range
         if (visibleRange) {
@@ -975,9 +916,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           to
         );
         
-        // Store this range for periodic refresh to use
-        dateRangeRef.current = { from, to };
-        
         const { data } = await fetchChartData(
           symbol || 'EURUSD',
           currentTimeframeRef.current,
@@ -987,8 +925,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         if (data.length > 0) {
           seriesRef.current.setData(data as any);
           // Generate cache key using the same from/to values we used for fetching
-          const cacheKey = getCacheKey(symbol, currentTimeframeRef.current, from, to);
-          setCachedCandles(cacheKey, data);
 
           // Show appropriate default view based on timeframe
           if (chartRef.current) {
@@ -1084,7 +1020,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         .catch((error) => console.error('[MarketDataChart] Error loading new symbol:', error))
         .finally(() => setIsLoading(false));
     }
-  }, [symbol, getCacheKey, setCachedCandles]);
+  }, [symbol]);
 
   // Real-time data streaming effect
   useEffect(() => {
@@ -1117,43 +1053,9 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
               if (!mounted) return;
               console.log('[MarketChart] Candle update received:', event.payload);
 
-              // Invalidate cache and reload chart data when our timeframe updates
+              // Just log the update - periodic refresh will handle data fetching
               if (event.payload.timeframe === currentTimeframeRef.current) {
-                // Invalidate cache for this timeframe
-                invalidateCache(`${symbolRef.current}-${currentTimeframeRef.current}`);
-                console.log('[MarketChart] Cache invalidated for:', currentTimeframeRef.current);
-
-                // Fetch fresh data with new sliding window
-                const now = Math.floor(Date.now() / 1000);
-                const to = now + 60 * 60;
-
-                // Use appropriate window based on timeframe
-                let from;
-                if (currentTimeframeRef.current === '5m') {
-                  from = now - 30 * 24 * 60 * 60; // 30 days for 5m
-                } else {
-                  from = now - 90 * 24 * 60 * 60; // 90 days for others
-                }
-
-                fetchChartData(symbolRef.current!, currentTimeframeRef.current, from, to)
-                  .then(({ data }) => {
-                    if (!mounted) return;
-                    if (data.length > 0 && seriesRef.current) {
-                      seriesRef.current.setData(data as any);
-                      // Update cache with new key
-                      const cacheKey = getCacheKey(
-                        symbolRef.current!,
-                        currentTimeframeRef.current,
-                        from,
-                        to
-                      );
-                      setCachedCandles(cacheKey, data);
-                      console.log('[MarketChart] Chart updated with fresh aggregate data');
-                    }
-                  })
-                  .catch((error) =>
-                    console.error('[MarketChart] Failed to reload after update:', error)
-                  );
+                console.log('[MarketChart] Candle update notification received, periodic refresh will handle it');
               }
             }
           );
@@ -1222,16 +1124,9 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         if (chartRef.current && !isLoading && !isTransitioningRef.current) {
           console.log('[MarketChart] Periodic refresh check at', new Date().toLocaleTimeString());
 
-          // CRITICAL FIX: Use the same date range as initial load to hit cache
-          // Problem: Was using Date.now() which created different timestamps every refresh
-          // Solution: Reuse the initial date range stored in dateRangeRef
-          // This ensures the backend cache key matches and we get cached data
-          if (dateRangeRef.current) {
-            const { from, to } = dateRangeRef.current;
-            
-            // Reload data with EXACT SAME range as initial load
-            // Backend will normalize these timestamps for cache key generation
-            fetchChartData(symbolRef.current!, currentTimeframeRef.current, from, to)
+          // Use coordinator's default range for consistent cache keys
+          // The coordinator handles normalization and cache management
+          fetchChartData(symbolRef.current!, currentTimeframeRef.current)
             .then(({ data }) => {
               if (data.length > 0 && seriesRef.current) {
                 const currentData = seriesRef.current.data();
@@ -1314,7 +1209,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
               }
             })
             .catch((error) => console.error('[MarketChart] Periodic refresh error:', error));
-          }
         }
       }, 30000); // PERFORMANCE FIX: Changed from 5s to 30s
       // Was hammering the database with requests every 5 seconds
