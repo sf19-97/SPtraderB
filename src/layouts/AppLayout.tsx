@@ -5,14 +5,12 @@ import { useState } from 'react';
 import { IconDatabase } from '@tabler/icons-react';
 
 import {
-  IconChartLine,
   IconCode,
   IconHistory,
   IconSettings,
   IconChevronLeft,
   IconChevronRight,
   IconRobot,
-  IconCurrencyBitcoin,
   IconChartCandle,
 } from '@tabler/icons-react';
 

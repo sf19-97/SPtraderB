@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useActor } from '@xstate/react';
 import { Box } from '@mantine/core';
-import { createChart, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { useChartMachine } from '../machines/chartStateMachine';
 import { chartDataCoordinator } from '../services/ChartDataCoordinator';
 import { useChartStore } from '../stores/useChartStore';
@@ -66,7 +66,7 @@ export const MarketDataChartRefactored: React.FC<MarketDataChartProps> = ({
       },
     });
 
-    const series = chart.addCandlestickSeries({
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,

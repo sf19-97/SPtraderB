@@ -9,13 +9,16 @@
  * - Works with any asset using the cascade pattern
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useChartStore } from '../stores/useChartStore';
 import { Box } from '@mantine/core';
 import { chartDataCoordinator, type SymbolMetadata } from '../services/ChartDataCoordinator';
+import { CountdownTimer } from './CountdownTimer';
+import { usePlaceholderCandle, calculateCandleTime } from '../hooks/usePlaceholderCandle';
+import { getDaysToShowForTimeframe, setVisibleRangeByDays } from '../utils/chartHelpers';
 
 interface ChartData {
   time: number; // Unix timestamp
@@ -72,18 +75,20 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   });
   const [lastTick, setLastTick] = useState<MarketTick | null>(null);
 
-  // Countdown timer state
-  const [countdown, setCountdown] = useState<string>('00:00');
-  const [countdownColor, setCountdownColor] = useState<string>('#999');
-  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastCountdownUpdateRef = useRef<number>(0);
-  const hasTriggeredNewCandleRef = useRef<boolean>(false);
-  const placeholderTimeRef = useRef<number | null>(null);
 
   // Zustand store
   const {
     setCurrentTimeframe: setStoreTimeframe,
   } = useChartStore();
+
+  // Placeholder candle management
+  const {
+    createPlaceholder,
+    updateWithRealData,
+    hasPlaceholder,
+    getPlaceholderTime,
+    resetTrigger,
+  } = usePlaceholderCandle(seriesRef.current);
 
   // Transition cooldown tracking
   const lastTransitionRef = useRef<number>(0);
@@ -136,204 +141,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     }
   };
 
-  // Update countdown timer
-  const updateCountdown = useCallback(() => {
-    const now = Date.now();
-    const date = new Date(now);
-    const seconds = date.getSeconds();
 
-    // Near boundary (last 2 seconds), update more frequently to catch the transition
-    const nearBoundary = seconds >= 58 || seconds <= 2;
-    const throttleMs = nearBoundary ? 100 : 950;
-
-    // Throttle updates based on proximity to boundary
-    if (now - lastCountdownUpdateRef.current < throttleMs) return;
-    lastCountdownUpdateRef.current = now;
-    const minutes = date.getMinutes();
-    const hours = date.getHours();
-
-    let secondsRemaining = 0;
-
-    // Calculate seconds until next candle boundary
-    switch (currentTimeframeRef.current) {
-      case '5m':
-        secondsRemaining = (5 - (minutes % 5)) * 60 - seconds;
-        break;
-      case '15m':
-        secondsRemaining = (15 - (minutes % 15)) * 60 - seconds;
-        break;
-      case '1h':
-        secondsRemaining = (60 - minutes) * 60 - seconds;
-        break;
-      case '4h':
-        secondsRemaining = (4 - (hours % 4)) * 3600 + (60 - minutes) * 60 - seconds;
-        break;
-      case '12h':
-        secondsRemaining = (12 - (hours % 12)) * 3600 + (60 - minutes) * 60 - seconds;
-        break;
-    }
-
-    // Keep raw seconds for boundary detection
-    const totalSeconds = secondsRemaining;
-
-    // Debug logging every second when close to boundary
-    if (totalSeconds <= 5 && totalSeconds >= -5) {
-      console.log(
-        `[MarketChart] Countdown: ${totalSeconds}s, triggered: ${hasTriggeredNewCandleRef.current}, time: ${date.toISOString()}`
-      );
-    }
-
-    // Schedule precise placeholder creation when we're 1 second away
-    if (
-      totalSeconds > 0 &&
-      totalSeconds <= 1 &&
-      !hasTriggeredNewCandleRef.current &&
-      !placeholderTimeRef.current
-    ) {
-      const msToWait = totalSeconds * 1000;
-      console.log(`[MarketChart] Scheduling placeholder in ${msToWait}ms`);
-
-      // Mark that we've scheduled it
-      placeholderTimeRef.current = -1; // Use -1 as a flag that we've scheduled
-
-      setTimeout(() => {
-        console.log(`[MarketChart] PRECISE PLACEHOLDER TRIGGER at ${new Date().toISOString()}`);
-        hasTriggeredNewCandleRef.current = true;
-
-        if (seriesRef.current) {
-          const currentData = seriesRef.current.data();
-          if (currentData.length > 0) {
-            const lastCandle = currentData[currentData.length - 1];
-            // Type guard - only process if it's actual candle data
-            if (!('close' in lastCandle)) return;
-
-            const now = Math.floor(Date.now() / 1000);
-
-            // Calculate the new candle time based on timeframe
-            let newCandleTime;
-            const tf = currentTimeframeRef.current;
-            if (tf === '5m') {
-              newCandleTime = Math.floor(now / 300) * 300;
-            } else if (tf === '15m') {
-              newCandleTime = Math.floor(now / 900) * 900;
-            } else if (tf === '1h') {
-              newCandleTime = Math.floor(now / 3600) * 3600;
-            } else if (tf === '4h') {
-              newCandleTime = Math.floor(now / 14400) * 14400;
-            } else {
-              newCandleTime = Math.floor(now / 43200) * 43200;
-            }
-
-            // Create placeholder with previous close as all values
-            const placeholderCandle = {
-              time: newCandleTime,
-              open: lastCandle.close,
-              high: lastCandle.close,
-              low: lastCandle.close,
-              close: lastCandle.close,
-            };
-
-            // Add placeholder to chart
-            const newData = [...currentData, placeholderCandle];
-            seriesRef.current.setData(newData as any);
-            console.log(
-              '[MarketChart] Placeholder candle created precisely at',
-              new Date(newCandleTime * 1000).toLocaleTimeString()
-            );
-
-            // Store placeholder time for later update
-            placeholderTimeRef.current = newCandleTime;
-          }
-        }
-      }, msToWait);
-    }
-
-    // Format countdown (but don't show negative numbers)
-    const displaySeconds = Math.max(0, totalSeconds);
-    const displayMinutes = Math.floor(displaySeconds / 60);
-    const displaySecondsRemainder = displaySeconds % 60;
-    const formattedTime = `${displayMinutes.toString().padStart(2, '0')}:${displaySecondsRemainder.toString().padStart(2, '0')}`;
-
-    // Update countdown display
-    setCountdown(formattedTime);
-
-    // Color coding based on time remaining
-    if (displaySeconds <= 10) {
-      setCountdownColor('#ffae00'); // Yellow warning
-    } else if (displaySeconds <= 30) {
-      setCountdownColor('#ccc'); // Brighter gray
-    } else {
-      setCountdownColor('#999'); // Dimmed gray
-      // Reset the trigger flag when we're safely past the boundary
-      if (totalSeconds > 5) {
-        hasTriggeredNewCandleRef.current = false;
-        // Also reset placeholder scheduling flag if it was -1
-        if (placeholderTimeRef.current === -1) {
-          placeholderTimeRef.current = null;
-        }
-      }
-    }
-
-    // CRITICAL: Create placeholder candle at minute boundary
-    // Check if we just crossed the boundary (was positive, now negative)
-    if (totalSeconds <= 0 && totalSeconds > -1 && !hasTriggeredNewCandleRef.current) {
-      hasTriggeredNewCandleRef.current = true;
-      const exactTime = new Date();
-      console.log(
-        `[MarketChart] PLACEHOLDER TRIGGER at ${exactTime.toISOString()} (totalSeconds: ${totalSeconds}, ms: ${exactTime.getMilliseconds()})`
-      );
-
-      // Create placeholder candle immediately
-      if (seriesRef.current) {
-        const currentData = seriesRef.current.data();
-        if (currentData.length > 0) {
-          const lastCandle = currentData[currentData.length - 1];
-          // Type guard - only process if it's actual candle data
-          if (!('close' in lastCandle)) return;
-
-          const now = Math.floor(Date.now() / 1000);
-
-          // Calculate the new candle time based on timeframe
-          let newCandleTime;
-          const tf = currentTimeframeRef.current;
-          if (tf === '5m') {
-            newCandleTime = Math.floor(now / 300) * 300;
-          } else if (tf === '15m') {
-            newCandleTime = Math.floor(now / 900) * 900;
-          } else if (tf === '1h') {
-            newCandleTime = Math.floor(now / 3600) * 3600;
-          } else if (tf === '4h') {
-            newCandleTime = Math.floor(now / 14400) * 14400;
-          } else {
-            newCandleTime = Math.floor(now / 43200) * 43200;
-          }
-
-          // Create placeholder with previous close as all values
-          const placeholderCandle = {
-            time: newCandleTime,
-            open: lastCandle.close,
-            high: lastCandle.close,
-            low: lastCandle.close,
-            close: lastCandle.close,
-          };
-
-          // Add placeholder to chart
-          const newData = [...currentData, placeholderCandle];
-          seriesRef.current.setData(newData as any);
-          console.log(
-            '[MarketChart] Placeholder candle created at',
-            new Date(newCandleTime * 1000).toLocaleTimeString()
-          );
-
-          // Store placeholder time for later update
-          placeholderTimeRef.current = newCandleTime;
-        }
-      }
-
-      // Periodic refresh will handle fetching real data
-      // No need for duplicate fetch here
-    }
-  }, []);
 
   const fetchChartData = async (
     sym: string,
@@ -411,7 +219,17 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
     try {
       // Let coordinator use its default range for this timeframe
-      const { data } = await fetchChartData(symbolRef.current!, newTimeframe);
+      console.log(`[switchTimeframe] Starting fetch for ${symbolRef.current} ${newTimeframe}`);
+      
+      // Add timeout to prevent hanging - increase to 30s for slow backend
+      const fetchPromise = fetchChartData(symbolRef.current!, newTimeframe);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Fetch timeout after 30s')), 30000)
+      );
+      
+      const { data } = await Promise.race([fetchPromise, timeoutPromise]) as { data: ChartData[] };
+      
+      console.log(`[switchTimeframe] Fetch completed, got ${data.length} candles`);
 
       if (data.length === 0) {
         console.error(`[SWITCH] No data available for ${newTimeframe} - aborting transition`);
@@ -455,8 +273,10 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         // Wait for next animation frame to ensure display surface is ready
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         
-        // Set new data
+        // Update data - use setData directly for timeframe switches
+        console.log(`[switchTimeframe] Setting ${data.length} candles on series`);
         seriesRef.current.setData(data as any);
+        console.log(`[switchTimeframe] Data set complete`);
 
         // Maintain view range
         if (visibleRange) {
@@ -503,10 +323,16 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
       // Fade back in
       setChartOpacity(1);
+      console.log(`[switchTimeframe] Transition complete to ${newTimeframe}`);
     } catch (error) {
-      console.error('Failed to switch timeframe:', error);
+      console.error('[switchTimeframe] Failed to switch timeframe:', error);
+      // Revert everything on error
+      currentTimeframeRef.current = previousTimeframe;
+      setCurrentTimeframe(previousTimeframe);
+      setStoreTimeframe(previousTimeframe);
       setChartOpacity(1);
     } finally {
+      console.log(`[switchTimeframe] Setting isTransitioningRef to false`);
       isTransitioningRef.current = false;
     }
   };
@@ -923,37 +749,19 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           to
         );
         if (data.length > 0) {
-          seriesRef.current.setData(data as any);
+          // For initial load, set data directly since placeholder hook isn't ready yet
+          if (seriesRef.current && !hasPlaceholder()) {
+            seriesRef.current.setData(data as any);
+          } else {
+            updateWithRealData(data as any);
+          }
           // Generate cache key using the same from/to values we used for fetching
 
-          // Show appropriate default view based on timeframe
-          if (chartRef.current) {
-            let daysToShow = 30; // Default - show more data to prevent auto-switch
-
-            if (currentTimeframeRef.current === '5m')
-              daysToShow = 2; // 2 days for 5m
-            else if (currentTimeframeRef.current === '15m') daysToShow = 7; // 1 week
-            else if (currentTimeframeRef.current === '1h') daysToShow = 30; // 1 month
-            else if (currentTimeframeRef.current === '4h') daysToShow = 60; // 2 months
-            else if (currentTimeframeRef.current === '12h') daysToShow = 90; // 3 months
-
-            const timeRange = daysToShow * 24 * 60 * 60;
-            const endTime = data[data.length - 1].time;
-            const startTime = endTime - timeRange;
-            const startIndex = data.findIndex((d) => d.time >= startTime);
-
-            if (startIndex > 0) {
-              // Extend the range slightly to the right to show space for the current candle
-              const lastTime = data[data.length - 1].time;
-              const extendedTime = lastTime + getTimeframeSeconds(currentTimeframeRef.current);
-
-              chartRef.current.timeScale().setVisibleRange({
-                from: data[startIndex].time as any,
-                to: extendedTime as any,
-              });
-
-              console.log('[MarketChart] Set visible range to include current candle space');
-            }
+          // Set appropriate default view based on timeframe
+          if (chartRef.current && data.length > 0) {
+            const daysToShow = getDaysToShowForTimeframe(currentTimeframeRef.current);
+            setVisibleRangeByDays(chartRef.current, daysToShow);
+            console.log(`[MarketDataChart] Set visible range to ${daysToShow} days for ${currentTimeframeRef.current}`);
           }
         }
       } catch (error) {
@@ -1006,13 +814,16 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
       // Reset symbol-specific state
       setIsLoading(true);
-      placeholderTimeRef.current = null;
-      hasTriggeredNewCandleRef.current = false;
+      // Reset placeholder state via the hook
+      if (resetTrigger) {
+        resetTrigger();
+      }
 
       // Reload data for new symbol using coordinator's default range
       fetchChartData(symbol, currentTimeframeRef.current)
         .then(({ data }) => {
           if (data.length > 0 && seriesRef.current) {
+            // Direct setData for symbol change
             seriesRef.current.setData(data as any);
             // Cache will be handled by the coordinator
           }
@@ -1024,7 +835,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
   // Real-time data streaming effect
   useEffect(() => {
-    console.log('[MarketChart] Real-time streaming effect triggered');
+    console.log('[MarketDataChart] Real-time streaming effect triggered');
     let mounted = true;
     let unlistenStatus: (() => void) | undefined;
     let unlistenCandle: (() => void) | undefined;
@@ -1032,9 +843,9 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     const startStreaming = async () => {
       try {
         // Start the candle update monitor
-        console.log('[MarketChart] Starting candle update monitor...');
+        console.log('[MarketDataChart] Starting candle update monitor...');
         await invoke('start_candle_monitor');
-        console.log('[MarketChart] Candle monitor started successfully');
+        console.log('[MarketDataChart] Candle monitor started successfully');
 
         // Listen for candle update events specific to current timeframe
         const updateListener = async () => {
@@ -1045,17 +856,17 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
 
           // Listen for updates to the current timeframe
           const eventName = `market-candles-updated-${currentTimeframeRef.current}`;
-          console.log(`[MarketChart] Listening for ${eventName} events`);
+          console.log(`[MarketDataChart] Listening for ${eventName} events`);
 
           unlistenCandle = await listen<{ symbol: string; timeframe: string; timestamp: string }>(
             eventName,
             (event) => {
               if (!mounted) return;
-              console.log('[MarketChart] Candle update received:', event.payload);
+              console.log('[MarketDataChart] Candle update received:', event.payload);
 
               // Just log the update - periodic refresh will handle data fetching
               if (event.payload.timeframe === currentTimeframeRef.current) {
-                console.log('[MarketChart] Candle update notification received, periodic refresh will handle it');
+                console.log('[MarketDataChart] Candle update notification received, periodic refresh will handle it');
               }
             }
           );
@@ -1066,11 +877,11 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         // Listen for connection status
         unlistenStatus = await listen<StreamStatus>('market-stream-status', (event) => {
           if (!mounted) return;
-          console.log('[MarketChart] Stream status:', event.payload);
+          console.log('[MarketDataChart] Stream status:', event.payload);
           setStreamStatus(event.payload);
         });
       } catch (error) {
-        console.error('[MarketChart] Failed to start market stream:', error);
+        console.error('[MarketDataChart] Failed to start market stream:', error);
         if (mounted) {
           setStreamStatus({ connected: false, message: `Error: ${error}` });
         }
@@ -1086,7 +897,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       if (unlistenCandle) unlistenCandle();
 
       // Stop the candle monitor when component unmounts
-      console.log('[MarketChart] Stopping candle monitor on unmount');
+      console.log('[MarketDataChart] Stopping candle monitor on unmount');
       invoke('stop_candle_monitor').catch(console.error);
     };
   }, []); // Only run once on mount
@@ -1113,7 +924,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     }
 
     console.log(
-      `[MarketChart] Syncing periodic refresh - current: :${currentSecond}, next: :${nextTarget % 60}, delay: ${delaySeconds}s`
+      `[MarketDataChart] Syncing periodic refresh - current: :${currentSecond}, next: :${nextTarget % 60}, delay: ${delaySeconds}s`
     );
 
     // Initial delay to sync with clock
@@ -1122,7 +933,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       intervalId = setInterval(() => {
         // Only refresh if we have a chart and not loading or transitioning
         if (chartRef.current && !isLoading && !isTransitioningRef.current) {
-          console.log('[MarketChart] Periodic refresh check at', new Date().toLocaleTimeString());
+          console.log('[MarketDataChart] Periodic refresh check at', new Date().toLocaleTimeString());
 
           // Use coordinator's default range for consistent cache keys
           // The coordinator handles normalization and cache management
@@ -1131,16 +942,8 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
               if (data.length > 0 && seriesRef.current) {
                 const currentData = seriesRef.current.data();
 
-                // Check if we have a placeholder that needs updating
-                if (placeholderTimeRef.current && data.length > 0) {
-                  const realCandle = data.find(
-                    (c: ChartData) => c.time === placeholderTimeRef.current
-                  );
-                  if (realCandle) {
-                    console.log('[MarketChart] Updating placeholder with real data');
-                    placeholderTimeRef.current = null;
-                  }
-                }
+                // The placeholder update is now handled by updateWithRealData
+                // No need to manually check for placeholders
 
                 // Merge new data with existing data
                 if (currentData.length > 0 && data.length > 0) {
@@ -1153,7 +956,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
                   let mergedData;
                   if (existingIndex >= 0) {
                     // Check if we have a placeholder that would be removed
-                    const placeholderTime = placeholderTimeRef.current;
+                    const placeholderTime = getPlaceholderTime && getPlaceholderTime();
                     let preservedPlaceholder = null;
 
                     if (placeholderTime && placeholderTime > 0) {
@@ -1169,7 +972,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
                         // Preserve the placeholder
                         preservedPlaceholder = placeholderInCurrent;
                         console.log(
-                          '[MarketChart] Preserving placeholder candle at',
+                          '[MarketDataChart] Preserving placeholder candle at',
                           new Date(placeholderTime * 1000).toLocaleTimeString()
                         );
                       }
@@ -1196,19 +999,19 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
                   }
 
                   console.log(
-                    `[MarketChart] Merging data: ${currentData.length} existing + ${data.length} new = ${mergedData.length} total`
+                    `[MarketDataChart] Merging data: ${currentData.length} existing + ${data.length} new = ${mergedData.length} total`
                   );
-                  seriesRef.current.setData(mergedData as any);
+                  updateWithRealData(mergedData as any);
 
                   // Don't update cache for partial refreshes
                 } else if (data.length > 0) {
                   // No existing data, just set new data
-                  console.log('[MarketChart] Setting initial data');
-                  seriesRef.current.setData(data as any);
+                  console.log('[MarketDataChart] Setting initial data');
+                  updateWithRealData(data as any);
                 }
               }
             })
-            .catch((error) => console.error('[MarketChart] Periodic refresh error:', error));
+            .catch((error) => console.error('[MarketDataChart] Periodic refresh error:', error));
         }
       }, 30000); // PERFORMANCE FIX: Changed from 5s to 30s
       // Was hammering the database with requests every 5 seconds
@@ -1221,54 +1024,6 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     };
   }, []); // No dependencies needed since we use refs
 
-  // Countdown timer lifecycle management
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const startCountdown = () => {
-      // Clear any existing interval
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-      }
-
-      // Initial update
-      updateCountdown();
-
-      // Start new interval - run more frequently to catch boundary transitions
-      intervalId = setInterval(updateCountdown, 100);
-      countdownIntervalRef.current = intervalId;
-    };
-
-    const stopCountdown = () => {
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-      }
-    };
-
-    // Handle visibility changes to save resources
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopCountdown();
-      } else {
-        startCountdown();
-      }
-    };
-
-    // Start countdown if page is visible
-    if (!document.hidden) {
-      startCountdown();
-    }
-
-    // Listen for visibility changes
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      stopCountdown();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [currentTimeframe, updateCountdown]); // Restart when timeframe changes
 
   // Regular mode
   return (
@@ -1320,36 +1075,16 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           )}
         </div>
 
-        {/* Countdown timer - centered at top */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '10px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(0,0,0,0.7)',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            fontFamily: 'monospace',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            pointerEvents: 'none', // Don't interfere with chart interaction
-            zIndex: 5,
+        {/* Countdown Timer */}
+        <CountdownTimer
+          timeframe={currentTimeframe}
+          position="bottom-right"
+          offset={{ x: 10, y: 10 }}
+          onNewCandleBoundary={(time) => {
+            const candleTime = calculateCandleTime(time, currentTimeframe);
+            createPlaceholder(candleTime);
           }}
-        >
-          <span style={{ color: '#666', fontSize: '11px' }}>Next:</span>
-          <span
-            style={{
-              color: countdownColor,
-              fontWeight: countdownColor === '#ffae00' ? 500 : 400,
-              transition: 'color 0.3s ease',
-            }}
-          >
-            {countdown}
-          </span>
-        </div>
+        />
       </div>
     </Box>
   );

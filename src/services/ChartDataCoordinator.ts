@@ -74,7 +74,8 @@ export class ChartDataCoordinator {
    */
   private calculateDefaultRange(timeframe: string): { from: number; to: number } {
     const now = Math.floor(Date.now() / 1000);
-    const to = now + 60 * 60; // 1 hour into future
+    const factor = this.normalizationFactors[timeframe] || 3600;
+    const to = Math.floor(now / factor) * factor + factor; // Align to next normalization boundary
     
     let from: number;
     switch (timeframe) {
