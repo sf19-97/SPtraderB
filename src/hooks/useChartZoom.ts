@@ -137,9 +137,10 @@ export function useChartZoom(
         const currentBarSpacing = chart.timeScale().options().barSpacing;
         
         if (currentBarSpacing !== lastBarSpacingRef.current) {
-          console.log(
-            `[useChartZoom] Bar spacing changed: ${lastBarSpacingRef.current} → ${currentBarSpacing}`
-          );
+          // Verbose logging - uncomment for debugging
+          // console.log(
+          //   `[useChartZoom] Bar spacing changed: ${lastBarSpacingRef.current} → ${currentBarSpacing}`
+          // );
           lastBarSpacingRef.current = currentBarSpacing;
           setBarSpacing(currentBarSpacing);
           options?.onBarSpacingChange?.(currentBarSpacing);
