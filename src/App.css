@@ -4,6 +4,7 @@
   src: url('./assets/fonts/MolganRegular-YqWj2.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
@@ -11,6 +12,7 @@
   src: url('./assets/fonts/QuickingRegular-gw5KY.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
+  font-display: swap;
 }
 
 * {
@@ -37,12 +39,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #0a0a0a;
   color: #ffffff;
-  overflow: hidden;
 }
 
 #root {
   width: 100vw;
   height: 100vh;
+  overflow: hidden;
 }
 
 /* SPTrader Logo Styling */

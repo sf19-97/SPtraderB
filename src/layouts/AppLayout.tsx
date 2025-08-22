@@ -29,7 +29,7 @@ export const AppLayout = () => {
 
   return (
     <Box style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      {/* Collapsed Sidebar - Takes up space */}
+      {/* Sidebar Container - Always takes up 60px */}
       <Box
         style={{
           width: '60px',
@@ -37,6 +37,7 @@ export const AppLayout = () => {
           backgroundColor: '#151515',
           borderRight: '1px solid #333',
           flexShrink: 0,
+          position: 'relative',
         }}
       >
         {/* Only show icons when collapsed */}
@@ -90,19 +91,19 @@ export const AppLayout = () => {
         )}
       </Box>
 
-      {/* Expanded Sidebar - Overlays */}
+      {/* Expanded Sidebar - Overlays from the 60px mark */}
       {!collapsed && (
         <>
           <Box
             style={{
               position: 'fixed',
               top: 0,
-              left: 0,
+              left: '60px',
               height: '100vh',
               width: '200px',
               backgroundColor: '#151515',
               borderRight: '1px solid #333',
-              zIndex: 100,
+              zIndex: 1000,
               boxShadow: '4px 0 10px rgba(0,0,0,0.5)',
             }}
           >
@@ -180,11 +181,11 @@ export const AppLayout = () => {
             style={{
               position: 'fixed',
               top: 0,
-              left: '200px',
+              left: '260px',
               right: 0,
               bottom: 0,
               backgroundColor: 'rgba(0,0,0,0.5)',
-              zIndex: 99,
+              zIndex: 999,
               cursor: 'pointer',
             }}
           />

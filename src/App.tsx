@@ -30,6 +30,8 @@ function App() {
           <Route path="orchestrator" element={<OrchestratorPage />} />
           <Route path="market-data" element={<MarketDataPage />} />
           <Route path="market-chart" element={<MarketChartPage />} />
+          {/* Catch all route for 404 */}
+          <Route path="*" element={<Navigate to="/market-chart" replace />} />
         </Route>
 
         {/* IDE route outside AppLayout for full screen */}
