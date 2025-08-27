@@ -200,13 +200,40 @@ export class ChartDataCoordinator {
       }
 
       // Convert string prices to numbers and parse time
-      const data = response.data.map((candle: any) => ({
-        time: Math.floor(new Date(candle.time).getTime() / 1000), // Convert ISO string to Unix timestamp
-        open: parseFloat(candle.open),
-        high: parseFloat(candle.high),
-        low: parseFloat(candle.low),
-        close: parseFloat(candle.close),
-      }));
+      const data = response.data
+        .map((candle: any) => {
+          // Validate candle data
+          if (!candle || !candle.time) {
+            console.warn('[ChartDataCoordinator] Skipping invalid candle:', candle);
+            return null;
+          }
+
+          const open = parseFloat(candle.open);
+          const high = parseFloat(candle.high);
+          const low = parseFloat(candle.low);
+          const close = parseFloat(candle.close);
+
+          // Check for NaN or invalid values
+          if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) {
+            console.warn('[ChartDataCoordinator] Skipping candle with NaN values:', candle);
+            return null;
+          }
+
+          const timestamp = new Date(candle.time).getTime();
+          if (isNaN(timestamp)) {
+            console.warn('[ChartDataCoordinator] Invalid timestamp:', candle.time);
+            return null;
+          }
+
+          return {
+            time: Math.floor(timestamp / 1000), // Convert to Unix timestamp
+            open,
+            high,
+            low,
+            close,
+          };
+        })
+        .filter((candle): candle is ChartData => candle !== null); // Filter out null values
 
       // Extract metadata from response
       const metadata = response.metadata ? {

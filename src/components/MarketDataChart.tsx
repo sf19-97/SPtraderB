@@ -9,30 +9,21 @@
  * - Works with any asset using the cascade pattern
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { CandlestickData, Time, MouseEventParams } from 'lightweight-charts';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useChartStore } from '../stores/useChartStore';
 import { Box } from '@mantine/core';
-import { chartDataCoordinator, type SymbolMetadata } from '../services/ChartDataCoordinator';
 import { CountdownTimer } from './CountdownTimer';
 import { usePlaceholderCandle, calculateCandleTime } from '../hooks/usePlaceholderCandle';
 import { getDaysToShowForTimeframe, setVisibleRangeByDays } from '../utils/chartHelpers';
 import { useChartSetup } from '../hooks/useChartSetup';
-import { useChartZoom } from '../hooks/useChartZoom';
+import { useChartZoom, type VisibleRange } from '../hooks/useChartZoom';
 import { getBarSpacingForTimeframeSwitch } from '../hooks/useAutoTimeframeSwitch';
 import { useChartMachine } from '../machines/chartStateMachine';
 import { useChartData } from '../hooks/useChartData';
 import { useSelector } from '@xstate/react';
-
-interface ChartData {
-  time: number; // Unix timestamp
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
 
 interface MarketDataChartProps {
   symbol?: string;
@@ -43,14 +34,6 @@ interface MarketDataChartProps {
 }
 
 
-interface MarketTick {
-  timestamp: string;
-  symbol: string;
-  bid: number;
-  ask: number;
-  last?: number;
-}
-
 interface StreamStatus {
   connected: boolean;
   message: string;
@@ -60,30 +43,39 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   symbol,
   timeframe,
   onTimeframeChange,
-  isFullscreen = false,
-  onToggleFullscreen,
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const componentId = useRef(Math.random().toString(36).substr(2, 9));
 
-  // Initialize state machine
+  // Initialize state machine with initial context
   const {
     service,
-    initialize,
     updateBarSpacing,
     requestTimeframeChange,
-    setShiftPressed,
     setVisibleRange,
     notifyDataLoaded,
     notifyDataError,
     notifySymbolChanged,
-  } = useChartMachine();
-
+  } = useChartMachine({
+    symbol: symbol || 'EURUSD',
+    timeframe: timeframe || '1h',
+  });
+  
   // Get state and context from machine
   const state = useSelector(service, (state) => state);
-  const { context } = state;
-  const isLoading = state.matches('loading');
-  const isTransitioning = state.matches('transitioning');
-  const chartOpacity = context.opacity;
+  
+  // Log the state machine state
+  useEffect(() => {
+    if (state) {
+      console.log(`[MarketDataChart ${componentId.current}] State machine state:`, state.value);
+    } else {
+      console.log(`[MarketDataChart ${componentId.current}] State is null`);
+    }
+  }, [state]);
+  const context = state?.context || { symbol: symbol || 'EURUSD', timeframe: timeframe || '1h', opacity: 1 };
+  const isLoading = state?.matches('loading') || false;
+  const isTransitioning = state?.matches('transitioning') || false;
+  const chartOpacity = context?.opacity ?? 1;
 
   // Keep refs for backward compatibility
   const currentTimeframeRef = useRef(context.timeframe || timeframe || '1h');
@@ -95,9 +87,16 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     symbolRef.current = context.symbol;
   }, [context.timeframe, context.symbol]);
 
+  // Format prices
+  const formatPrice = (price: number): string => {
+    if (price >= 1000) {
+      return `$${price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+    }
+    return `$${price.toFixed(2)}`;
+  };
+
   // Use the chart setup hook
-  const { chart, series, isReady: chartReady } = useChartSetup({
-    containerRef: chartContainerRef,
+  const { chart, series, isReady: chartReady } = useChartSetup(chartContainerRef, {
     theme: {
       backgroundColor: '#0a0a0a',
       textColor: '#ffffff',
@@ -129,7 +128,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         minBarSpacing: 2,
         rightOffset: 5,
         rightBarStaysOnScroll: true,
-        tickMarkFormatter: (time: number, tickMarkType: number, locale: string) => {
+        tickMarkFormatter: (time: number, tickMarkType: number) => {
           // Convert UTC timestamp to local time for axis labels
           const date = new Date(time * 1000);
 
@@ -198,22 +197,21 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     },
   });
 
-  // Create refs for backward compatibility
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  
-  // Update refs when chart/series change
+  // Mounted ref to prevent events after unmount
+  const mountedRef = useRef(true);
   useEffect(() => {
-    chartRef.current = chart;
-    seriesRef.current = series;
-  }, [chart, series]);
+    console.log(`[MarketDataChart ${componentId.current}] Component mounted`);
+    return () => {
+      console.log(`[MarketDataChart ${componentId.current}] Component unmounting`);
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Real-time streaming state
   const [streamStatus, setStreamStatus] = useState<StreamStatus>({
     connected: false,
     message: 'Not connected',
   });
-  const [lastTick, setLastTick] = useState<MarketTick | null>(null);
 
 
   // Zustand store
@@ -236,10 +234,8 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   const {
     createPlaceholder,
     updateWithRealData,
-    hasPlaceholder,
-    getPlaceholderTime,
     resetTrigger,
-  } = usePlaceholderCandle(seriesRef.current);
+  } = usePlaceholderCandle(series);
 
   // Connect data loading to state machine
   useEffect(() => {
@@ -250,190 +246,55 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     }
   }, [chartData, dataLoading, dataError, notifyDataError, notifyDataLoaded]);
 
-  // Define checkTimeframeSwitch function (kept for reference but not used)
-  const checkTimeframeSwitch = (barSpacing: number) => {
-    // Verbose logging - uncomment for debugging
-    // console.log(`[checkTimeframeSwitch] Called with barSpacing: ${barSpacing}`);
-    // console.log(`[checkTimeframeSwitch] isTransitioningRef.current: ${isTransitioningRef.current}`);
-    // console.log(`[checkTimeframeSwitch] currentTimeframeRef.current: ${currentTimeframeRef.current}`);
-    
-    if (isTransitioning) {
-      // console.log('[SWITCH] Skipping - transition in progress');
-      return; // Silent skip during transitions
-    }
 
-    const currentTf = currentTimeframeRef.current;
-
-    // Enforce minimum bar spacing for 12h to prevent excessive zoom out
-    if (currentTf === '12h' && barSpacing < 3) {
-      // console.log('[ZOOM LIMIT] Enforcing minimum bar spacing for 12h');
-      chartRef.current?.timeScale().applyOptions({
-        barSpacing: 3,
-      });
-      return;
-    }
-
-    // 12h → 4h (zooming in)
-    if (currentTf === '12h' && barSpacing > SWITCH_FROM_12H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 12h bar spacing ${barSpacing} > ${SWITCH_FROM_12H_BAR_SPACING} → switching to 4h`
-      );
-      switchTimeframe('4h');
-    }
-    // 4h → 12h (zooming out)
-    else if (currentTf === '4h' && barSpacing < SWITCH_TO_12H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 4h bar spacing ${barSpacing} < ${SWITCH_TO_12H_BAR_SPACING} → switching to 12h`
-      );
-      switchTimeframe('12h');
-    }
-    // 4h → 1h (zooming in)
-    else if (currentTf === '4h' && barSpacing > SWITCH_FROM_4H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 4h bar spacing ${barSpacing} > ${SWITCH_FROM_4H_BAR_SPACING} → switching to 1h`
-      );
-      switchTimeframe('1h');
-    }
-    // 1h → 4h (zooming out)
-    else if (currentTf === '1h' && barSpacing < SWITCH_TO_4H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 1h bar spacing ${barSpacing} < ${SWITCH_TO_4H_BAR_SPACING} → switching to 4h`
-      );
-      switchTimeframe('4h');
-    }
-    // 1h → 15m (zooming in)
-    else if (currentTf === '1h' && barSpacing > SWITCH_TO_15M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 1h bar spacing ${barSpacing} > ${SWITCH_TO_15M_BAR_SPACING} → switching to 15m`
-      );
-      switchTimeframe('15m');
-    }
-    // 15m → 1h (zooming out)
-    else if (currentTf === '15m' && barSpacing < SWITCH_TO_1H_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 15m bar spacing ${barSpacing} < ${SWITCH_TO_1H_BAR_SPACING} → switching to 1h`
-      );
-      switchTimeframe('1h');
-    }
-    // 15m → 5m (zooming in)
-    else if (currentTf === '15m' && barSpacing > SWITCH_TO_5M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 15m bar spacing ${barSpacing} > ${SWITCH_TO_5M_BAR_SPACING} → switching to 5m`
-      );
-      switchTimeframe('5m');
-    }
-    // 5m → 15m (zooming out)
-    else if (currentTf === '5m' && barSpacing < SWITCH_FROM_5M_BAR_SPACING) {
-      console.log(
-        `[SWITCH] 5m bar spacing ${barSpacing} < ${SWITCH_FROM_5M_BAR_SPACING} → switching to 15m`
-      );
-      switchTimeframe('15m');
-    }
-  };
-
+  // Create stable callbacks that won't change between renders
+  const handleBarSpacingChange = useCallback((newBarSpacing: number) => {
+    console.log(`[MarketDataChart ${componentId.current}] Bar spacing callback: ${newBarSpacing}`);
+    updateBarSpacing(newBarSpacing);
+  }, [updateBarSpacing]);
+  
+  const handleVisibleRangeChange = useCallback((range: VisibleRange | null) => {
+    setVisibleRange(range);
+  }, [setVisibleRange]);
+  
   // Use the chart zoom hook
   const {
-    isShiftPressed,
-    lockedLeftEdge,
     visibleRange,
-    barSpacing,
-    maintainLeftEdgeLock,
   } = useChartZoom(chart, {
-    onBarSpacingChange: (newBarSpacing) => {
-      // Send bar spacing updates to state machine
-      updateBarSpacing(newBarSpacing);
-    },
-    onVisibleRangeChange: (range) => {
-      setVisibleRange(range);
-    },
+    onBarSpacingChange: handleBarSpacingChange,
+    onVisibleRangeChange: handleVisibleRangeChange,
     barSpacingCheckInterval: 100,
   });
-  
-  // Update shift state in machine
+
+
+
+  // CRITICAL: Bar spacing thresholds are now handled in the state machine
+
+
+
+
+  // Handle timeframe changes through callbacks
   useEffect(() => {
-    setShiftPressed(isShiftPressed);
-  }, [isShiftPressed, setShiftPressed]);
-  
-  // Use ref for locked left edge for backward compatibility
-  const lockedLeftEdgeRef = useRef<number | null>(null);
-  useEffect(() => {
-    lockedLeftEdgeRef.current = lockedLeftEdge;
-  }, [lockedLeftEdge]);
-
-
-
-  // CRITICAL: Use bar spacing thresholds, not pixel widths
-  const SWITCH_TO_5M_BAR_SPACING = 35; // When 15m bars are spread this wide, switch to 5m
-  const SWITCH_TO_15M_BAR_SPACING = 32; // When 1h bars are spread this wide, switch to 15m
-  const SWITCH_FROM_5M_BAR_SPACING = 7; // When 5m bars are squeezed this tight, switch to 15m
-  const SWITCH_TO_1H_BAR_SPACING = 8; // When 15m bars are squeezed this tight, switch to 1h
-  const SWITCH_TO_4H_BAR_SPACING = 8; // When 1h bars are squeezed this tight, switch to 4h
-  const SWITCH_FROM_4H_BAR_SPACING = 32; // When 4h bars are spread this wide, switch to 1h
-  const SWITCH_TO_12H_BAR_SPACING = 4; // When 4h bars are squeezed this tight, switch to 12h
-  const SWITCH_FROM_12H_BAR_SPACING = 24; // When 12h bars are spread this wide, switch to 4h (3x factor)
-
-  // Format prices
-  const formatPrice = (price: number): string => {
-    if (price >= 1000) {
-      return `$${price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+    if (context.timeframe !== currentTimeframeRef.current) {
+      console.log(
+        '[ResolutionTracker] Timeframe changed:',
+        currentTimeframeRef.current,
+        '→',
+        context.timeframe
+      );
+      
+      // Update Zustand store
+      setStoreTimeframe(context.timeframe);
+      if (onTimeframeChange) {
+        onTimeframeChange(context.timeframe);
+      }
     }
-    return `$${price.toFixed(2)}`;
-  };
-
-  // Get timeframe duration in seconds
-  const getTimeframeSeconds = (timeframe: string): number => {
-    switch (timeframe) {
-      case '5m':
-        return 5 * 60;
-      case '15m':
-        return 15 * 60;
-      case '1h':
-        return 60 * 60;
-      case '4h':
-        return 4 * 60 * 60;
-      case '12h':
-        return 12 * 60 * 60;
-      default:
-        return 60 * 60; // Default to 1h
-    }
-  };
-
-
-
-  // Remove manual checkTimeframeSwitch - state machine handles this
-  useEffect(() => {
-    // When state machine suggests a timeframe change, apply it
-    if (state.matches('transitioning') && context.timeframe !== currentTimeframeRef.current) {
-      switchTimeframe(context.timeframe);
-    }
-  }, [state.value, context.timeframe]);
-
-  // Rest of the component logic remains the same as AdaptiveChart
-  // Using generic market data fetching and formatting...
-
-  const switchTimeframe = (newTimeframe: string) => {
-    if (newTimeframe === context.timeframe || isTransitioning) return;
-
-    console.log(
-      '[ResolutionTracker] Timeframe transition:',
-      context.timeframe,
-      '→',
-      newTimeframe
-    );
-
-    // Request timeframe change through state machine
-    requestTimeframeChange(newTimeframe);
-    
-    // Update Zustand store
-    setStoreTimeframe(newTimeframe);
-    if (onTimeframeChange) {
-      onTimeframeChange(newTimeframe);
-    }
-  };
+  }, [context.timeframe, setStoreTimeframe, onTimeframeChange]);
 
   // Listen for state machine transitions and load data
   useEffect(() => {
-    if (state.matches('loading') && context.symbol && context.timeframe) {
+    // Only load data if we're in loading state and have valid context
+    if (state && state.matches('loading') && context.symbol && context.timeframe) {
       console.log(`[StateMachine] Loading data for ${context.symbol} ${context.timeframe}`);
       
       // Fetch data through the hook
@@ -441,95 +302,173 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         console.log(`[StateMachine] Data fetch completed`);
       }).catch((error) => {
         console.error(`[StateMachine] Data fetch error:`, error);
+        // The error is already handled by useChartData hook which calls notifyDataError
       });
     }
-  }, [state.value, context.symbol, context.timeframe, fetchData]);
+  }, [state, fetchData, context.symbol, context.timeframe]); // Include fetchData and context for proper loading
 
+  // Track last applied data to prevent duplicates
+  const lastAppliedDataRef = useRef<{ symbol: string; timeframe: string; count: number } | null>(null);
+  
   // Apply chart data when loaded
   useEffect(() => {
-    if (chartData.length > 0 && seriesRef.current && chartRef.current && !dataLoading) {
-      console.log(`[StateMachine] Applying ${chartData.length} candles to chart`);
+    // Ensure we have all required components
+    if (!chartData || !chartData.length || !series || !chart || dataLoading || !chartReady) {
+      return;
+    }
 
-      const applyData = async () => {
-        // If transitioning between timeframes, calculate appropriate bar spacing
-        const timeScale = chartRef.current!.timeScale();
-        const currentBarSpacing = timeScale.options().barSpacing;
-        const previousTimeframe = currentTimeframeRef.current;
-        
-        if (context.timeframe !== previousTimeframe) {
-          const newBarSpacing = getBarSpacingForTimeframeSwitch(
+    // Check if we already applied this data
+    const dataKey = { symbol: context.symbol, timeframe: context.timeframe, count: chartData.length };
+    if (lastAppliedDataRef.current && 
+        lastAppliedDataRef.current.symbol === dataKey.symbol &&
+        lastAppliedDataRef.current.timeframe === dataKey.timeframe &&
+        lastAppliedDataRef.current.count === dataKey.count) {
+      return; // Already applied this exact data
+    }
+    
+    console.log(`[StateMachine] Applying ${chartData.length} candles to chart`);
+    lastAppliedDataRef.current = dataKey;
+
+    // Apply data synchronously to avoid unmount issues
+    try {
+      // If transitioning between timeframes, calculate appropriate bar spacing
+      let timeScale;
+      let currentBarSpacing;
+      try {
+        timeScale = chart.timeScale();
+        currentBarSpacing = timeScale.options().barSpacing;
+      } catch (error) {
+        console.error('[StateMachine] Error accessing chart timeScale:', error);
+        return;
+      }
+      const previousTimeframe = currentTimeframeRef.current;
+      
+      if (context.timeframe !== previousTimeframe) {
+        const newBarSpacing = getBarSpacingForTimeframeSwitch(
             currentBarSpacing,
             previousTimeframe,
             context.timeframe
-          );
+        );
 
-          // Apply bar spacing before setting data
-          chartRef.current!.timeScale().applyOptions({
+        // Apply bar spacing before setting data
+        try {
+          chart.timeScale().applyOptions({
             barSpacing: newBarSpacing,
           });
+        } catch (error) {
+          console.error('[StateMachine] Error applying bar spacing:', error);
+          return;
         }
-        
-        // Wait for next animation frame to ensure display surface is ready
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        
-        // Check if this is a refresh or a full data load
-        const currentData = seriesRef.current!.data();
-        if (currentData.length > 0 && state.matches('ready')) {
-          // This is a refresh - merge data
-          const firstNewTime = chartData[0].time;
-          const existingIndex = currentData.findIndex(
-            (c) => (c.time as number) >= firstNewTime
-          );
+      }
+      
+      // Double-check chart and series are still valid
+      if (!series || !chart) {
+        console.warn('[StateMachine] Chart or series is null, waiting for next render');
+        return;
+      }
+      
+      // Check if this is a refresh or a full data load
+      let currentData: CandlestickData[] = [];
+      try {
+        if (series) {
+          currentData = [...series.data()]; // Convert readonly to mutable
+        }
+      } catch (error) {
+        console.warn('[StateMachine] Error getting series data:', error);
+        currentData = [];
+      }
+      
+      if (currentData.length > 0 && state && state.matches('ready')) {
+        // This is a refresh - merge data
+        const firstNewTime = chartData[0].time;
+        const existingIndex = currentData.findIndex(
+          (c) => (c.time as number) >= firstNewTime
+        );
 
-          let mergedData;
-          if (existingIndex >= 0) {
-            // Merge with existing data
-            mergedData = [...currentData.slice(0, existingIndex), ...chartData];
-          } else {
-            // New data is all after existing data
-            mergedData = [...currentData, ...chartData];
-          }
-
-          console.log(
-            `[StateMachine] Merging data: ${currentData.length} existing + ${chartData.length} new = ${mergedData.length} total`
-          );
-          updateWithRealData(mergedData as any);
+        let mergedData;
+        if (existingIndex >= 0) {
+          // Merge with existing data
+          mergedData = [...currentData.slice(0, existingIndex), ...chartData];
         } else {
-          // Full data load
-          console.log(`[StateMachine] Setting ${chartData.length} candles on series`);
-          seriesRef.current!.setData(chartData as any);
-          console.log(`[StateMachine] Data set complete`);
+          // New data is all after existing data
+          mergedData = [...currentData, ...chartData];
         }
 
-        // Maintain view range if we have one
-        if (visibleRange && chartRef.current) {
-          if (isShiftPressed && lockedLeftEdgeRef.current !== null) {
-            // Keep left edge locked
-            const currentDuration = visibleRange.to - visibleRange.from;
-            const ratio = context.timeframe === previousTimeframe
-              ? 1
-              : getBarSpacingForTimeframeSwitch(1, previousTimeframe, context.timeframe);
-
-            const newDuration = currentDuration / ratio;
-            const newTo = lockedLeftEdgeRef.current + newDuration;
-
-            chartRef.current.timeScale().setVisibleRange({
-              from: lockedLeftEdgeRef.current as any,
-              to: newTo as any,
-            });
-          } else if (visibleRange) {
-            // Normal behavior - maintain visible range
-            chartRef.current.timeScale().setVisibleRange({
-              from: visibleRange.from as any,
-              to: visibleRange.to as any,
-            });
+        console.log(
+          `[StateMachine] Merging data: ${currentData.length} existing + ${chartData.length} new = ${mergedData.length} total`
+        );
+        
+        // Validate merged data
+        const validMergedData = mergedData.filter(candle => {
+          if (!candle || typeof candle.time !== 'number' || 
+              !Number.isFinite(candle.open) || !Number.isFinite(candle.high) || 
+              !Number.isFinite(candle.low) || !Number.isFinite(candle.close)) {
+            console.warn('[StateMachine] Invalid candle in merged data:', candle);
+            return false;
           }
+          return true;
+        });
+        
+        if (validMergedData.length !== mergedData.length) {
+          console.warn(`[StateMachine] Filtered out ${mergedData.length - validMergedData.length} invalid candles from merged data`);
         }
-      };
+        
+        if (series) {
+          updateWithRealData(validMergedData as CandlestickData[]);
+        } else {
+          console.warn('[StateMachine] Cannot update with real data - series is null');
+        }
+      } else {
+        // Full data load
+        console.log(`[StateMachine] Setting ${chartData.length} candles on series`);
+        // Validate data before setting
+        const validData = chartData.filter(candle => {
+          if (!candle || typeof candle.time !== 'number' || 
+              !Number.isFinite(candle.open) || !Number.isFinite(candle.high) || 
+              !Number.isFinite(candle.low) || !Number.isFinite(candle.close)) {
+            console.warn('[StateMachine] Invalid candle data detected:', candle);
+            return false;
+          }
+          return true;
+        });
+        
+        if (validData.length !== chartData.length) {
+          console.warn(`[StateMachine] Filtered out ${chartData.length - validData.length} invalid candles`);
+        }
+        
+        if (series) {
+          try {
+            series.setData(validData as CandlestickData[]);
+            console.log(`[StateMachine] Data set complete with ${validData.length} valid candles`);
+            
+            // Force a chart update
+            if (chart) {
+              chart.timeScale().fitContent();
+            }
+          } catch (error) {
+            console.error('[StateMachine] Error setting data on series:', error);
+          }
+        } else {
+          console.error('[StateMachine] Series is null, cannot set data');
+        }
+      }
 
-      applyData();
+      // Maintain view range if we have one
+      if (visibleRange && chart) {
+        // Normal behavior - maintain visible range
+        try {
+          chart.timeScale().setVisibleRange({
+            from: visibleRange.from as Time,
+            to: visibleRange.to as Time,
+          });
+        } catch (error) {
+          console.error('[StateMachine] Error setting visible range:', error);
+        }
+      }
+    } catch (error) {
+      console.error('[StateMachine] Error applying chart data:', error);
     }
-  }, [chartData, dataLoading, context.timeframe, visibleRange, isShiftPressed, state.value]);
+  }, [chartData, dataLoading, context.timeframe, visibleRange, state, series, chart, chartReady]);
 
   // Crosshair and tooltip effect
   useEffect(() => {
@@ -556,16 +495,23 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       color: white;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     `;
-    chartContainerRef.current.appendChild(toolTip);
+    if (chartContainerRef.current) {
+      chartContainerRef.current.appendChild(toolTip);
+    }
 
     // Subscribe to crosshair move
-    const unsubscribe = chart.subscribeCrosshairMove((param) => {
+    const crosshairMoveHandler = (param: MouseEventParams<Time>) => {
       if (!param.time || !param.seriesData.has(series)) {
         toolTip.style.display = 'none';
         return;
       }
 
-      const data = param.seriesData.get(series) as any;
+      const data = param.seriesData.get(series) as CandlestickData;
+      if (!data) {
+        toolTip.style.display = 'none';
+        return;
+      }
+      
       const timestamp =
         typeof param.time === 'string'
           ? parseInt(param.time) * 1000
@@ -592,10 +538,12 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         <div style="color: #fff">L: ${formatPrice(data.low)}</div>
         <div style="color: ${data.close >= data.open ? '#00ff88' : '#ff4976'}">C: ${formatPrice(data.close)}</div>
       `;
-    });
+    };
+    
+    chart.subscribeCrosshairMove(crosshairMoveHandler);
 
     return () => {
-      unsubscribe();
+      chart.unsubscribeCrosshairMove(crosshairMoveHandler);
       if (toolTip && toolTip.parentNode) {
         toolTip.parentNode.removeChild(toolTip);
       }
@@ -603,68 +551,66 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
   }, [chart, series]);
 
 
-  // Initialize state machine on mount
+  // Set default range on mount - only if coordinator hasn't already set one
   useEffect(() => {
-    if (!symbol || !chartReady) return;
+    if (!symbol || !timeframe) return;
     
-    console.log('[MarketDataChart] Initializing state machine');
-    initialize(symbol, timeframe || '1h');
-    
-    // Set default range for data fetching
-    const now = Math.floor(Date.now() / 1000);
-    const to = now + 60 * 60; // 1 hour into the future for ongoing candles
-    let from;
-    if (timeframe === '5m') {
-      from = now - 30 * 24 * 60 * 60; // 30 days for 5m
-    } else {
-      from = now - 90 * 24 * 60 * 60; // 90 days for others
-    }
-    
-    setDefaultRange(from, to);
-  }, [symbol, timeframe, chartReady, initialize, setDefaultRange]);
+    // Let ChartDataCoordinator handle the default range calculation
+    // It already has the same logic and this avoids duplicate calculations
+    console.log(`[MarketDataChart] ChartDataCoordinator will handle default range for ${symbol}-${timeframe}`);
+  }, [symbol, timeframe]);
 
-  // Apply initial view range when data is loaded
+  // Apply initial view range when data is loaded - only once per data load
+  const hasSetInitialRange = useRef(false);
+  
   useEffect(() => {
-    if (chartData.length > 0 && chartRef.current && state.matches('ready')) {
-      const daysToShow = getDaysToShowForTimeframe(context.timeframe);
-      setVisibleRangeByDays(chartRef.current, daysToShow);
-      console.log(`[MarketDataChart] Set visible range to ${daysToShow} days for ${context.timeframe}`);
+    // Only set initial range once when data first loads and chart is ready
+    if (!hasSetInitialRange.current && chartData.length > 0 && chart && series && chartReady) {
+      try {
+        // Ensure the series has data before setting visible range
+        const seriesData = series.data();
+        if (seriesData && seriesData.length > 0) {
+          const daysToShow = getDaysToShowForTimeframe(context.timeframe);
+          setVisibleRangeByDays(chart, daysToShow);
+          console.log(`[MarketDataChart] Set initial visible range to ${daysToShow} days for ${context.timeframe}`);
+          hasSetInitialRange.current = true;
+        }
+      } catch (error) {
+        console.warn('[MarketDataChart] Could not set visible range:', error);
+      }
     }
-  }, [chartData.length, state.value, context.timeframe]);
+  }, [chartData.length > 0, chart, series, chartReady, context.timeframe]);
+  
+  // Reset the flag when timeframe changes
+  useEffect(() => {
+    hasSetInitialRange.current = false;
+  }, [context.timeframe]);
 
   // Handle external timeframe changes
   useEffect(() => {
     if (
       timeframe &&
-      timeframe !== currentTimeframeRef.current &&
-      !isTransitioningRef.current &&
-      initialLoadDoneRef.current
+      timeframe !== context.timeframe &&
+      !isTransitioning &&
+      state && state.matches('ready')
     ) {
-      console.log(`[EXTERNAL] Switching to ${timeframe} from external control`);
-      switchTimeframe(timeframe);
+      console.log(`[EXTERNAL] Requesting timeframe change to ${timeframe}`);
+      requestTimeframeChange(timeframe);
     }
-  }, [timeframe]);
+  }, [timeframe, context.timeframe, isTransitioning, state, requestTimeframeChange]);
 
   // Handle symbol prop changes
   useEffect(() => {
-    if (!symbol) return;
-
-    const prevSymbol = symbolRef.current;
-    symbolRef.current = symbol;
+    if (!symbol || symbol === context.symbol) return;
 
     // Only reload if symbol actually changed AND we're ready
-    if (
-      prevSymbol !== symbol &&
-      chartRef.current &&
-      state.matches('ready') &&
-      prevSymbol !== undefined
-    ) {
-      console.log('[MarketDataChart] Symbol changed from', prevSymbol, 'to', symbol);
+    if (state && state.matches('ready')) {
+      console.log('[MarketDataChart] Symbol changed from', context.symbol, 'to', symbol);
       
       // Clear existing chart data immediately
-      if (seriesRef.current) {
+      if (series) {
         console.log('[MarketDataChart] Clearing chart data for symbol change');
-        seriesRef.current.setData([]);
+        series.setData([]);
       }
       
       // Notify state machine of symbol change
@@ -675,7 +621,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
         resetTrigger();
       }
     }
-  }, [symbol]);
+  }, [symbol, context.symbol, state, series, notifySymbolChanged, resetTrigger]);
 
   // Real-time data streaming effect
   useEffect(() => {
@@ -758,13 +704,13 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
     const targets = [2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57];
 
     let nextTarget = targets.find((t) => t > currentSecond);
+    let delaySeconds;
     if (!nextTarget) {
-      nextTarget = targets[0] + 60; // Wrap to next minute
-    }
-
-    let delaySeconds = nextTarget - currentSecond;
-    if (delaySeconds > 60) {
-      delaySeconds -= 60;
+      // Wrap to next minute
+      nextTarget = targets[0];
+      delaySeconds = (60 - currentSecond) + nextTarget;
+    } else {
+      delaySeconds = nextTarget - currentSecond;
     }
 
     console.log(
@@ -776,7 +722,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
       // Now start the interval, properly aligned
       intervalId = setInterval(() => {
         // Only refresh if we have a chart and not loading or transitioning
-        if (chartRef.current && !isLoading && !isTransitioning) {
+        if (chart && !isLoading && !isTransitioning) {
           console.log('[MarketDataChart] Periodic refresh check at', new Date().toLocaleTimeString());
 
           // Use the data hook to fetch updated data
@@ -827,7 +773,7 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           </div>
         )}
         
-        {state.matches('error') && context.error && (
+        {state && state.matches('error') && context.error && (
           <div
             style={{
               position: 'absolute',
@@ -860,19 +806,19 @@ const MarketDataChart: React.FC<MarketDataChartProps> = ({
           }}
         >
           {context.timeframe}
-          {isShiftPressed && (
-            <span style={{ marginLeft: '10px', color: '#ff9900' }}>[LOCK LEFT]</span>
-          )}
         </div>
 
-        {/* Countdown Timer */}
+        {/* Countdown Timer - only create placeholders when streaming is active */}
         <CountdownTimer
           timeframe={context.timeframe}
           position="bottom-right"
           offset={{ x: 10, y: 10 }}
           onNewCandleBoundary={(time) => {
-            const candleTime = calculateCandleTime(time, context.timeframe);
-            createPlaceholder(candleTime);
+            // Only create placeholder if we have a series and streaming is connected
+            if (series && streamStatus.connected) {
+              const candleTime = calculateCandleTime(time, context.timeframe);
+              createPlaceholder(candleTime);
+            }
           }}
         />
       </div>

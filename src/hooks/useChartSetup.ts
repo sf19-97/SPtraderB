@@ -1,4 +1,4 @@
-import { useEffect, useRef, RefObject } from 'react';
+import { useEffect, useRef, RefObject, useState } from 'react';
 import {
   createChart,
   IChartApi,
@@ -132,9 +132,9 @@ export function useChartSetup(
   containerRef: RefObject<HTMLDivElement>,
   options?: UseChartSetupOptions
 ): UseChartSetupReturn {
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const isReadyRef = useRef(false);
+  const [chart, setChart] = useState<IChartApi | null>(null);
+  const [series, setSeries] = useState<ISeriesApi<'Candlestick'> | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   const theme = options?.theme || darkTheme;
   const chartOptions = options?.chartOptions || {};
@@ -144,9 +144,10 @@ export function useChartSetup(
     if (!containerRef.current) return;
 
     console.log('[useChartSetup] Creating chart');
+    let mounted = true;
 
     // Create chart with merged options
-    const chart = createChart(containerRef.current, {
+    const newChart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
       ...defaultChartOptions(theme),
@@ -154,37 +155,56 @@ export function useChartSetup(
     });
 
     // Add candlestick series with merged options
-    const series = chart.addSeries(CandlestickSeries, {
+    const newSeries = newChart.addSeries(CandlestickSeries, {
       ...defaultSeriesOptions(theme),
       ...seriesOptions,
     });
 
-    // Store references
-    chartRef.current = chart;
-    seriesRef.current = series;
-    isReadyRef.current = true;
-
-    console.log('[useChartSetup] Chart created successfully');
+    // Update state
+    setChart(newChart);
+    setSeries(newSeries);
+    
+    // Small delay to ensure chart is fully initialized
+    requestAnimationFrame(() => {
+      if (mounted) {
+        setIsReady(true);
+        console.log('[useChartSetup] Chart created successfully');
+      }
+    });
 
     // Cleanup
     return () => {
+      mounted = false;
       console.log('[useChartSetup] Cleaning up chart');
-      isReadyRef.current = false;
-      chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
+      // Clear state before removing to prevent access to disposed objects
+      setChart(null);
+      setSeries(null);
+      setIsReady(false);
+      // Small delay to allow other effects to clean up first
+      setTimeout(() => {
+        try {
+          newChart.remove();
+        } catch (e) {
+          console.warn('[useChartSetup] Chart already removed');
+        }
+      }, 0);
     };
   }, []); // Only create chart once
 
   // Handle container resize
   useEffect(() => {
-    if (!chartRef.current || !containerRef.current) return;
+    if (!chart || !containerRef.current) return;
 
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry && chartRef.current) {
-        const { width, height } = entry.contentRect;
-        chartRef.current.applyOptions({ width, height });
+      if (entry && chart) {
+        try {
+          const { width, height } = entry.contentRect;
+          chart.applyOptions({ width, height });
+        } catch (e) {
+          // Chart might be disposed
+          console.warn('[useChartSetup] Chart disposed, cannot resize');
+        }
       }
     });
 
@@ -193,11 +213,11 @@ export function useChartSetup(
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [chart]);
 
   return {
-    chart: chartRef.current,
-    series: seriesRef.current,
-    isReady: isReadyRef.current,
+    chart,
+    series,
+    isReady,
   };
 }

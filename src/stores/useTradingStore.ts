@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
+import { useState, useEffect } from 'react';
 
 interface TradingState {
   // Chart settings (from TradingContext)
@@ -24,7 +25,12 @@ interface TradingState {
   toggleIndicator: (indicator: keyof TradingState['indicators']) => void;
 }
 
-export const useTradingStore = create<TradingState>()(
+interface TradingStateWithHydration extends TradingState {
+  _hasHydrated: boolean;
+  setHasHydrated: (state: boolean) => void;
+}
+
+export const useTradingStore = create<TradingStateWithHydration>()(
   devtools(
     persist(
       (set) => ({
@@ -38,6 +44,10 @@ export const useTradingStore = create<TradingState>()(
           rsi: false,
           macd: false,
           volume: false,
+        },
+        _hasHydrated: false,
+        setHasHydrated: (state) => {
+          set({ _hasHydrated: state });
         },
 
         // Actions - same API as TradingContext
@@ -85,6 +95,9 @@ export const useTradingStore = create<TradingState>()(
           chartVersion: state.chartVersion,
           indicators: state.indicators,
         }),
+        onRehydrateStorage: () => (state) => {
+          state?.setHasHydrated(true);
+        },
       }
     ),
     {
@@ -92,6 +105,20 @@ export const useTradingStore = create<TradingState>()(
     }
   )
 );
+
+// Hook to wait for hydration
+export const useHydration = () => {
+  const [hydrated, setHydrated] = useState(false);
+  const { _hasHydrated } = useTradingStore();
+
+  useEffect(() => {
+    if (_hasHydrated) {
+      setHydrated(true);
+    }
+  }, [_hasHydrated]);
+
+  return hydrated;
+};
 
 // Compatibility hook to ease migration
 export const useTrading = () => {

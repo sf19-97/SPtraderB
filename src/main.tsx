@@ -1,3 +1,4 @@
+import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import { DatesProvider } from '@mantine/dates';
@@ -12,9 +13,11 @@ if (!rootElement) {
 }
 
 ReactDOM.createRoot(rootElement).render(
-  <MantineProvider defaultColorScheme="dark">
-    <DatesProvider settings={{ locale: 'en' }}>
-      <App />
-    </DatesProvider>
-  </MantineProvider>
+  <React.StrictMode>
+    <MantineProvider defaultColorScheme="dark">
+      <DatesProvider settings={{ locale: 'en' }}>
+        <App />
+      </DatesProvider>
+    </MantineProvider>
+  </React.StrictMode>
 );

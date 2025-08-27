@@ -13,8 +13,6 @@ export interface UseChartZoomOptions {
 }
 
 export interface UseChartZoomReturn {
-  isShiftPressed: boolean;
-  lockedLeftEdge: number | null;
   visibleRange: VisibleRange | null;
   barSpacing: number;
   zoomIn: (factor?: number) => void;
@@ -22,12 +20,10 @@ export interface UseChartZoomReturn {
   resetZoom: () => void;
   scrollToTime: (time: number, animate?: boolean) => void;
   setVisibleRange: (range: VisibleRange) => void;
-  maintainLeftEdgeLock: () => void;
 }
 
 /**
  * Hook to manage chart zoom functionality including:
- * - Shift key handling for left edge locking
  * - Visible range tracking
  * - Bar spacing monitoring
  * - Zoom utilities
@@ -36,72 +32,30 @@ export function useChartZoom(
   chart: IChartApi | null,
   options?: UseChartZoomOptions
 ): UseChartZoomReturn {
-  const [isShiftPressed, setIsShiftPressed] = useState(false);
-  const [lockedLeftEdge, setLockedLeftEdge] = useState<number | null>(null);
   const [visibleRange, setVisibleRange] = useState<VisibleRange | null>(null);
   const [barSpacing, setBarSpacing] = useState(12);
 
   const barSpacingCheckInterval = options?.barSpacingCheckInterval || 100;
   const lastBarSpacingRef = useRef(12);
-
-  // Handle keyboard events for shift key
+  const instanceId = useRef(Math.random().toString(36).substr(2, 9));
+  
+  // Store callbacks in refs to prevent effect re-runs
+  const onBarSpacingChangeRef = useRef(options?.onBarSpacingChange);
+  const onVisibleRangeChangeRef = useRef(options?.onVisibleRangeChange);
+  
+  // Update refs when callbacks change
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && !isShiftPressed) {
-        setIsShiftPressed(true);
-        
-        // Lock the left edge when shift is pressed
-        if (chart && visibleRange) {
-          setLockedLeftEdge(visibleRange.from);
-          console.log(
-            '[useChartZoom] Left edge locked at:',
-            new Date(visibleRange.from * 1000).toISOString()
-          );
-          
-          // Disable rightBarStaysOnScroll for locked zooming
-          chart.timeScale().applyOptions({
-            rightBarStaysOnScroll: false,
-          });
-        }
-      }
-    };
+    onBarSpacingChangeRef.current = options?.onBarSpacingChange;
+    onVisibleRangeChangeRef.current = options?.onVisibleRangeChange;
+  }, [options?.onBarSpacingChange, options?.onVisibleRangeChange]);
 
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && isShiftPressed) {
-        setIsShiftPressed(false);
-        setLockedLeftEdge(null);
-        console.log('[useChartZoom] Left edge lock released');
-        
-        // Re-enable rightBarStaysOnScroll
-        if (chart) {
-          chart.timeScale().applyOptions({
-            rightBarStaysOnScroll: true,
-          });
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-
-    // Clean up on unmount or if shift was pressed when component unmounts
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      
-      // Reset state if component unmounts while shift is pressed
-      if (isShiftPressed && chart) {
-        chart.timeScale().applyOptions({
-          rightBarStaysOnScroll: true,
-        });
-      }
-    };
-  }, [chart, isShiftPressed, visibleRange]);
 
   // Track visible range changes
   useEffect(() => {
     if (!chart) return;
 
+    console.log(`[useChartZoom ${instanceId.current}] Setting up visible range tracking`);
+    
     const handleVisibleRangeChange = () => {
       const range = chart.timeScale().getVisibleRange();
       if (range) {
@@ -110,10 +64,10 @@ export function useChartZoom(
           to: range.to as number,
         };
         setVisibleRange(newRange);
-        options?.onVisibleRangeChange?.(newRange);
+        onVisibleRangeChangeRef.current?.(newRange);
       } else {
         setVisibleRange(null);
-        options?.onVisibleRangeChange?.(null);
+        onVisibleRangeChangeRef.current?.(null);
       }
     };
 
@@ -124,37 +78,54 @@ export function useChartZoom(
     chart.timeScale().subscribeVisibleTimeRangeChange(handleVisibleRangeChange);
 
     return () => {
-      chart.timeScale().unsubscribeVisibleTimeRangeChange(handleVisibleRangeChange);
+      console.log(`[useChartZoom ${instanceId.current}] Cleaning up visible range tracking`);
+      try {
+        chart.timeScale().unsubscribeVisibleTimeRangeChange(handleVisibleRangeChange);
+      } catch (e) {
+        console.error(`[useChartZoom ${instanceId.current}] Error unsubscribing:`, e);
+      }
     };
-  }, [chart, options]);
+  }, [chart]); // Remove options from deps to prevent infinite loop
 
   // Monitor bar spacing
   useEffect(() => {
     if (!chart) return;
 
+    console.log(`[useChartZoom ${instanceId.current}] Starting bar spacing monitor`);
+    let intervalRunning = true;
+    
     const checkBarSpacing = () => {
+      if (!intervalRunning) return;
+      
       try {
         const currentBarSpacing = chart.timeScale().options().barSpacing;
         
         if (currentBarSpacing !== lastBarSpacingRef.current) {
-          // Verbose logging - uncomment for debugging
-          // console.log(
-          //   `[useChartZoom] Bar spacing changed: ${lastBarSpacingRef.current} → ${currentBarSpacing}`
-          // );
+          console.log(
+            `[useChartZoom ${instanceId.current}] Bar spacing changed: ${lastBarSpacingRef.current} → ${currentBarSpacing}`
+          );
           lastBarSpacingRef.current = currentBarSpacing;
           setBarSpacing(currentBarSpacing);
-          options?.onBarSpacingChange?.(currentBarSpacing);
+          onBarSpacingChangeRef.current?.(currentBarSpacing);
         }
       } catch (e) {
         // Chart might be disposed
-        console.error('[useChartZoom] Error checking bar spacing:', e);
+        console.error(`[useChartZoom ${instanceId.current}] Error checking bar spacing:`, e);
+        intervalRunning = false;
       }
     };
 
+    // Initial check
+    checkBarSpacing();
+    
     const intervalId = setInterval(checkBarSpacing, barSpacingCheckInterval);
 
-    return () => clearInterval(intervalId);
-  }, [chart, barSpacingCheckInterval, options]);
+    return () => {
+      console.log(`[useChartZoom ${instanceId.current}] Stopping bar spacing monitor`);
+      intervalRunning = false;
+      clearInterval(intervalId);
+    };
+  }, [chart, barSpacingCheckInterval]);
 
   // Zoom in
   const zoomIn = useCallback((factor = 1.2) => {
@@ -213,22 +184,7 @@ export function useChartZoom(
     });
   }, [chart]);
 
-  // Maintain left edge lock during zoom
-  const maintainLeftEdgeLock = useCallback(() => {
-    if (!chart || !isShiftPressed || lockedLeftEdge === null || !visibleRange) return;
-    
-    const currentDuration = visibleRange.to - visibleRange.from;
-    const newTo = lockedLeftEdge + currentDuration;
-    
-    chart.timeScale().setVisibleRange({
-      from: lockedLeftEdge as Time,
-      to: newTo as Time,
-    });
-  }, [chart, isShiftPressed, lockedLeftEdge, visibleRange]);
-
   return {
-    isShiftPressed,
-    lockedLeftEdge,
     visibleRange,
     barSpacing,
     zoomIn,
@@ -236,6 +192,5 @@ export function useChartZoom(
     resetZoom,
     scrollToTime,
     setVisibleRange: setVisibleRangeCallback,
-    maintainLeftEdgeLock,
   };
 }

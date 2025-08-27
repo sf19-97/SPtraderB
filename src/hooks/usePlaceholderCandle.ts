@@ -43,7 +43,13 @@ export function usePlaceholderCandle(
     console.log(`[usePlaceholderCandle] Creating placeholder at ${new Date(candleTime * 1000).toISOString()}`);
     hasTriggeredRef.current = true;
     
-    const currentData = series.data();
+    let currentData;
+    try {
+      currentData = series.data();
+    } catch (error) {
+      console.log('[usePlaceholderCandle] Error accessing series data:', error);
+      return;
+    }
     if (currentData.length === 0) {
       console.log('[usePlaceholderCandle] No data to create placeholder from');
       return;
@@ -68,7 +74,24 @@ export function usePlaceholderCandle(
     
     // Add placeholder to chart
     const newData = [...currentData, placeholderCandle];
-    series.setData(newData);
+    
+    // Validate all data before setting
+    const validNewData = newData.filter(candle => {
+      if (!candle || typeof candle.time !== 'number' || 
+          !Number.isFinite(candle.open) || !Number.isFinite(candle.high) || 
+          !Number.isFinite(candle.low) || !Number.isFinite(candle.close)) {
+        console.warn('[usePlaceholderCandle] Invalid candle in new data:', candle);
+        return false;
+      }
+      return true;
+    });
+    
+    try {
+      series.setData(validNewData);
+    } catch (error) {
+      console.log('[usePlaceholderCandle] Error setting series data:', error);
+      return;
+    }
     console.log(
       '[usePlaceholderCandle] Placeholder created at',
       new Date(candleTime * 1000).toLocaleTimeString()
@@ -115,8 +138,23 @@ export function usePlaceholderCandle(
       // Clear placeholder reference
       placeholderTimeRef.current = null;
       
+      // Validate data before updating
+      const validData = data.filter(candle => {
+        if (!candle || typeof candle.time !== 'number' || 
+            !Number.isFinite(candle.open) || !Number.isFinite(candle.high) || 
+            !Number.isFinite(candle.low) || !Number.isFinite(candle.close)) {
+          console.warn('[usePlaceholderCandle] Invalid candle data:', candle);
+          return false;
+        }
+        return true;
+      });
+      
       // Update the chart with new data
-      series.setData(data);
+      try {
+        series.setData(validData);
+      } catch (error) {
+        console.log('[usePlaceholderCandle] Error updating series with real data:', error);
+      }
     }
   }, [series]);
 
