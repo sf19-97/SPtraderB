@@ -801,6 +801,17 @@ async fn get_broker_connection_status(
     }
 }
 
+// Extract stored credentials (for debugging)
+#[tauri::command]
+async fn extract_stored_credentials() -> Result<serde_json::Value, String> {
+    // This command just returns a placeholder
+    // The actual credentials are stored in frontend localStorage
+    Ok(serde_json::json!({
+        "message": "Credentials are stored in frontend localStorage under 'brokerAccounts' key",
+        "instruction": "Use the frontend to retrieve them"
+    }))
+}
+
 // Initialize broker with profile (called when dropdown selection changes)
 #[tauri::command]
 async fn init_broker_from_profile(
@@ -1235,6 +1246,7 @@ async fn main() {
             cancel_order,
             init_execution_engine,
             init_broker_from_profile,
+            extract_stored_credentials,
             market_data::symbols::commands::get_symbol_metadata,
             export_test_data,
             test_orchestrator_load,

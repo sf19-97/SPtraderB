@@ -77,3 +77,51 @@ Rust-analyzer is configured with:
 
 See `.vscode/settings.json` for the configuration.
 
+## Recent Architectural Improvements (Jan 2025)
+
+### Data Coordination Layer
+- **ChartDataCoordinator** (`src/services/ChartDataCoordinator.ts`) - Centralized data fetching with:
+  - Request deduplication (prevents duplicate backend calls)
+  - Cache key normalization matching backend logic
+  - Default range management per symbol-timeframe
+  - Metadata caching from candle responses
+
+### State Management
+- **ChartStateMachine** (`src/machines/chartStateMachine.ts`) - XState machine handling:
+  - Complex state transitions (idle → loading → ready → transitioning)
+  - Automatic timeframe switching based on bar spacing
+  - Zoom state management (shift key locking)
+  - Animation coordination with cooldowns
+
+### Reusable Hooks
+- **useChartSetup** - Chart initialization with theme support
+- **useChartZoom** - Zoom functionality, shift key handling, bar spacing monitoring
+- **useAutoTimeframeSwitch** - Automatic timeframe logic with thresholds
+- **useChartData** - Clean data fetching interface
+
+### Performance Fixes
+- Eliminated redundant data fetches (removed 3 duplicate fetch triggers)
+- Fixed cache misses by using consistent timestamp normalization
+- Increased initial zoom levels to prevent unwanted auto-switching
+- All data requests now go through coordinator for consistency
+
+### Cache Normalization
+Frontend and backend use same normalization factors:
+- 5m: 900s (15 min windows)
+- 15m: 3600s (1 hour windows)
+- 1h: 7200s (2 hour windows)
+- 4h: 14400s (4 hour windows)
+- 12h: 43200s (12 hour windows)
+
+### MarketDataChart Refactoring Status
+The 1300+ line MarketDataChart component is being decomposed:
+- ✅ Phase 1: Data coordination layer (ChartDataCoordinator)
+- ✅ Phase 2: State machine (ChartStateMachine)
+- 🚧 Phase 3: Extract view logic (useChartSetup, useChartZoom done)
+- 📋 Phase 4: Component decomposition
+- 📋 Phase 5: Performance optimization
+
+## API Credentials
+OANDA Demo Account:
+- API Key: 599289f40105f4990595e53da4d05473-aff0283ed6b217cbbac90a1a5932f19e
+- Account ID: 101-001-25044301-001

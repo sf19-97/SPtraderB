@@ -68,7 +68,6 @@ pub fn format_symbol_label(symbol: &str) -> String {
         "USDCHF" => "USD/CHF".to_string(),
         "EURJPY" => "EUR/JPY".to_string(),
         "EURGBP" => "EUR/GBP".to_string(),
-        "BTCUSD" => "BTC/USD".to_string(),
         _ => {
             // Try to format forex pairs
             if symbol.len() == 6 {
@@ -123,30 +122,7 @@ pub mod commands {
             });
         }
         
-        // Query bitcoin_ticks - optimized to avoid COUNT(*)
-        let bitcoin_query = r#"
-            SELECT DISTINCT symbol, MAX(time) as last_tick
-            FROM bitcoin_ticks
-            GROUP BY symbol
-            ORDER BY symbol
-        "#;
-        
-        if let Ok(bitcoin_rows) = sqlx::query(bitcoin_query).fetch_all(&*pool).await {
-            for row in bitcoin_rows {
-                let symbol: String = row.try_get("symbol").unwrap_or_default();
-                let last_tick: Option<chrono::DateTime<chrono::Utc>> = row.try_get("last_tick").ok();
-                
-                symbols_map.insert(symbol.clone(), AvailableSymbol {
-                    symbol: symbol.clone(),
-                    label: format_symbol_label(&symbol),
-                    has_data: true,
-                    is_active: false,
-                    last_tick: last_tick.map(|t| t.to_rfc3339()),
-                    tick_count: None, // Skip expensive COUNT(*)
-                    source: Some("bitcoin".to_string()),
-                });
-            }
-        }
+
         
         // Get active pipelines from market data engine
         let engine = market_data_state.engine.lock().await;
@@ -163,7 +139,7 @@ pub mod commands {
                 DataSource::Alpaca { .. } => "alpaca",
                 DataSource::Dukascopy => "dukascopy",
                 DataSource::IBKR { .. } => "ibkr",
-                DataSource::Coinbase { .. } => "coinbase",
+                DataSource::Coinbase { .. } => continue, // Skip Coinbase pipelines
             };
             
             if let Some(existing) = symbols_map.get_mut(symbol) {

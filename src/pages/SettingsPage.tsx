@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBrokerStore } from '../stores/useBrokerStore';
+import { CredentialExtractor } from '../components/CredentialExtractor';
 import {
   Container,
   Title,
@@ -405,6 +406,9 @@ export const SettingsPage = () => {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Credential Extractor - Temporary for extracting stored credentials */}
+      <CredentialExtractor />
     </Container>
   );
 };
