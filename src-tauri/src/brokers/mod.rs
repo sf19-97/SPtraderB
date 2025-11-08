@@ -86,7 +86,7 @@ pub struct BrokerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BrokerType {
     Mock,
-    OANDA,
+    Oanda,
     InteractiveBrokers,
     Alpaca,
 }

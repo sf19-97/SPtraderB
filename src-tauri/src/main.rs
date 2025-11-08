@@ -134,6 +134,8 @@ struct AppState {
     candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
     market_candle_cache: candles::cache::CandleCache,  // Cache for MarketCandle (string-based)
     metadata_cache: Arc<RwLock<HashMap<String, CachedMetadata>>>,
+    // Request coalescing for concurrent duplicate requests
+    inflight_requests: Arc<RwLock<HashMap<String, Arc<tokio::sync::broadcast::Sender<Result<Vec<Candle>, String>>>>>>,
     // Order execution
     broker: Arc<RwLock<Option<Box<dyn BrokerAPI>>>>,
     redis_url: String,
@@ -175,8 +177,22 @@ async fn fetch_candles(
     state: State<'_, AppState>,
     window: tauri::Window,
 ) -> Result<Vec<Candle>, String> {
-    // Create cache key
-    let cache_key = format!("{}-{}-{}-{}", request.symbol, request.timeframe, request.from, request.to);
+    // Normalize timestamps to match frontend and prevent cache misses
+    let normalization_factor = match request.timeframe.as_str() {
+        "1m" => 300,      // 5 minutes
+        "5m" => 900,      // 15 minutes
+        "15m" => 3600,    // 1 hour
+        "1h" => 7200,     // 2 hours
+        "4h" => 14400,    // 4 hours
+        "12h" => 43200,   // 12 hours
+        _ => 3600,        // Default to 1 hour
+    };
+
+    let normalized_from = (request.from / normalization_factor) * normalization_factor;
+    let normalized_to = (request.to / normalization_factor) * normalization_factor;
+
+    // Create cache key with normalized timestamps
+    let cache_key = format!("{}-{}-{}-{}", request.symbol, request.timeframe, normalized_from, normalized_to);
     let current_time = chrono::Utc::now().timestamp();
     
     // Try to get from cache first
@@ -191,9 +207,75 @@ async fn fetch_candles(
         }
     }
     
-    emit_log(&window, "DEBUG", &format!("[CACHE MISS] Fetching from database for {}", cache_key));
+    // Check if there's already an in-flight request for this cache key
+    let mut rx = {
+        let inflight = state.inflight_requests.read().await;
+        if let Some(tx) = inflight.get(&cache_key) {
+            emit_log(&window, "DEBUG", &format!("[COALESCE] Joining existing request for {}", cache_key));
+            tx.subscribe()
+        } else {
+            drop(inflight);
+            // No in-flight request, we need to create one
+            let (tx, rx) = tokio::sync::broadcast::channel(1);
+            let tx = Arc::new(tx);
+            state.inflight_requests.write().await.insert(cache_key.clone(), tx.clone());
+            
+            // Clone necessary data for the spawned task
+            let cache_key_clone = cache_key.clone();
+            let request_clone = DataRequest {
+                symbol: request.symbol.clone(),
+                timeframe: request.timeframe.clone(),
+                from: normalized_from,
+                to: normalized_to,
+            };
+            let db_pool = state.db_pool.clone();
+            let candle_cache = state.candle_cache.clone();
+            let inflight_requests = state.inflight_requests.clone();
+            let window_clone = window.clone();
+            
+            // Spawn the actual database fetch
+            tokio::spawn(async move {
+                let result = fetch_candles_from_db(
+                    request_clone,
+                    cache_key_clone.clone(),  // Pass the cache key to ensure consistency
+                    db_pool,
+                    candle_cache,
+                    &window_clone
+                ).await;
+                
+                // Broadcast the result to all waiting requests
+                let _ = tx.send(result.clone());
+                
+                // Clean up the in-flight request
+                inflight_requests.write().await.remove(&cache_key_clone);
+            });
+            
+            rx
+        }
+    };
+    
+    // Wait for the result
+    match rx.recv().await {
+        Ok(result) => result,
+        Err(_) => Err("Failed to receive coalesced result".to_string()),
+    }
+}
+
+// Helper function that does the actual database fetch
+async fn fetch_candles_from_db(
+    request: DataRequest,
+    cache_key: String,  // Pass cache key from caller to ensure consistency
+    db_pool: Arc<Mutex<sqlx::PgPool>>,
+    candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
+    window: &tauri::Window,
+) -> Result<Vec<Candle>, String> {
+    let current_time = chrono::Utc::now().timestamp();
+    
+    emit_log(window, "DEBUG", &format!("[CACHE MISS] Fetching from database for {}", cache_key));
     
     let table_name = match request.timeframe.as_str() {
+        "1m" => "forex_candles_1m",
+        "5m" => "forex_candles_5m",
         "15m" => "forex_candles_15m",
         "1h" => "forex_candles_1h",
         "4h" => "forex_candles_4h",
@@ -217,11 +299,11 @@ async fn fetch_candles(
         table_name
     );
 
-    emit_log(&window, "DEBUG", &format!("[FETCH_CANDLES] Query: {}", query));
-    emit_log(&window, "DEBUG", &format!("[FETCH_CANDLES] Params: symbol={}, from={}, to={}",
+    emit_log(window, "DEBUG", &format!("[FETCH_CANDLES] Query: {}", query));
+    emit_log(window, "DEBUG", &format!("[FETCH_CANDLES] Params: symbol={}, from={}, to={}",
              request.symbol, request.from, request.to));
 
-    let pool = state.db_pool.lock().await;
+    let pool = db_pool.lock().await;
     let rows = sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, f64, f64, f64, f64, i64)>(&query)
         .bind(&request.symbol)
         .bind(request.from)
@@ -241,16 +323,16 @@ async fn fetch_candles(
     
     // Update cache with new data
     {
-        let mut cache = state.candle_cache.write().await;
+        let mut cache = candle_cache.write().await;
         
-        // Simple LRU: if cache is full (>10 entries), remove oldest
-        if cache.len() >= 10 {
+        // Simple LRU: if cache is full (>100 entries), remove oldest
+        if cache.len() >= 100 {
             // Find the oldest entry
             if let Some(oldest_key) = cache.iter()
                 .min_by_key(|(_, v)| v.cached_at)
                 .map(|(k, _)| k.clone()) {
                 cache.remove(&oldest_key);
-                emit_log(&window, "DEBUG", &format!("[CACHE EVICT] Removed oldest entry: {}", oldest_key));
+                emit_log(window, "DEBUG", &format!("[CACHE EVICT] Removed oldest entry: {}", oldest_key));
             }
         }
         
@@ -258,7 +340,7 @@ async fn fetch_candles(
             data: candles.clone(),
             cached_at: current_time,
         });
-        emit_log(&window, "DEBUG", &format!("[CACHE UPDATE] Stored {} candles for {}", candles.len(), cache_key));
+        emit_log(window, "DEBUG", &format!("[CACHE UPDATE] Stored {} candles for {}", candles.len(), cache_key));
     }
     
     Ok(candles)
@@ -1115,69 +1197,23 @@ async fn cancel_order(
 
 #[tokio::main]
 async fn main() {
+    // Load environment variables from .env file (development only)
+    #[cfg(debug_assertions)]
+    let _ = dotenvy::dotenv();
+
     env_logger::init();
-    
-    // Database connection
-    let database_url = "postgresql://postgres@localhost:5432/forex_trading";
+
+    // Database connection - use environment variable or fall back to local
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://postgres@localhost:5432/forex_trading".to_string());
     // Database connection logging will be done after we have window access
     let pool = PgPoolOptions::new()
         .max_connections(10)
-        .connect(database_url)
+        .connect(&database_url)
         .await
         .expect("Failed to connect to database");
 
-    // Pre-warm the database connection and caches with a more realistic query
-    // This loads actual data pages and indexes that will be used
-    let three_months_ago = chrono::Utc::now().timestamp() - (90 * 24 * 60 * 60);
-    match sqlx::query(
-        "SELECT time, open, high, low, close, tick_count 
-         FROM forex_candles_1h 
-         WHERE symbol = 'EURUSD' 
-           AND time >= to_timestamp($1)
-         ORDER BY time
-         LIMIT 100"
-    )
-        .bind(three_months_ago)
-        .fetch_all(&pool)
-        .await {
-        Ok(_) => {
-            // Connection is warm, caches are primed with actual data pages
-        },
-        Err(e) => {
-            eprintln!("Warning: Failed to pre-warm database connection: {}", e);
-            // Non-fatal - continue with cold connection
-        }
-    }
-    
-    // Pre-warm metadata queries for common symbols using optimized queries
-    println!("[INFO] Pre-warming metadata cache...");
-    let symbols = vec!["EURUSD", "USDJPY"];
-    for symbol in symbols {
-        // Pre-warm MIN query
-        let _ = sqlx::query("SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1")
-            .bind(symbol)
-            .fetch_optional(&pool)
-            .await;
-            
-        // Pre-warm MAX query
-        let _ = sqlx::query("SELECT time FROM forex_ticks WHERE symbol = $1 ORDER BY time DESC LIMIT 1")
-            .bind(symbol)
-            .fetch_optional(&pool)
-            .await;
-            
-        // Pre-warm COUNT query
-        match sqlx::query("SELECT COUNT(*) FROM forex_ticks WHERE symbol = $1")
-            .bind(symbol)
-            .fetch_optional(&pool)
-            .await {
-            Ok(_) => {
-                println!("[INFO] Pre-warmed metadata for {}", symbol);
-            },
-            Err(e) => {
-                eprintln!("Warning: Failed to pre-warm metadata for {}: {}", symbol, e);
-            }
-        }
-    }
+    // Database connection is ready - no pre-warming needed
 
     // Initialize SQLite for orders
     let orders_db_path = env::current_dir()
@@ -1207,6 +1243,7 @@ async fn main() {
         candle_cache: Arc::new(RwLock::new(HashMap::new())),
         market_candle_cache: candles::cache::create_cache(),  // Initialize the market candle cache
         metadata_cache: Arc::new(RwLock::new(HashMap::new())),
+        inflight_requests: Arc::new(RwLock::new(HashMap::new())),
         broker: Arc::new(RwLock::new(None)),
         redis_url: redis_url.to_string(),
         redis_client: Arc::new(Mutex::new(None)),
@@ -1280,7 +1317,9 @@ async fn main() {
             let window = app.get_webview_window("main").expect("Failed to get main window");
             
             // Now we can log the database connection
-            emit_log(&window, "INFO", &format!("Connecting to database: {}", "postgresql://postgres@localhost:5432/forex_trading"));
+            let db_url = std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "postgresql://postgres@localhost:5432/forex_trading".to_string());
+            emit_log(&window, "INFO", &format!("Connecting to database: {}", db_url));
             emit_log(&window, "SUCCESS", "Database connected successfully");
             emit_log(&window, "INFO", "Connection pool established (10 connections)");
             

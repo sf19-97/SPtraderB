@@ -58,15 +58,18 @@ export function StrategyList() {
             return {
               name: file.name.replace('.yaml', ''),
               path: file.path,
-              description: metadata.description,
-              version: metadata.version,
-              author: metadata.author,
+              description: metadata.description || 'No description',
+              version: metadata.version || '1.0.0',
+              author: metadata.author || 'Unknown',
             };
           } catch (err) {
             console.error(`Failed to load strategy ${file.name}:`, err);
             return {
               name: file.name.replace('.yaml', ''),
               path: file.path,
+              description: 'No description',
+              version: '1.0.0',
+              author: 'Unknown',
             };
           }
         })

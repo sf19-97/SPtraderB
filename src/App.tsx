@@ -9,7 +9,6 @@ import { SettingsPage } from './pages/SettingsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { MonacoIDE } from './components/MonacoIDE';
 import { OrchestratorPage } from './pages/OrchestratorPage';
-import BitcoinTest from './pages/BitcoinTest';
 import { MarketDataPage } from './pages/MarketDataPage';
 import { MarketChartPage } from './pages/MarketChartPage';
 import './App.css';
@@ -31,7 +30,6 @@ function App() {
           <Route path="history" element={<OrdersPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="orchestrator" element={<OrchestratorPage />} />
-          <Route path="bitcoin-test" element={<BitcoinTest />} />
           <Route path="market-data" element={<MarketDataPage />} />
           <Route path="market-chart" element={<MarketChartPage />} />
         </Route>

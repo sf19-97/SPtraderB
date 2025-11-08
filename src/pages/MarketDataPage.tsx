@@ -1,4 +1,3 @@
-import React from 'react';
 import { Container, Title, Text, Stack, Paper, Button, Group } from '@mantine/core';
 import { AssetManager } from '../components/AssetManager';
 import { IconDatabase, IconChartLine } from '@tabler/icons-react';
@@ -9,15 +8,15 @@ export function MarketDataPage() {
 
   return (
     <Container size="xl" py="xl">
-      <Stack spacing="xl">
+      <Stack gap="xl">
         <Paper p="lg" withBorder>
           <Group justify="space-between" align="flex-start">
-            <Stack spacing="sm" style={{ flex: 1 }}>
+            <Stack gap="sm" style={{ flex: 1 }}>
               <Title order={1} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <IconDatabase size={32} />
                 Market Data Manager
               </Title>
-              <Text size="lg" color="dimmed">
+              <Text size="lg" c="dimmed">
                 Configure and manage real-time data pipelines for various assets. Add forex pairs,
                 cryptocurrencies, and stocks to start collecting market data.
               </Text>

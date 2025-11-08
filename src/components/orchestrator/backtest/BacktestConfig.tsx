@@ -25,7 +25,7 @@ export function BacktestConfig() {
                 label="Start Date"
                 placeholder="Select start date"
                 value={backtestConfig.startDate}
-                onChange={(date) => date && updateBacktestConfig({ startDate: date })}
+                onChange={(date) => date && updateBacktestConfig({ startDate: new Date(date) })}
                 leftSection={<IconCalendar size={16} />}
                 maxDate={new Date()}
                 clearable={false}
@@ -35,7 +35,7 @@ export function BacktestConfig() {
                 label="End Date"
                 placeholder="Select end date"
                 value={backtestConfig.endDate}
-                onChange={(date) => date && updateBacktestConfig({ endDate: date })}
+                onChange={(date) => date && updateBacktestConfig({ endDate: new Date(date) })}
                 leftSection={<IconCalendar size={16} />}
                 maxDate={new Date()}
                 minDate={backtestConfig.startDate}

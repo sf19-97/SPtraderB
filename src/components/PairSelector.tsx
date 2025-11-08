@@ -61,9 +61,7 @@ export const PairSelector = () => {
   }, []);
 
   const handlePairChange = (value: string | null) => {
-    console.log('[PairSelector] onChange triggered with value:', value);
     if (value) {
-      console.log('[PairSelector] Calling setPair with:', value);
       setPair(value);
     }
   };

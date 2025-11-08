@@ -17,11 +17,12 @@ export function StrategySelector() {
   };
 
   const data = strategies.map((strategy) => ({
-    value: strategy.path,
+    value: strategy.path || '',
     label: strategy.name,
-    description: strategy.description,
-    version: strategy.version,
   }));
+
+  // Create a map for quick lookup of strategy details
+  const strategyMap = new Map(strategies.map(s => [s.path, s]));
 
   return (
     <Select
@@ -33,23 +34,26 @@ export function StrategySelector() {
       searchable
       clearable
       leftSection={<IconFile size={16} />}
-      renderOption={({ option }) => (
-        <Group justify="space-between" flex={1}>
-          <div>
-            <Text size="sm">{option.label}</Text>
-            {option.description && (
+      renderOption={({ option }) => {
+        const strategy = strategyMap.get(option.value);
+        return (
+          <Group justify="space-between" flex={1}>
+            <div>
+              <Text size="sm">{option.label}</Text>
+              {strategy?.description && (
+                <Text size="xs" c="dimmed">
+                  {strategy.description}
+                </Text>
+              )}
+            </div>
+            {strategy?.version && (
               <Text size="xs" c="dimmed">
-                {option.description}
+                v{strategy.version}
               </Text>
             )}
-          </div>
-          {option.version && (
-            <Text size="xs" c="dimmed">
-              v{option.version}
-            </Text>
-          )}
-        </Group>
-      )}
+          </Group>
+        );
+      }}
       maxDropdownHeight={300}
       nothingFoundMessage="No strategies found"
       size="sm"

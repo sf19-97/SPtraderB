@@ -292,7 +292,7 @@ export function BacktestResults() {
   };
 
   return (
-    <Tabs value={activeResultsTab} onChange={setActiveResultsTab}>
+    <Tabs value={activeResultsTab} onChange={(value) => value && setActiveResultsTab(value)}>
       <Tabs.List>
         <Tabs.Tab value="overview" leftSection={<IconChartBar size={16} />}>
           Overview

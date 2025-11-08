@@ -42,31 +42,24 @@ export const useTradingStore = create<TradingState>()(
 
         // Actions - same API as TradingContext
         setPair: (pair) => {
-          console.log('[TradingStore] setPair called with:', pair);
           set((state) => {
-            console.log('[TradingStore] Current selectedPair:', state.selectedPair);
-            console.log('[TradingStore] New selectedPair will be:', pair);
             return { selectedPair: pair };
           });
         },
 
         setTimeframe: (timeframe) => {
-          console.log('[TradingStore] setTimeframe:', timeframe);
           set({ selectedTimeframe: timeframe });
         },
 
         setChartType: (chartType) => {
-          console.log('[TradingStore] setChartType:', chartType);
           set({ chartType });
         },
 
         setChartVersion: (chartVersion) => {
-          console.log('[TradingStore] setChartVersion:', chartVersion);
           set({ chartVersion });
         },
 
         toggleIndicator: (indicator) => {
-          console.log('[TradingStore] toggleIndicator:', indicator);
           set((state) => ({
             indicators: {
               ...state.indicators,

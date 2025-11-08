@@ -40,7 +40,6 @@ import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useChartStore } from '../stores/useChartStore';
 import { useTradingStore } from '../stores/useTradingStore';
 
 interface FileNode {
@@ -129,7 +128,6 @@ export const MonacoIDE = () => {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
 
   // Zustand stores
-  const chartStore = useChartStore();
   const { selectedPair, selectedTimeframe } = useTradingStore();
 
   // Initialize live data params with current chart selection

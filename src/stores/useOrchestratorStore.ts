@@ -2,6 +2,31 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { BacktestConfig, BacktestResults, Strategy, LogEntry } from '../types/orchestrator';
 
+// Portfolio related types
+interface Position {
+  id: string;
+  symbol: string;
+  side: 'Long' | 'Short';
+  entry_price: number;
+  size: number;
+  entry_time: string;
+  triggering_signal: string;
+  stop_loss?: number;
+  take_profit?: number;
+}
+
+interface PortfolioState {
+  cash: number;
+  positions: Record<string, Position>;
+  total_value: number;
+  daily_pnl: number;
+  total_pnl: number;
+  max_drawdown: number;
+  high_water_mark: number;
+  initial_capital: number;
+  current_date: string;
+}
+
 interface OrchestratorState {
   // Mode
   mode: 'backtest' | 'paper' | 'live';
@@ -19,7 +44,7 @@ interface OrchestratorState {
 
   // Live Trading
   isConnected: boolean;
-  portfolioState: any; // TODO: Type this properly
+  portfolioState: PortfolioState | null;
 
   // Logs
   logs: LogEntry[];
@@ -39,7 +64,7 @@ interface OrchestratorState {
   setIsBacktestRunning: (running: boolean) => void;
   setCurrentBacktestId: (id: string | null) => void;
   setIsConnected: (connected: boolean) => void;
-  setPortfolioState: (state: any) => void;
+  setPortfolioState: (state: PortfolioState | null) => void;
   addLog: (log: LogEntry) => void;
   clearLogs: () => void;
   reset: () => void;

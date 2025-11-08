@@ -2,7 +2,6 @@
 import { Group, Text, Box, Paper } from '@mantine/core';
 import { IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
 import { useTradingStore } from '../stores/useTradingStore';
-import { ResolutionTracker } from './ResolutionTracker';
 import { PairSelector } from './PairSelector';
 
 export const MarketDataBar = () => {
@@ -90,9 +89,6 @@ export const MarketDataBar = () => {
             </Text>
           </Box>
         </Group>
-
-        {/* Resolution Tracker - VISUAL ONLY */}
-        <ResolutionTracker />
       </Group>
     </Paper>
   );

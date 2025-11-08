@@ -194,7 +194,6 @@ export const BuildPage = () => {
 
     // Restore scroll position when component mounts
     if (scrollPosition > 0) {
-      console.log('[BuildPage] Restoring scroll position:', scrollPosition);
       // Use multiple attempts to ensure content is loaded
       const restoreScroll = () => {
         scrollableElement.scrollTop = scrollPosition;
@@ -203,7 +202,6 @@ export const BuildPage = () => {
           // Try again if it didn't work
           setTimeout(restoreScroll, 50);
         } else {
-          console.log('[BuildPage] Scroll restored to:', scrollableElement.scrollTop);
         }
       };
       requestAnimationFrame(restoreScroll);

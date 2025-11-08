@@ -22,9 +22,6 @@ export function CredentialExtractor() {
     setCredentials(extractedCreds);
 
     // Also log to console for easy copying
-    console.log('=== EXTRACTED CREDENTIALS ===');
-    console.log(JSON.stringify(extractedCreds, null, 2));
-    console.log('=============================');
   }, [profiles, decryptData]);
 
   return (

@@ -67,8 +67,9 @@ export async function startLiveTrading(
 
 // Stop live trading mode
 export async function stopLiveTrading(): Promise<void> {
-  // TODO: Implement stop command in Rust
-  console.log('Stopping live trading...');
+  // Note: Backend command 'stop_live_trading' needs to be implemented in Rust
+  // For now, this will throw an error if called
+  return await invoke('stop_live_trading');
 }
 
 // Cancel a running backtest
