@@ -39,8 +39,22 @@ RUN pip3 install --no-cache-dir pandas numpy --break-system-packages
 # Copy binary from builder
 COPY --from=builder /app/target/release/sptraderb-api /app/sptraderb-api
 
-# Copy workspace directory (Python components)
-COPY workspace /app/workspace
+# Copy workspace directory to init location (will be copied to volume on first run)
+COPY workspace /app/workspace_init
+
+# Create entrypoint script to initialize workspace volume
+RUN echo '#!/bin/sh\n\
+# Check if workspace is empty (only contains lost+found)\n\
+if [ -z "$(ls -A /app/workspace | grep -v "^lost+found$")" ]; then\n\
+  echo "Initializing workspace volume with default files..."\n\
+  cp -r /app/workspace_init/* /app/workspace/ 2>/dev/null || true\n\
+  echo "Workspace initialized"\n\
+else\n\
+  echo "Workspace volume already initialized"\n\
+fi\n\
+# Run the API server\n\
+exec /app/sptraderb-api\n\
+' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Expose port
 EXPOSE 3001
@@ -49,5 +63,5 @@ EXPOSE 3001
 ENV PORT=3001
 ENV RUST_LOG=info
 
-# Run the binary
-CMD ["/app/sptraderb-api"]
+# Run via entrypoint to initialize workspace
+CMD ["/app/entrypoint.sh"]
