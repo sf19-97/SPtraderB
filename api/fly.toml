@@ -33,6 +33,10 @@ primary_region = "iad"  # Washington D.C.
   timeout = "5s"
   path = "/health"
 
+[[mounts]]
+  source = "workspace_data"
+  destination = "/app/workspace"
+
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
