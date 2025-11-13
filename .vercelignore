@@ -1,0 +1,43 @@
+# API directory (separate deployment - Rust backend only)
+/api/
+
+# Rust/Tauri (not needed for web)
+src-tauri/
+target/
+Cargo.toml
+Cargo.lock
+
+# Python workspace (not needed for web)
+workspace/
+
+# Data ingestion (not needed for web)
+data-ingestion/
+
+# Documentation
+*.md
+!README.md
+
+# Development files
+.vscode/
+.idea/
+.git/
+
+# Logs
+*.log
+
+# Test files
+test-*
+
+# Environment files
+.env
+.env.local
+
+# Build artifacts from Rust
+api/target/
+
+# Database files
+*.db
+pgdata/
+
+# Claude AI
+.claude/
