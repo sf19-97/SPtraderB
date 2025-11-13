@@ -38,7 +38,8 @@ import {
 import { useBuildStore } from '../stores/useBuildStore';
 import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
-import { invoke } from '@tauri-apps/api/core';
+import { workspaceApi } from '../api/workspace';
+import { invoke } from '@tauri-apps/api/core'; // TODO: Port remaining invoke calls to HTTP
 import { listen } from '@tauri-apps/api/event';
 import { useTradingStore } from '../stores/useTradingStore';
 
@@ -47,6 +48,22 @@ interface FileNode {
   path: string;
   type: 'file' | 'folder';
   children?: FileNode[];
+}
+
+interface ComponentOutput {
+  lastValue: string;
+  signal: string;
+  execution: string;
+  dataPoints: string;
+}
+
+interface CandleData {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
 }
 
 export const MonacoIDE = () => {
@@ -111,7 +128,7 @@ export const MonacoIDE = () => {
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
 
   // Chart and component output state
-  const [chartData, setChartData] = useState<any>(null);
+  const [chartData, setChartData] = useState<any>(undefined);
   const [dataSourceMode, setDataSourceMode] = useState<'live' | 'parquet'>('live');
   const [liveDataParams, setLiveDataParams] = useState({
     symbol: 'EURUSD',
@@ -145,7 +162,7 @@ export const MonacoIDE = () => {
     }));
 
     // Clear existing chart data when parameters change to avoid showing stale data
-    setChartData(null);
+    setChartData(undefined);
   }, [selectedPair, selectedTimeframe]);
 
   // Load data when live mode params change
@@ -154,7 +171,7 @@ export const MonacoIDE = () => {
       loadLiveData();
     } else {
       // Clear chart data when switching to parquet mode
-      setChartData(null);
+      setChartData(undefined);
     }
   }, [liveDataParams, dataSourceMode, type]);
 
@@ -322,7 +339,7 @@ execution:
   // Function to load workspace tree
   const loadWorkspace = async () => {
     try {
-      const tree = await invoke<FileNode[]>('get_workspace_tree');
+      const tree = await workspaceApi.getTree();
       setFileTree(tree);
     } catch (error) {
       console.error('Failed to load workspace:', error);
@@ -342,9 +359,7 @@ execution:
 
     if (type === 'indicator' || type === 'signal') {
       try {
-        const categories = await invoke<string[]>('get_component_categories', {
-          componentType: type,
-        });
+        const categories = await workspaceApi.getCategories(type);
         setAvailableCategories(categories);
         // Set default category if available
         if (categories.length > 0 && !categories.includes(newFileCategory)) {
@@ -475,7 +490,7 @@ execution:
         setSelectedFile(`new_${type}.${type === 'strategy' ? 'yaml' : 'py'}`);
       } else if (filePath) {
         try {
-          const content = await invoke<string>('read_component_file', { filePath });
+          const content = await workspaceApi.readFile(filePath);
           setCode(content);
           setSelectedFile(filePath);
 
@@ -525,10 +540,7 @@ execution:
     ]);
 
     try {
-      await invoke('save_component_file', {
-        filePath: selectedFile,
-        content: code,
-      });
+      await workspaceApi.saveFile(selectedFile, code);
       setTerminalOutput((prev) => [
         ...prev,
         `[${new Date().toLocaleTimeString()}] ✓ File saved successfully`,
@@ -618,10 +630,7 @@ execution:
         `[${new Date().toLocaleTimeString()}] Creating ${filePath}...`,
       ]);
 
-      await invoke('create_component_file', {
-        filePath,
-        componentType: type,
-      });
+      await workspaceApi.createFile(filePath, type);
 
       setTerminalOutput((prev) => [
         ...prev,
@@ -704,7 +713,7 @@ execution:
           if (line.includes('Execution completed in')) {
             const match = line.match(/(\d+\.?\d*)\s*ms/);
             if (match) {
-              setComponentOutput((prev: any) => ({ ...prev, execution: `${match[1]}ms` }));
+              setComponentOutput((prev) => ({ ...prev, execution: `${match[1]}ms` }));
             }
           }
 
@@ -712,7 +721,7 @@ execution:
           if (line.includes('Shape:')) {
             const match = line.match(/\((\d+),/);
             if (match) {
-              setComponentOutput((prev: any) => ({ ...prev, dataPoints: match[1] }));
+              setComponentOutput((prev) => ({ ...prev, dataPoints: match[1] }));
             }
           }
 
@@ -727,7 +736,7 @@ execution:
                 setChartData((prev: any) => ({
                   ...prev!,
                   indicators: {
-                    ...prev?.indicators,
+                    ...(prev?.indicators || {}),
                     [indicatorData.name]: indicatorData.values,
                   },
                 }));
@@ -736,7 +745,7 @@ execution:
               // Update last value
               if (indicatorData.values && indicatorData.values.length > 0) {
                 const lastValue = indicatorData.values[indicatorData.values.length - 1];
-                setComponentOutput((prev: any) => ({
+                setComponentOutput((prev) => ({
                   ...prev,
                   lastValue: typeof lastValue === 'number' ? lastValue.toFixed(4) : lastValue,
                 }));
@@ -750,18 +759,18 @@ execution:
           if (line.includes('Mean SMA:') || line.includes('Mean:')) {
             const match = line.match(/:\s*(\d+\.\d+)/);
             if (match) {
-              setComponentOutput((prev: any) => ({ ...prev, lastValue: match[1] }));
+              setComponentOutput((prev) => ({ ...prev, lastValue: match[1] }));
             }
           }
 
           // Parse signal output
           if (line.includes('Signal:') || line.includes('SIGNAL:')) {
             if (line.toLowerCase().includes('buy')) {
-              setComponentOutput((prev: any) => ({ ...prev, signal: 'BUY' }));
+              setComponentOutput((prev) => ({ ...prev, signal: 'BUY' }));
             } else if (line.toLowerCase().includes('sell')) {
-              setComponentOutput((prev: any) => ({ ...prev, signal: 'SELL' }));
+              setComponentOutput((prev) => ({ ...prev, signal: 'SELL' }));
             } else if (line.toLowerCase().includes('neutral')) {
-              setComponentOutput((prev: any) => ({ ...prev, signal: 'NEUTRAL' }));
+              setComponentOutput((prev) => ({ ...prev, signal: 'NEUTRAL' }));
             }
           }
         }
@@ -852,55 +861,12 @@ execution:
         envVars['LIVE_FROM'] = Math.floor(liveDataParams.from.getTime() / 1000).toString();
         envVars['LIVE_TO'] = Math.floor(liveDataParams.to.getTime() / 1000).toString();
 
-        // Generate cache key for Python to use
-        const cacheKey = chartStore.getCacheKey(
-          liveDataParams.symbol,
-          liveDataParams.timeframe,
-          Math.floor(liveDataParams.from.getTime() / 1000),
-          Math.floor(liveDataParams.to.getTime() / 1000)
-        );
-        envVars['CACHE_KEY'] = cacheKey;
-
-        // Get cached candles and write to temp file
-        const cachedCandles = chartStore.getCachedCandles(cacheKey);
-        if (cachedCandles && cachedCandles.length > 0) {
-          setTerminalOutput((prev) => [
-            ...prev,
-            `[${new Date().toLocaleTimeString()}] 📊 Writing ${cachedCandles.length} cached candles to temp file...`,
-          ]);
-
-          try {
-            // Prepare candle data for Rust
-            const candleData = {
-              time: cachedCandles.map((c) => c.time),
-              open: cachedCandles.map((c) => c.open),
-              high: cachedCandles.map((c) => c.high),
-              low: cachedCandles.map((c) => c.low),
-              close: cachedCandles.map((c) => c.close),
-            };
-
-            // Write to temp file
-            const tempFilePath = await invoke<string>('write_temp_candles', {
-              candles: candleData,
-            });
-            envVars['CANDLE_DATA_FILE'] = tempFilePath;
-            setTerminalOutput((prev) => [
-              ...prev,
-              `[${new Date().toLocaleTimeString()}] ✅ Cached data written to: ${tempFilePath}`,
-            ]);
-          } catch (error) {
-            setTerminalOutput((prev) => [
-              ...prev,
-              `[${new Date().toLocaleTimeString()}] ❌ Failed to write cached data: ${error}`,
-            ]);
-            // Continue without the data file - Python will error appropriately
-          }
-        } else {
-          setTerminalOutput((prev) => [
-            ...prev,
-            `[${new Date().toLocaleTimeString()}] ⚠️ No cached data found - component will need to fetch from database`,
-          ]);
-        }
+        // Chart caching removed - charts now fetch from cloud API
+        // Python scripts should fetch data directly from the API if needed
+        setTerminalOutput((prev) => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] ℹ️ Chart data now fetched from cloud API`,
+        ]);
 
         // Debug output
         console.log('[Run] Live mode environment variables:', envVars);
@@ -978,11 +944,11 @@ execution:
 
     try {
       if (isFolder) {
-        console.log('[Delete] Invoking delete_component_folder for:', fileToDelete.path);
-        await invoke('delete_component_folder', { folderPath: fileToDelete.path });
+        console.log('[Delete] Deleting folder:', fileToDelete.path);
+        await workspaceApi.deleteFile(fileToDelete.path);
       } else {
-        console.log('[Delete] Invoking delete_component_file for:', fileToDelete.path);
-        await invoke('delete_component_file', { filePath: fileToDelete.path });
+        console.log('[Delete] Deleting file:', fileToDelete.path);
+        await workspaceApi.deleteFile(fileToDelete.path);
 
         // If deleting currently open file, clear the editor
         if (selectedFile === fileToDelete.path) {
@@ -1043,10 +1009,7 @@ execution:
       ]);
 
       // Use the rename command to move the file
-      const result = await invoke<string>('rename_component_file', {
-        oldPath: sourcePath,
-        newName: newPath, // Pass the full new path
-      });
+      const result = await workspaceApi.renameFile(sourcePath, newPath);
 
       // If the currently selected file was moved, update the selection
       if (selectedFile === sourcePath) {
@@ -1102,15 +1065,9 @@ execution:
       let newPath: string;
 
       if (isFolder) {
-        newPath = await invoke<string>('rename_component_folder', {
-          oldPath: contextMenuFile.path,
-          newName: renameFileName,
-        });
+        newPath = await workspaceApi.renameFile(contextMenuFile.path, renameFileName);
       } else {
-        newPath = await invoke<string>('rename_component_file', {
-          oldPath: contextMenuFile.path,
-          newName: renameFileName,
-        });
+        newPath = await workspaceApi.renameFile(contextMenuFile.path, renameFileName);
 
         // Update selected file if it was renamed
         if (selectedFile === contextMenuFile.path) {
@@ -1235,42 +1192,18 @@ execution:
       // Generate cache key
       const fromTimestamp = Math.floor(from.getTime() / 1000);
       const toTimestamp = Math.floor(to.getTime() / 1000);
-      const cacheKey = chartStore.getCacheKey(symbol, timeframe, fromTimestamp, toTimestamp);
+      // Chart caching removed - using cloud API now
 
       console.log('[MonacoIDE] Loading live data with params:', {
         symbol,
         timeframe,
         from: from.toISOString(),
         to: to.toISOString(),
-        cacheKey,
         fromTimestamp,
         toTimestamp,
       });
 
-      // Check cache first
-      const cachedData = chartStore.getCachedCandles(cacheKey);
-      if (cachedData) {
-        setTerminalOutput((prev) => [
-          ...prev,
-          `[${new Date().toLocaleTimeString()}] ✅ Using cached data for ${symbol} ${timeframe} (${cachedData.length} candles)`,
-        ]);
-        console.log('[MonacoIDE] Found cached data:', {
-          cacheKey,
-          candleCount: cachedData.length,
-          firstCandle: cachedData[0],
-          lastCandle: cachedData[cachedData.length - 1],
-        });
-        // Convert to chart format
-        const chartData = {
-          time: cachedData.map((c) => new Date(c.time * 1000).toISOString()),
-          open: cachedData.map((c) => c.open),
-          high: cachedData.map((c) => c.high),
-          low: cachedData.map((c) => c.low),
-          close: cachedData.map((c) => c.close),
-        };
-        setChartData(chartData);
-        return;
-      }
+      // Cache removed - always fetch fresh data from backend
 
       // Fetch from backend
       setTerminalOutput((prev) => [
@@ -1288,8 +1221,7 @@ execution:
       });
 
       if (data && data.length > 0) {
-        // Cache the data
-        chartStore.setCachedCandles(cacheKey, data);
+        // Caching removed - data fetched directly from backend
 
         // Convert to chart format
         const chartData = {
@@ -1309,7 +1241,7 @@ execution:
           ...prev,
           `[${new Date().toLocaleTimeString()}] ⚠️ No data available for selected range`,
         ]);
-        setChartData(null);
+        setChartData(undefined);
       }
     } catch (error) {
       console.error('[LiveData] Failed to load:', error);
@@ -1317,7 +1249,7 @@ execution:
         ...prev,
         `[${new Date().toLocaleTimeString()}] ❌ Failed to load data: ${error}`,
       ]);
-      setChartData(null);
+      setChartData(undefined);
     }
   };
 
@@ -1433,9 +1365,7 @@ execution:
 
               // Load file content
               try {
-                const content = await invoke<string>('read_component_file', {
-                  filePath: node.path,
-                });
+                const content = await workspaceApi.readFile(node.path);
                 setCode(content);
                 setTerminalOutput((prev) => [
                   ...prev,
@@ -2106,10 +2036,10 @@ execution:
                           ...prev,
                           `[${new Date().toLocaleTimeString()}] ❌ Failed to load chart data: ${error}`,
                         ]);
-                        setChartData(null);
+                        setChartData(undefined);
                       }
                     } else {
-                      setChartData(null);
+                      setChartData(undefined);
                     }
                   }}
                   data={availableDatasets.map((ds) => ({

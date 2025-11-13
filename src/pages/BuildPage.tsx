@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBuildStore } from '../stores/useBuildStore';
-import { invoke } from '@tauri-apps/api/core';
+import { workspaceApi } from '../api/workspace';
 import {
   Title,
   Text,
@@ -66,7 +66,7 @@ export const BuildPage = () => {
   useEffect(() => {
     const loadComponents = async () => {
       try {
-        const components = await invoke<ComponentInfo[]>('get_workspace_components');
+        const components = await workspaceApi.getComponents();
         setRealComponents(components);
       } catch (error) {
         console.error('Failed to load components:', error);
@@ -201,7 +201,6 @@ export const BuildPage = () => {
         if (scrollableElement.scrollTop !== scrollPosition && scrollPosition > 0) {
           // Try again if it didn't work
           setTimeout(restoreScroll, 50);
-        } else {
         }
       };
       requestAnimationFrame(restoreScroll);
