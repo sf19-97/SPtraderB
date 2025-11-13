@@ -1,0 +1,21 @@
+name: "Simple Test Strategy"
+version: "1.0.0"
+author: "SPtraderB"
+description: "Basic test strategy for orchestrator validation"
+
+dependencies:
+  indicators: []
+  signals: []
+
+parameters:
+  max_positions: 1
+  stop_loss: 0.02
+  take_profit: 0.04
+
+risk:
+  max_drawdown: 0.15
+  daily_loss_limit: 0.03
+  position_limit: 0.05
+
+entry: {}
+exit: {}

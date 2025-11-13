@@ -1,0 +1,22 @@
+# Git
+.git
+
+# Build artifacts (will be rebuilt in Docker)
+target/
+
+# Backtest results (runtime generated)
+backtests/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Environment files (use Fly secrets instead)
+.env
+.env.local
+
+# Development tools
+.cargo/

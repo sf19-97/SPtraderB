@@ -1,0 +1,60 @@
+[package]
+name = "sptraderb-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "sqlite", "chrono"] }
+
+# Caching
+redis = { version = "0.24", features = ["tokio-comp", "streams"] }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Decimal math
+rust_decimal = { version = "1.33", features = ["serde"] }
+rust_decimal_macros = "1.33"
+
+# Async traits
+async-trait = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client (for fetching from ws-market-data-server)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# WebSocket
+futures = "0.3"
+futures-util = "0.3"
+tokio-tungstenite = "0.23"
+
+# Environment
+dotenvy = "0.15"
+dirs = "5.0"
+
+# Random
+rand = "0.8"
+
+# File formats
+arrow = "54.2"
+parquet = "54.2"
