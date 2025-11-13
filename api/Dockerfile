@@ -1,7 +1,7 @@
 # Dockerfile for SPtraderB API
 
 # Build stage - use bookworm variant to match runtime GLIBC
-FROM rust:1.75-bookworm as builder
+FROM rust:bookworm as builder
 
 WORKDIR /app
 
