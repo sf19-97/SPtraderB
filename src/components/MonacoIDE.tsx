@@ -41,6 +41,11 @@ import { PreviewChart } from './PreviewChart';
 import { workspaceApi } from '../api/workspace';
 import { useTradingStore } from '../stores/useTradingStore';
 
+// Tauri imports - only used for desktop app features (data export, parquet loading)
+// Component execution now uses HTTP API instead
+// @ts-ignore - Tauri may not be available in web browser
+import { invoke } from '@tauri-apps/api/core';
+
 interface FileNode {
   name: string;
   path: string;

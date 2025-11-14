@@ -127,7 +127,7 @@ export const PreviewChart = ({
     if (data.indicators) {
       Object.values(data.indicators).forEach((values) => {
         if (values && values.length > 0) {
-          const validValues = values.filter((v) => !isNaN(v) && isFinite(v));
+          const validValues = values.filter((v): v is number => v !== null && !isNaN(v as number) && isFinite(v as number));
           if (validValues.length > 0) {
             minPrice = Math.min(minPrice, Math.min(...validValues));
             maxPrice = Math.max(maxPrice, Math.max(...validValues));
@@ -210,14 +210,15 @@ export const PreviewChart = ({
         ctx.beginPath();
         let started = false;
         for (let i = 0; i < values.length; i++) {
-          if (values[i] === null || values[i] === undefined || isNaN(values[i])) {
+          const value = values[i];
+          if (value === null || value === undefined || isNaN(value)) {
             started = false;
             continue;
           }
 
           const dataIndex = i + startOffset;
           const x = xScale(dataIndex);
-          const y = yScale(values[i]);
+          const y = yScale(value);
 
           if (!started) {
             ctx.moveTo(x, y);
@@ -237,12 +238,12 @@ export const PreviewChart = ({
     }
 
     // Draw signal markers if present
-    if (data.signals?.crossovers) {
+    if (data.signals?.crossovers && data.signals.types) {
       console.log('[PreviewChart] Drawing signals:', data.signals);
       data.signals.crossovers.forEach((idx, i) => {
         if (idx >= 0 && idx < data.time.length) {
           const x = xScale(idx);
-          const crossType = data.signals.types[i];
+          const crossType = data.signals.types![i];
 
           // Removed vertical line - keeping only arrow markers
 
