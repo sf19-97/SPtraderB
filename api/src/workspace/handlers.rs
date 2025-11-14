@@ -75,7 +75,7 @@ pub async fn delete_workspace(
 // ============================================================================
 
 use super::{
-    operations, ComponentInfo, CreateFileRequest, FileNode, RenameRequest, SaveFileRequest,
+    operations, executor, ComponentInfo, CreateFileRequest, FileNode, RenameRequest, SaveFileRequest,
     WORKSPACE_PATH,
 };
 use std::path::PathBuf;
@@ -390,4 +390,20 @@ pub async fn get_categories(
 
     categories.sort();
     Ok(Json(categories))
+}
+
+// ============================================================================
+// POST /api/workspace/run-component
+// Executes Python component and returns output
+// ============================================================================
+
+pub async fn run_component(
+    Json(payload): Json<executor::RunComponentRequest>,
+) -> Result<Json<executor::RunComponentResponse>, (StatusCode, String)> {
+    tracing::info!("Running component: {}", payload.file_path);
+
+    executor::execute_component(WORKSPACE_PATH, payload)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }

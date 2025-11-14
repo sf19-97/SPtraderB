@@ -22,6 +22,15 @@ export interface ComponentInfo {
   status: string;
 }
 
+export interface RunComponentResponse {
+  success: boolean;
+  execution_time_ms: number;
+  stdout: string[];
+  stderr: string[];
+  output_lines: number;
+  error_lines: number;
+}
+
 // ============================================================================
 // Helper: Fetch with error handling
 // ============================================================================
@@ -109,5 +118,21 @@ export const workspaceApi = {
   // GET /api/workspace/categories/{type}
   getCategories: async (componentType: string): Promise<string[]> => {
     return apiFetch<string[]>(`/api/workspace/categories/${componentType}`);
+  },
+
+  // POST /api/workspace/run-component
+  runComponent: async (
+    filePath: string,
+    dataset: string | null,
+    envVars: Record<string, string>
+  ): Promise<RunComponentResponse> => {
+    return apiFetch<RunComponentResponse>('/api/workspace/run-component', {
+      method: 'POST',
+      body: JSON.stringify({
+        file_path: filePath,
+        dataset,
+        env_vars: envVars,
+      }),
+    });
   },
 };

@@ -39,8 +39,6 @@ import { useBuildStore } from '../stores/useBuildStore';
 import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { workspaceApi } from '../api/workspace';
-import { invoke } from '@tauri-apps/api/core'; // TODO: Port remaining invoke calls to HTTP
-import { listen } from '@tauri-apps/api/event';
 import { useTradingStore } from '../stores/useTradingStore';
 
 interface FileNode {
@@ -697,89 +695,77 @@ execution:
     });
 
     try {
-      // Set up event listeners
-      const unlistenOutput = await listen<{
-        type: 'stdout' | 'stderr' | 'error';
-        line: string;
-        timestamp: string;
-      }>('component-output', (event) => {
-        const { type, line, timestamp } = event.payload;
-        const prefix = type === 'stderr' ? '❌ ' : type === 'error' ? '⚠️ ' : '';
-        setTerminalOutput((prev) => [...prev, `[${timestamp}] ${prefix}${line}`]);
-
-        // Parse output for useful information
-        if (type === 'stdout') {
-          // Parse execution time
-          if (line.includes('Execution completed in')) {
-            const match = line.match(/(\d+\.?\d*)\s*ms/);
-            if (match) {
-              setComponentOutput((prev) => ({ ...prev, execution: `${match[1]}ms` }));
-            }
-          }
-
-          // Parse data shape
-          if (line.includes('Shape:')) {
-            const match = line.match(/\((\d+),/);
-            if (match) {
-              setComponentOutput((prev) => ({ ...prev, dataPoints: match[1] }));
-            }
-          }
-
-          // Parse indicator data output (JSON format)
-          if (line.startsWith('INDICATOR_DATA:')) {
-            try {
-              const jsonStr = line.substring('INDICATOR_DATA:'.length);
-              const indicatorData = JSON.parse(jsonStr);
-
-              // Update chart with indicator overlay
-              if (chartData && indicatorData.values && indicatorData.name) {
-                setChartData((prev: any) => ({
-                  ...prev!,
-                  indicators: {
-                    ...(prev?.indicators || {}),
-                    [indicatorData.name]: indicatorData.values,
-                  },
-                }));
-              }
-
-              // Update last value
-              if (indicatorData.values && indicatorData.values.length > 0) {
-                const lastValue = indicatorData.values[indicatorData.values.length - 1];
-                setComponentOutput((prev) => ({
-                  ...prev,
-                  lastValue: typeof lastValue === 'number' ? lastValue.toFixed(4) : lastValue,
-                }));
-              }
-            } catch (e) {
-              console.error('Failed to parse indicator data:', e);
-            }
-          }
-
-          // Parse statistics
-          if (line.includes('Mean SMA:') || line.includes('Mean:')) {
-            const match = line.match(/:\s*(\d+\.\d+)/);
-            if (match) {
-              setComponentOutput((prev) => ({ ...prev, lastValue: match[1] }));
-            }
-          }
-
-          // Parse signal output
-          if (line.includes('Signal:') || line.includes('SIGNAL:')) {
-            if (line.toLowerCase().includes('buy')) {
-              setComponentOutput((prev) => ({ ...prev, signal: 'BUY' }));
-            } else if (line.toLowerCase().includes('sell')) {
-              setComponentOutput((prev) => ({ ...prev, signal: 'SELL' }));
-            } else if (line.toLowerCase().includes('neutral')) {
-              setComponentOutput((prev) => ({ ...prev, signal: 'NEUTRAL' }));
-            }
+      // Helper function to parse output lines
+      const parseOutputLine = (line: string) => {
+        // Parse execution time
+        if (line.includes('Execution completed in')) {
+          const match = line.match(/(\d+\.?\d*)\s*ms/);
+          if (match) {
+            setComponentOutput((prev) => ({ ...prev, execution: `${match[1]}ms` }));
           }
         }
-      });
 
-      // After processing all output, check for chart data
-      const parseChartData = () => {
-        // Join all output lines without newlines to handle JSON that might be split
-        const fullOutput = terminalOutputRef.current.join('');
+        // Parse data shape
+        if (line.includes('Shape:')) {
+          const match = line.match(/\((\d+),/);
+          if (match) {
+            setComponentOutput((prev) => ({ ...prev, dataPoints: match[1] }));
+          }
+        }
+
+        // Parse indicator data output (JSON format)
+        if (line.startsWith('INDICATOR_DATA:')) {
+          try {
+            const jsonStr = line.substring('INDICATOR_DATA:'.length);
+            const indicatorData = JSON.parse(jsonStr);
+
+            // Update chart with indicator overlay
+            if (chartData && indicatorData.values && indicatorData.name) {
+              setChartData((prev: any) => ({
+                ...prev!,
+                indicators: {
+                  ...(prev?.indicators || {}),
+                  [indicatorData.name]: indicatorData.values,
+                },
+              }));
+            }
+
+            // Update last value
+            if (indicatorData.values && indicatorData.values.length > 0) {
+              const lastValue = indicatorData.values[indicatorData.values.length - 1];
+              setComponentOutput((prev) => ({
+                ...prev,
+                lastValue: typeof lastValue === 'number' ? lastValue.toFixed(4) : lastValue,
+              }));
+            }
+          } catch (e) {
+            console.error('Failed to parse indicator data:', e);
+          }
+        }
+
+        // Parse statistics
+        if (line.includes('Mean SMA:') || line.includes('Mean:')) {
+          const match = line.match(/:\s*(\d+\.\d+)/);
+          if (match) {
+            setComponentOutput((prev) => ({ ...prev, lastValue: match[1] }));
+          }
+        }
+
+        // Parse signal output
+        if (line.includes('Signal:') || line.includes('SIGNAL:')) {
+          if (line.toLowerCase().includes('buy')) {
+            setComponentOutput((prev) => ({ ...prev, signal: 'BUY' }));
+          } else if (line.toLowerCase().includes('sell')) {
+            setComponentOutput((prev) => ({ ...prev, signal: 'SELL' }));
+          } else if (line.toLowerCase().includes('neutral')) {
+            setComponentOutput((prev) => ({ ...prev, signal: 'NEUTRAL' }));
+          }
+        }
+      };
+
+      // Helper function to parse chart data from output
+      const parseChartData = (outputLines: string[]) => {
+        const fullOutput = outputLines.join('');
         const startMarker = 'CHART_DATA_START';
         const endMarker = 'CHART_DATA_END';
 
@@ -787,11 +773,7 @@ execution:
         const endIdx = fullOutput.lastIndexOf(endMarker);
 
         if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
-          // Extract JSON between markers
           let jsonStr = fullOutput.substring(startIdx + startMarker.length, endIdx);
-
-          // Remove any terminal formatting like timestamps
-          // Find the first { and last }
           const jsonStart = jsonStr.indexOf('{');
           const jsonEnd = jsonStr.lastIndexOf('}');
 
@@ -800,55 +782,14 @@ execution:
 
             try {
               const parsedData = JSON.parse(jsonStr);
-              console.log(
-                '[Chart] Parsed chart data with',
-                parsedData.time?.length || 0,
-                'data points'
-              );
-              console.log('[Chart] Data structure:', {
-                hasTime: !!parsedData.time,
-                hasOHLC: !!(
-                  parsedData.open &&
-                  parsedData.high &&
-                  parsedData.low &&
-                  parsedData.close
-                ),
-                hasIndicators: !!parsedData.indicators,
-                indicatorNames: parsedData.indicators ? Object.keys(parsedData.indicators) : [],
-                hasSignals: !!parsedData.signals,
-              });
+              console.log('[Chart] Parsed chart data with', parsedData.time?.length || 0, 'data points');
               setChartData(parsedData);
             } catch (e) {
               console.error('[Chart] Failed to parse chart data:', e);
-              console.error('[Chart] JSON string:', jsonStr.substring(0, 200) + '...');
             }
           }
         }
       };
-
-      const unlistenStart = await listen<{
-        file: string;
-        timestamp: string;
-      }>('component-run-start', (event) => {
-        setTerminalOutput((prev) => [
-          ...prev,
-          `[${event.payload.timestamp}] 🚀 Starting execution of ${event.payload.file}...`,
-        ]);
-      });
-
-      const unlistenComplete = await listen<{
-        file: string;
-        success: boolean;
-        execution_time_ms: number;
-        timestamp: string;
-      }>('component-run-complete', (event) => {
-        const { success, execution_time_ms, timestamp } = event.payload;
-        setTerminalOutput((prev) => [
-          ...prev,
-          `[${timestamp}] ${success ? '✅' : '❌'} Execution ${success ? 'completed' : 'failed'} in ${execution_time_ms.toFixed(2)}ms`,
-        ]);
-        setIsRunning(false);
-      });
 
       // Prepare environment variables based on data source mode
       let envVars: Record<string, string> = {};
@@ -887,37 +828,63 @@ execution:
         ]);
       }
 
-      // Run the component
-      const result = await invoke<{
-        success: boolean;
-        execution_time_ms: number;
-        output_lines: number;
-        error_lines: number;
-      }>('run_component', {
-        filePath: selectedFile,
-        dataset: dataSourceMode === 'parquet' ? selectedDataset : null,
-        envVars,
+      // Add starting message
+      setTerminalOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] 🚀 Starting execution of ${selectedFile}...`,
+      ]);
+
+      // Run the component via HTTP API
+      const result = await workspaceApi.runComponent(
+        selectedFile,
+        dataSourceMode === 'parquet' ? selectedDataset : null,
+        envVars
+      );
+
+      // Process stdout lines
+      const allOutputLines: string[] = [];
+      result.stdout.forEach((line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        const formattedLine = `[${timestamp}] ${line}`;
+        setTerminalOutput((prev) => [...prev, formattedLine]);
+        allOutputLines.push(line);
+        parseOutputLine(line);
       });
 
-      // Clean up listeners
-      unlistenOutput();
-      unlistenStart();
-      unlistenComplete();
+      // Process stderr lines
+      result.stderr.forEach((line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setTerminalOutput((prev) => [...prev, `[${timestamp}] ❌ ${line}`]);
+        allOutputLines.push(line);
+      });
 
-      // Add summary if no output
-      if (result.output_lines === 0 && result.error_lines === 0) {
+      // Add execution summary
+      const timestamp = new Date().toLocaleTimeString();
+      if (result.success) {
         setTerminalOutput((prev) => [
           ...prev,
-          `[${new Date().toLocaleTimeString()}] ℹ️ No output produced`,
+          `[${timestamp}] ✅ Execution completed in ${result.execution_time_ms.toFixed(2)}ms`,
+        ]);
+        setComponentOutput((prev) => ({
+          ...prev,
+          execution: `${result.execution_time_ms.toFixed(2)}ms`,
+        }));
+      } else {
+        setTerminalOutput((prev) => [
+          ...prev,
+          `[${timestamp}] ❌ Execution failed (${result.error_lines} errors)`,
         ]);
       }
 
-      // Parse chart data after execution completes
-      setTimeout(() => {
-        parseChartData();
-        // Force a re-render by updating a dummy state if needed
-        console.log('[Chart] Parsing complete, chart should update now');
-      }, 200); // Slightly longer delay to ensure all output is processed
+      // Parse chart data from output
+      if (allOutputLines.length > 0) {
+        setTimeout(() => {
+          parseChartData(allOutputLines);
+          console.log('[Chart] Parsing complete');
+        }, 100);
+      }
+
+      setIsRunning(false);
     } catch (error) {
       setTerminalOutput((prev) => [
         ...prev,

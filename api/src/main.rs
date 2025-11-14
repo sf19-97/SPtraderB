@@ -123,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/workspace/rename", post(workspace::handlers::rename_file))
         .route("/api/workspace/components", get(workspace::handlers::get_components))
         .route("/api/workspace/categories/:type", get(workspace::handlers::get_categories))
+        .route("/api/workspace/run-component", post(workspace::handlers::run_component))
 
         // Note: Candle queries are handled by ws-market-data-server
         // Backtesting fetches historical data via HTTP from ws-market-data-server
