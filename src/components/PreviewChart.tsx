@@ -239,11 +239,12 @@ export const PreviewChart = ({
 
     // Draw signal markers if present
     if (data.signals?.crossovers && data.signals.types) {
-      console.log('[PreviewChart] Drawing signals:', data.signals);
-      data.signals.crossovers.forEach((idx, i) => {
+      const signals = data.signals; // Extract to maintain type narrowing
+      console.log('[PreviewChart] Drawing signals:', signals);
+      signals.crossovers.forEach((idx, i) => {
         if (idx >= 0 && idx < data.time.length) {
           const x = xScale(idx);
-          const crossType = data.signals.types![i];
+          const crossType = signals.types[i];
 
           // Removed vertical line - keeping only arrow markers
 
