@@ -46,6 +46,16 @@ import { useTradingStore } from '../stores/useTradingStore';
 // @ts-ignore - Tauri may not be available in web browser
 import { invoke } from '@tauri-apps/api/core';
 
+// Check if running in Tauri (desktop app) vs browser
+const isTauriAvailable = () => {
+  try {
+    // @ts-ignore - __TAURI__ is injected by Tauri runtime
+    return typeof invoke !== 'undefined' && typeof window !== 'undefined' && window.__TAURI__ !== undefined;
+  } catch {
+    return false;
+  }
+};
+
 interface FileNode {
   name: string;
   path: string;
@@ -1067,6 +1077,15 @@ execution:
   };
 
   const handleExportData = async () => {
+    // Desktop app only feature - not available in browser
+    if (!isTauriAvailable()) {
+      setTerminalOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] ❌ Export feature only available in desktop app`,
+      ]);
+      return;
+    }
+
     if (!exportStartDate || !exportEndDate) {
       setTerminalOutput((prev) => [
         ...prev,
@@ -1143,6 +1162,14 @@ execution:
   const loadAvailableDatasets = async () => {
     try {
       console.log('[Dataset] Loading available datasets...');
+
+      // Desktop app only feature - not available in browser
+      if (!isTauriAvailable()) {
+        console.log('[Dataset] Tauri not available - datasets feature disabled in browser');
+        setAvailableDatasets([]);
+        return;
+      }
+
       const datasets = await invoke<string[]>('list_test_datasets');
       console.log('[Dataset] Found datasets:', datasets);
       setAvailableDatasets(datasets);
@@ -1160,6 +1187,16 @@ execution:
   const loadLiveData = async () => {
     try {
       const { symbol, timeframe, from, to } = liveDataParams;
+
+      // Desktop app only feature - not available in browser
+      if (!isTauriAvailable()) {
+        console.log('[LiveData] Tauri not available - live data feature disabled in browser');
+        setTerminalOutput((prev) => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] ℹ️ Live data not available in browser - use Test Data mode`,
+        ]);
+        return;
+      }
 
       // Generate cache key
       const fromTimestamp = Math.floor(from.getTime() / 1000);
@@ -1976,6 +2013,15 @@ execution:
 
                       // Load the chart data
                       try {
+                        // Desktop app only feature - not available in browser
+                        if (!isTauriAvailable()) {
+                          setTerminalOutput((prev) => [
+                            ...prev,
+                            `[${new Date().toLocaleTimeString()}] ❌ Parquet loading only available in desktop app`,
+                          ]);
+                          return;
+                        }
+
                         setTerminalOutput((prev) => [
                           ...prev,
                           `[${new Date().toLocaleTimeString()}] Loading chart data...`,
