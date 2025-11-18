@@ -83,3 +83,5 @@ api/backtests/
 # Temporary logs
 /tmp/*.log
 .vercel
+DEPLOY_NOW.sh
+DEPLOY_NOW.sh.backup

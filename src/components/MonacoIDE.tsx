@@ -40,7 +40,6 @@ import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { workspaceApi } from '../api/workspace';
 import { useTradingStore } from '../stores/useTradingStore';
-import { chartDataCoordinator } from 'sptrader-chart-lib';
 
 // Tauri imports - only used for desktop app features (data export, parquet loading)
 // Component execution now uses HTTP API instead
@@ -831,13 +830,17 @@ execution:
           const fromTimestamp = Math.floor(liveDataParams.from.getTime() / 1000);
           const toTimestamp = Math.floor(liveDataParams.to.getTime() / 1000);
 
-          // Fetch candle data using chart coordinator
-          candleData = await chartDataCoordinator.getCandles(
-            liveDataParams.symbol,
-            liveDataParams.timeframe,
-            fromTimestamp,
-            toTimestamp
+          // Fetch candle data from market data server
+          const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
+          const response = await fetch(
+            `${marketDataUrl}/api/candles?symbol=${liveDataParams.symbol}&timeframe=${liveDataParams.timeframe}&from=${fromTimestamp}&to=${toTimestamp}`
           );
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          candleData = await response.json();
 
           console.log('[Run] Fetched candle data:', candleData?.length || 0, 'candles');
           setTerminalOutput((prev) => [
