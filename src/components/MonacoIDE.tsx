@@ -204,6 +204,12 @@ export const MonacoIDE = () => {
     loading: true,
   });
   const [availableTimeframes, setAvailableTimeframes] = useState<string[]>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<Array<{
+    symbol: string;
+    earliest: number;
+    latest: number;
+    tick_count: number;
+  }>>([]);
   const [componentOutput, setComponentOutput] = useState({
     lastValue: '--',
     signal: '--',
@@ -215,125 +221,89 @@ export const MonacoIDE = () => {
   // Zustand stores
   const { selectedPair, selectedTimeframe } = useTradingStore();
 
-  // Fetch metadata bounds when symbol/timeframe changes
+  // Fetch available symbols and timeframes on mount
   useEffect(() => {
-    const abortController = new AbortController();
-
-    const fetchMetadata = async () => {
-      // Set loading state
-      setMetadataBounds((prev) => ({ ...prev, loading: true }));
-
+    const fetchCatalog = async () => {
       try {
         const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
-        const response = await fetch(
-          `${marketDataUrl}/api/metadata?symbol=${liveDataParams.symbol}&timeframe=${liveDataParams.timeframe}`,
-          { signal: abortController.signal }
-        );
+        const response = await fetch(`${marketDataUrl}/api/metadata`);
 
         if (!response.ok) {
-          console.error('[MonacoIDE] Failed to fetch metadata:', response.status);
-          setMetadataBounds((prev) => ({ ...prev, loading: false }));
+          console.error('[MonacoIDE] Failed to fetch catalog:', response.status);
           return;
         }
 
-        const metadata = await response.json();
-        console.log('[MonacoIDE] Fetched metadata:', metadata);
+        const catalog = await response.json();
+        console.log('[MonacoIDE] Fetched catalog:', catalog);
 
-        // Validate response
-        if (!metadata || typeof metadata.earliest !== 'number' || typeof metadata.latest !== 'number') {
-          console.error('[MonacoIDE] Invalid metadata response:', metadata);
-          // Fallback to safe defaults
-          const fallbackEarliest = new Date('2024-01-01');
-          const fallbackLatest = new Date();
-
-          setMetadataBounds({
-            earliest: fallbackEarliest,
-            latest: fallbackLatest,
-            loading: false,
-          });
-          return;
+        // Extract symbols and timeframes
+        if (catalog.symbols && Array.isArray(catalog.symbols)) {
+          setAvailableSymbols(catalog.symbols);
         }
 
-        // Additional validation: earliest should be before latest
-        if (metadata.earliest >= metadata.latest) {
-          console.error('[MonacoIDE] Invalid date range: earliest >= latest');
-          const fallbackEarliest = new Date('2024-01-01');
-          const fallbackLatest = new Date();
-
-          setMetadataBounds({
-            earliest: fallbackEarliest,
-            latest: fallbackLatest,
-            loading: false,
-          });
-          return;
+        if (catalog.timeframes && Array.isArray(catalog.timeframes)) {
+          setAvailableTimeframes(catalog.timeframes);
         }
-
-        const earliestDate = new Date(metadata.earliest * 1000);
-        const latestDate = new Date(metadata.latest * 1000);
-
-        setMetadataBounds({
-          earliest: earliestDate,
-          latest: latestDate,
-          loading: false,
-        });
-
-        // Extract available timeframes from metadata
-        if (metadata.timeframes && Array.isArray(metadata.timeframes)) {
-          setAvailableTimeframes(metadata.timeframes);
-        }
-
-        // Update date params to be within bounds if they're outside
-        setLiveDataParams((prev) => {
-          // Check if dates need correction
-          const fromNeedsUpdate = prev.from < earliestDate || prev.from > latestDate;
-          const toNeedsUpdate = prev.to > latestDate || prev.to < earliestDate;
-
-          if (!fromNeedsUpdate && !toNeedsUpdate) {
-            return prev; // Early return - no update needed
-          }
-
-          const from = constrainDateToBounds(prev.from, earliestDate, latestDate, true);
-          const to = constrainDateToBounds(prev.to, earliestDate, latestDate, false);
-
-          return {
-            ...prev,
-            from,
-            to,
-          };
-        });
       } catch (error) {
-        // Don't log abort errors - they're expected when user changes symbol/timeframe
-        if (error instanceof Error && error.name === 'AbortError') {
-          console.log('[MonacoIDE] Metadata fetch cancelled');
-          return;
-        }
-        console.error('[MonacoIDE] Error fetching metadata:', error);
-
-        // Set fallback bounds on error
-        const fallbackEarliest = new Date('2024-01-01');
-        const fallbackLatest = new Date();
-
-        setMetadataBounds({
-          earliest: fallbackEarliest,
-          latest: fallbackLatest,
-          loading: false,
-        });
-
-        // Show error in terminal
-        setTerminalOutput((prev) => [
-          ...prev,
-          `[${new Date().toLocaleTimeString()}] ⚠️ Failed to fetch date range. Using defaults: ${fallbackEarliest.toLocaleDateString()} - ${fallbackLatest.toLocaleDateString()}`,
-        ]);
+        console.error('[MonacoIDE] Error fetching catalog:', error);
       }
     };
 
-    fetchMetadata();
+    fetchCatalog();
+  }, []); // Run once on mount
 
-    // Cleanup: cancel pending request when symbol/timeframe changes
-    return () => {
-      abortController.abort();
-    };
-  }, [liveDataParams.symbol, liveDataParams.timeframe]);
+  // Update metadata bounds when symbol changes
+  useEffect(() => {
+    if (availableSymbols.length === 0) {
+      // Catalog not loaded yet
+      return;
+    }
+
+    const symbolData = availableSymbols.find(s => s.symbol === liveDataParams.symbol);
+
+    if (!symbolData) {
+      console.warn('[MonacoIDE] Symbol not found in catalog:', liveDataParams.symbol);
+      // Use fallback bounds
+      const fallbackEarliest = new Date('2024-01-01');
+      const fallbackLatest = new Date();
+
+      setMetadataBounds({
+        earliest: fallbackEarliest,
+        latest: fallbackLatest,
+        loading: false,
+      });
+      return;
+    }
+
+    const earliestDate = new Date(symbolData.earliest * 1000);
+    const latestDate = new Date(symbolData.latest * 1000);
+
+    setMetadataBounds({
+      earliest: earliestDate,
+      latest: latestDate,
+      loading: false,
+    });
+
+    // Update date params to be within bounds if they're outside
+    setLiveDataParams((prev) => {
+      // Check if dates need correction
+      const fromNeedsUpdate = prev.from < earliestDate || prev.from > latestDate;
+      const toNeedsUpdate = prev.to > latestDate || prev.to < earliestDate;
+
+      if (!fromNeedsUpdate && !toNeedsUpdate) {
+        return prev; // Early return - no update needed
+      }
+
+      const from = constrainDateToBounds(prev.from, earliestDate, latestDate, true);
+      const to = constrainDateToBounds(prev.to, earliestDate, latestDate, false);
+
+      return {
+        ...prev,
+        from,
+        to,
+      };
+    });
+  }, [liveDataParams.symbol, availableSymbols]);
 
   // Initialize live data params with current chart selection
   useEffect(() => {
@@ -2115,11 +2085,12 @@ execution:
                     onChange={(value) =>
                       setLiveDataParams((prev) => ({ ...prev, symbol: value || 'EURUSD' }))
                     }
-                    data={[
-                      { value: 'EURUSD', label: 'EUR/USD' },
-                      // Only symbols with available data are shown
-                      // TODO: Fetch available symbols from API when endpoint is available
-                    ]}
+                    data={availableSymbols.map(s => ({
+                      value: s.symbol,
+                      label: s.symbol.replace(/([A-Z]{3})([A-Z]{3})/, '$1/$2'), // EURUSD -> EUR/USD
+                    }))}
+                    disabled={availableSymbols.length === 0}
+                    placeholder={availableSymbols.length === 0 ? "Loading..." : "Select symbol"}
                     styles={{
                       input: {
                         background: '#2a2a2a',
@@ -2728,10 +2699,12 @@ execution:
             label="Symbol"
             value={exportSymbol}
             onChange={(value) => setExportSymbol(value || 'EURUSD')}
-            data={[
-              { value: 'EURUSD', label: 'EUR/USD' },
-              // Only symbols with available data
-            ]}
+            data={availableSymbols.map(s => ({
+              value: s.symbol,
+              label: s.symbol.replace(/([A-Z]{3})([A-Z]{3})/, '$1/$2'),
+            }))}
+            disabled={availableSymbols.length === 0}
+            placeholder={availableSymbols.length === 0 ? "Loading..." : "Select symbol"}
             required
           />
 
