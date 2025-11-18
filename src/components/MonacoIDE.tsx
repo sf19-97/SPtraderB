@@ -149,6 +149,13 @@ export const MonacoIDE = () => {
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
     to: new Date(),
   });
+  const [metadataBounds, setMetadataBounds] = useState<{
+    earliest: Date | null;
+    latest: Date | null;
+  }>({
+    earliest: null,
+    latest: null,
+  });
   const [componentOutput, setComponentOutput] = useState({
     lastValue: '--',
     signal: '--',
@@ -159,6 +166,56 @@ export const MonacoIDE = () => {
 
   // Zustand stores
   const { selectedPair, selectedTimeframe } = useTradingStore();
+
+  // Fetch metadata bounds when symbol/timeframe changes
+  useEffect(() => {
+    const fetchMetadata = async () => {
+      try {
+        const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
+        const response = await fetch(
+          `${marketDataUrl}/api/metadata?symbol=${liveDataParams.symbol}&timeframe=${liveDataParams.timeframe}`
+        );
+
+        if (!response.ok) {
+          console.error('[MonacoIDE] Failed to fetch metadata:', response.status);
+          return;
+        }
+
+        const metadata = await response.json();
+        console.log('[MonacoIDE] Fetched metadata:', metadata);
+
+        if (metadata.earliest && metadata.latest) {
+          const earliestDate = new Date(metadata.earliest * 1000);
+          const latestDate = new Date(metadata.latest * 1000);
+
+          setMetadataBounds({
+            earliest: earliestDate,
+            latest: latestDate,
+          });
+
+          // Update date params to be within bounds if they're outside
+          setLiveDataParams((prev) => {
+            const from = prev.from < earliestDate ? earliestDate :
+                        prev.from > latestDate ? new Date(latestDate.getTime() - 30 * 24 * 60 * 60 * 1000) :
+                        prev.from;
+            const to = prev.to > latestDate ? latestDate :
+                      prev.to < earliestDate ? latestDate :
+                      prev.to;
+
+            return {
+              ...prev,
+              from,
+              to,
+            };
+          });
+        }
+      } catch (error) {
+        console.error('[MonacoIDE] Error fetching metadata:', error);
+      }
+    };
+
+    fetchMetadata();
+  }, [liveDataParams.symbol, liveDataParams.timeframe]);
 
   // Initialize live data params with current chart selection
   useEffect(() => {
@@ -1994,6 +2051,7 @@ execution:
                         setLiveDataParams((prev) => ({ ...prev, from: new Date(value) }));
                       }
                     }}
+                    minDate={metadataBounds.earliest || undefined}
                     maxDate={liveDataParams.to}
                     styles={{
                       input: {
@@ -2013,7 +2071,7 @@ execution:
                       }
                     }}
                     minDate={liveDataParams.from}
-                    maxDate={new Date()}
+                    maxDate={metadataBounds.latest || undefined}
                     styles={{
                       input: {
                         background: '#2a2a2a',
