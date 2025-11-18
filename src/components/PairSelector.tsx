@@ -1,17 +1,12 @@
 import { Select } from '@mantine/core';
 import { useTradingStore } from '../stores/useTradingStore';
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 
-interface AvailableSymbol {
+interface CatalogSymbol {
   symbol: string;
-  label: string;
-  has_data: boolean;
-  is_active: boolean;
-  last_tick?: string;
-  tick_count?: number;
-  source?: string;
+  earliest: number;
+  latest: number;
+  tick_count: number;
 }
 
 export const PairSelector = () => {
@@ -23,43 +18,45 @@ export const PairSelector = () => {
     const loadSymbols = async () => {
       try {
         setIsLoading(true);
-        const available = await invoke<AvailableSymbol[]>('get_all_available_symbols');
-        
-        // Sort: active symbols first, then alphabetically
-        const sorted = available.sort((a, b) => {
-          if (a.is_active && !b.is_active) return -1;
-          if (!a.is_active && b.is_active) return 1;
-          return a.symbol.localeCompare(b.symbol);
-        });
-        
+        const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
+        const response = await fetch(`${marketDataUrl}/api/metadata`);
+
+        if (!response.ok) {
+          console.error('[PairSelector] Failed to fetch catalog:', response.status);
+          setSymbols([]);
+          return;
+        }
+
+        const catalog = await response.json();
+        console.log('[PairSelector] Fetched catalog:', catalog);
+
+        if (!catalog.symbols || !Array.isArray(catalog.symbols)) {
+          console.error('[PairSelector] Invalid catalog response:', catalog);
+          setSymbols([]);
+          return;
+        }
+
+        // Sort alphabetically
+        const sorted = catalog.symbols.sort((a: CatalogSymbol, b: CatalogSymbol) =>
+          a.symbol.localeCompare(b.symbol)
+        );
+
         // Format for Select component
-        const items = sorted.map(s => ({
+        const items = sorted.map((s: CatalogSymbol) => ({
           value: s.symbol,
-          label: s.is_active ? `${s.label} ●` : s.label,
+          label: s.symbol.replace(/([A-Z]{3})([A-Z]{3})/, '$1/$2'), // EURUSD -> EUR/USD
         }));
-        
+
         setSymbols(items);
       } catch (error) {
-        console.error('[PairSelector] Failed to load symbols:', error);
-        // Fallback to empty list
+        console.error('[PairSelector] Error loading symbols:', error);
         setSymbols([]);
       } finally {
         setIsLoading(false);
       }
     };
-    
+
     loadSymbols();
-
-    // Listen for pipeline changes (only in Tauri environment)
-    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      const unlistenAdded = listen('asset-added', () => loadSymbols());
-      const unlistenRemoved = listen('asset-removed', () => loadSymbols());
-
-      return () => {
-        unlistenAdded.then(fn => fn());
-        unlistenRemoved.then(fn => fn());
-      };
-    }
   }, []);
 
   const handlePairChange = (value: string | null) => {
