@@ -152,9 +152,11 @@ export const MonacoIDE = () => {
   const [metadataBounds, setMetadataBounds] = useState<{
     earliest: Date | null;
     latest: Date | null;
+    loading: boolean;
   }>({
     earliest: null,
     latest: null,
+    loading: true,
   });
   const [componentOutput, setComponentOutput] = useState({
     lastValue: '--',
@@ -169,15 +171,22 @@ export const MonacoIDE = () => {
 
   // Fetch metadata bounds when symbol/timeframe changes
   useEffect(() => {
+    const abortController = new AbortController();
+
     const fetchMetadata = async () => {
+      // Set loading state
+      setMetadataBounds((prev) => ({ ...prev, loading: true }));
+
       try {
         const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
         const response = await fetch(
-          `${marketDataUrl}/api/metadata?symbol=${liveDataParams.symbol}&timeframe=${liveDataParams.timeframe}`
+          `${marketDataUrl}/api/metadata?symbol=${liveDataParams.symbol}&timeframe=${liveDataParams.timeframe}`,
+          { signal: abortController.signal }
         );
 
         if (!response.ok) {
           console.error('[MonacoIDE] Failed to fetch metadata:', response.status);
+          setMetadataBounds((prev) => ({ ...prev, loading: false }));
           return;
         }
 
@@ -191,6 +200,7 @@ export const MonacoIDE = () => {
           setMetadataBounds({
             earliest: earliestDate,
             latest: latestDate,
+            loading: false,
           });
 
           // Update date params to be within bounds if they're outside
@@ -208,13 +218,26 @@ export const MonacoIDE = () => {
               to,
             };
           });
+        } else {
+          setMetadataBounds((prev) => ({ ...prev, loading: false }));
         }
       } catch (error) {
+        // Don't log abort errors - they're expected when user changes symbol/timeframe
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('[MonacoIDE] Metadata fetch cancelled');
+          return;
+        }
         console.error('[MonacoIDE] Error fetching metadata:', error);
+        setMetadataBounds((prev) => ({ ...prev, loading: false }));
       }
     };
 
     fetchMetadata();
+
+    // Cleanup: cancel pending request when symbol/timeframe changes
+    return () => {
+      abortController.abort();
+    };
   }, [liveDataParams.symbol, liveDataParams.timeframe]);
 
   // Initialize live data params with current chart selection
@@ -1760,10 +1783,10 @@ execution:
               variant="subtle"
               color="green"
               onClick={handleRun}
-              loading={isRunning}
-              disabled={!selectedFile || !selectedFile.endsWith('.py')}
+              loading={isRunning || metadataBounds.loading}
+              disabled={!selectedFile || !selectedFile.endsWith('.py') || metadataBounds.loading}
             >
-              {isRunning ? 'Running...' : 'Run'}
+              {isRunning ? 'Running...' : metadataBounds.loading ? 'Loading metadata...' : 'Run'}
             </Button>
           </Group>
         </Box>
