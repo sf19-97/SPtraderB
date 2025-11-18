@@ -30,7 +30,7 @@ export function StrategyDetails() {
   }, [selectedStrategy]);
 
   const loadStrategyContent = async () => {
-    if (!selectedStrategy) return;
+    if (!selectedStrategy || !selectedStrategy.path) return;
 
     setLoading(true);
     setError(null);
