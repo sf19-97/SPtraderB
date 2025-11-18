@@ -203,13 +203,6 @@ export const MonacoIDE = () => {
     latest: null,
     loading: true,
   });
-  const [availableTimeframes, setAvailableTimeframes] = useState<string[]>([]);
-  const [availableSymbols, setAvailableSymbols] = useState<Array<{
-    symbol: string;
-    earliest: number;
-    latest: number;
-    tick_count: number;
-  }>>([]);
   const [componentOutput, setComponentOutput] = useState({
     lastValue: '--',
     signal: '--',
@@ -219,38 +212,16 @@ export const MonacoIDE = () => {
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
 
   // Zustand stores
-  const { selectedPair, selectedTimeframe } = useTradingStore();
+  const { selectedPair, selectedTimeframe, catalog, fetchCatalog } = useTradingStore();
 
-  // Fetch available symbols and timeframes on mount
+  // Fetch catalog on mount (uses cache if available)
   useEffect(() => {
-    const fetchCatalog = async () => {
-      try {
-        const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
-        const response = await fetch(`${marketDataUrl}/api/metadata`);
-
-        if (!response.ok) {
-          console.error('[MonacoIDE] Failed to fetch catalog:', response.status);
-          return;
-        }
-
-        const catalog = await response.json();
-        console.log('[MonacoIDE] Fetched catalog:', catalog);
-
-        // Extract symbols and timeframes
-        if (catalog.symbols && Array.isArray(catalog.symbols)) {
-          setAvailableSymbols(catalog.symbols);
-        }
-
-        if (catalog.timeframes && Array.isArray(catalog.timeframes)) {
-          setAvailableTimeframes(catalog.timeframes);
-        }
-      } catch (error) {
-        console.error('[MonacoIDE] Error fetching catalog:', error);
-      }
-    };
-
     fetchCatalog();
-  }, []); // Run once on mount
+  }, [fetchCatalog]);
+
+  // Alias for compatibility with existing code
+  const availableSymbols = catalog.symbols;
+  const availableTimeframes = catalog.timeframes;
 
   // Update metadata bounds when symbol changes
   useEffect(() => {
