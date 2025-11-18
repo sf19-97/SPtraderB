@@ -49,6 +49,9 @@ pub async fn execute_component(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // Add workspace to PYTHONPATH so Python can import modules
+    cmd.env("PYTHONPATH", workspace_path);
+
     // Add environment variables
     for (key, value) in &request.env_vars {
         cmd.env(key, value);

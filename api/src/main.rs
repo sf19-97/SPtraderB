@@ -25,8 +25,8 @@ mod orders;       // Order management
 // Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
-    db: sqlx::PgPool,
-    redis: redis::Client,
+    db: Option<sqlx::PgPool>,
+    redis: Option<redis::Client>,
 }
 
 #[derive(Serialize)]
@@ -59,26 +59,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting SPtraderB API server...");
 
-    // Database connection
+    // Optional database connection
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/sptraderb".to_string());
 
-    info!("Connecting to database: {}", database_url.split('@').last().unwrap_or("localhost"));
+    info!("Attempting database connection: {}", database_url.split('@').last().unwrap_or("localhost"));
 
-    let pool = PgPoolOptions::new()
+    let pool = match PgPoolOptions::new()
         .max_connections(20)
         .connect(&database_url)
-        .await?;
+        .await
+    {
+        Ok(pool) => {
+            info!("Database connected successfully");
+            Some(pool)
+        }
+        Err(e) => {
+            error!("Failed to connect to database: {}. Continuing without database...", e);
+            None
+        }
+    };
 
-    info!("Database connected successfully");
-
-    // Redis connection
+    // Optional Redis connection
     let redis_url = std::env::var("REDIS_URL")
         .unwrap_or_else(|_| "redis://localhost:6379".to_string());
 
-    let redis_client = redis::Client::open(redis_url)?;
-
-    info!("Redis client initialized");
+    let redis_client = match redis::Client::open(redis_url) {
+        Ok(client) => {
+            info!("Redis client initialized");
+            Some(client)
+        }
+        Err(e) => {
+            error!("Failed to initialize Redis: {}. Continuing without Redis...", e);
+            None
+        }
+    };
 
     // Create application state
     let state = AppState {
