@@ -62,3 +62,24 @@ data-ingestion/backfill/dukascopy/data/*.parquet
 # Build artifacts
 target/
 orders.db
+
+# Documentation (keep only DEPLOYMENT.md and api/CLAUDE.md)
+CLOUD_ARCHITECTURE_PLAN.md
+DEPLOYMENT_SUMMARY.md
+FINAL_ARCHITECTURE.md
+MIGRATION_GUIDE.md
+NEXT_STEPS.md
+SUMMARY.md
+UPDATED_ARCHITECTURE.md
+
+# Test files
+test-*.json
+test-*.log
+test-*.sh
+
+# API backtests (runtime generated)
+api/backtests/
+
+# Temporary logs
+/tmp/*.log
+.vercel

@@ -9,6 +9,7 @@ pub struct RunComponentRequest {
     pub file_path: String,
     pub dataset: Option<String>,
     pub env_vars: HashMap<String, String>,
+    pub candle_data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +58,25 @@ pub async fn execute_component(
         cmd.env(key, value);
     }
 
+    // Save candle data to temporary file if provided
+    let temp_candle_file = if let Some(candle_data) = &request.candle_data {
+        let temp_path = PathBuf::from("/tmp").join(format!("candles_{}.json", uuid::Uuid::new_v4()));
+
+        info!("Writing candle data to: {:?}", temp_path);
+
+        let json_string = serde_json::to_string(candle_data)
+            .map_err(|e| format!("Failed to serialize candle data: {}", e))?;
+
+        std::fs::write(&temp_path, json_string)
+            .map_err(|e| format!("Failed to write candle data file: {}", e))?;
+
+        cmd.env("CANDLE_DATA_FILE", temp_path.to_str().unwrap());
+
+        Some(temp_path)
+    } else {
+        None
+    };
+
     // Add dataset environment variable if provided
     if let Some(dataset) = &request.dataset {
         cmd.env("TEST_DATASET", dataset);
@@ -94,6 +114,13 @@ pub async fn execute_component(
         info!("Component executed successfully in {:.2}ms", execution_time);
     } else {
         error!("Component execution failed with exit code: {:?}", output.status.code());
+    }
+
+    // Clean up temporary candle data file
+    if let Some(temp_file) = temp_candle_file {
+        if let Err(e) = std::fs::remove_file(&temp_file) {
+            error!("Failed to delete temp candle file {:?}: {}", temp_file, e);
+        }
     }
 
     Ok(RunComponentResponse {

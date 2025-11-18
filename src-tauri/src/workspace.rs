@@ -455,7 +455,7 @@ pub async fn get_workspace_components() -> Result<Vec<ComponentInfo>, String> {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
             
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") {
                 if let Some(name) = path.file_stem() {
                     if let Some(name_str) = name.to_str() {
                         let relative_path = path.strip_prefix(&workspace_path)
@@ -500,7 +500,7 @@ fn scan_component_directory(
         if path.is_dir() {
             // Recursively scan subdirectories
             scan_component_directory(&path, component_type, components)?;
-        } else if path.is_file() && path.extension().map_or(false, |ext| ext == "py") {
+        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "py") {
             if let Some(name) = path.file_stem() {
                 if let Some(name_str) = name.to_str() {
                     // Skip test files and __init__.py
@@ -728,11 +728,11 @@ pub async fn delete_component_folder(folder_path: String) -> Result<(), String> 
     }
     
     // Check if folder is empty or only contains __pycache__
-    let mut entries = fs::read_dir(&full_path)
+    let entries = fs::read_dir(&full_path)
         .map_err(|e| format!("Failed to read folder: {}", e))?;
     
     let mut has_files = false;
-    while let Some(entry) = entries.next() {
+    for entry in entries {
         if let Ok(entry) = entry {
             let name = entry.file_name();
             if name != "__pycache__" {
@@ -853,7 +853,7 @@ pub async fn list_test_datasets() -> Result<Vec<String>, String> {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         
-        if path.is_file() && path.extension().map_or(false, |ext| ext == "parquet") {
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "parquet") {
             if let Some(name) = path.file_name() {
                 if let Some(name_str) = name.to_str() {
                     datasets.push(name_str.to_string());
@@ -889,7 +889,7 @@ pub async fn run_component(
         return Err("Access denied: file outside workspace".to_string());
     }
     
-    if !full_path.extension().map_or(false, |ext| ext == "py") {
+    if !full_path.extension().is_some_and(|ext| ext == "py") {
         return Err("Only Python files can be executed".to_string());
     }
     
@@ -936,10 +936,7 @@ pub async fn run_component(
     let stderr = child.stderr.take()
         .ok_or("Failed to capture stderr")?;
     
-    let mut output_lines = 0;
-    let mut error_lines = 0;
-    let mut stdout_content = String::new();
-    let mut stderr_content = String::new();
+    // These will be assigned from the task results
     
     // Create readers
     let stdout_reader = BufReader::new(stdout);
@@ -1016,10 +1013,10 @@ pub async fn run_component(
     // Wait for output tasks to complete
     let (stdout_lines, stdout_str) = stdout_task.await.unwrap_or((0, String::new()));
     let (stderr_lines, stderr_str) = stderr_task.await.unwrap_or((0, String::new()));
-    output_lines = stdout_lines;
-    error_lines = stderr_lines;
-    stdout_content = stdout_str;
-    stderr_content = stderr_str;
+    let output_lines = stdout_lines;
+    let error_lines = stderr_lines;
+    let stdout_content = stdout_str;
+    let stderr_content = stderr_str;
     
     let execution_time_ms = start_time.elapsed().as_millis() as f64;
     
@@ -1078,7 +1075,7 @@ pub async fn load_parquet_data(dataset_name: String) -> Result<ChartData, String
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)
         .map_err(|e| format!("Failed to create parquet reader: {}", e))?;
     
-    let mut reader = builder.build()
+    let reader = builder.build()
         .map_err(|e| format!("Failed to build reader: {}", e))?;
     
     let mut times = Vec::new();
@@ -1092,7 +1089,7 @@ pub async fn load_parquet_data(dataset_name: String) -> Result<ChartData, String
     let mut total_rows = 0;
     
     // Read batches
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|e| format!("Failed to read batch: {}", e))?;
         
         // Get column indices by name

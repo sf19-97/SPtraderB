@@ -66,7 +66,7 @@ const initialState = {
 export const useBuildStore = create<BuildState>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set, _get) => ({
         ...initialState,
 
         setSearchTerm: (searchTerm) => set({ searchTerm }),

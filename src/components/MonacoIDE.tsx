@@ -40,6 +40,7 @@ import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { workspaceApi } from '../api/workspace';
 import { useTradingStore } from '../stores/useTradingStore';
+import { chartDataCoordinator } from 'sptrader-chart-lib';
 
 // Tauri imports - only used for desktop app features (data export, parquet loading)
 // Component execution now uses HTTP API instead
@@ -809,6 +810,9 @@ execution:
       // Prepare environment variables based on data source mode
       let envVars: Record<string, string> = {};
 
+      // Fetch candle data for live mode
+      let candleData: any = null;
+
       if (dataSourceMode === 'live') {
         // Pass live data parameters
         envVars['DATA_SOURCE'] = 'live';
@@ -817,12 +821,38 @@ execution:
         envVars['LIVE_FROM'] = Math.floor(liveDataParams.from.getTime() / 1000).toString();
         envVars['LIVE_TO'] = Math.floor(liveDataParams.to.getTime() / 1000).toString();
 
-        // Chart caching removed - charts now fetch from cloud API
-        // Python scripts should fetch data directly from the API if needed
+        // Fetch candle data from chart data coordinator
         setTerminalOutput((prev) => [
           ...prev,
-          `[${new Date().toLocaleTimeString()}] ℹ️ Chart data now fetched from cloud API`,
+          `[${new Date().toLocaleTimeString()}] 📊 Fetching candle data: ${liveDataParams.symbol} ${liveDataParams.timeframe}`,
         ]);
+
+        try {
+          const fromTimestamp = Math.floor(liveDataParams.from.getTime() / 1000);
+          const toTimestamp = Math.floor(liveDataParams.to.getTime() / 1000);
+
+          // Fetch candle data using chart coordinator
+          candleData = await chartDataCoordinator.getCandles(
+            liveDataParams.symbol,
+            liveDataParams.timeframe,
+            fromTimestamp,
+            toTimestamp
+          );
+
+          console.log('[Run] Fetched candle data:', candleData?.length || 0, 'candles');
+          setTerminalOutput((prev) => [
+            ...prev,
+            `[${new Date().toLocaleTimeString()}] ✅ Fetched ${candleData?.length || 0} candles`,
+          ]);
+        } catch (error) {
+          console.error('[Run] Failed to fetch candle data:', error);
+          setTerminalOutput((prev) => [
+            ...prev,
+            `[${new Date().toLocaleTimeString()}] ❌ Failed to fetch candle data: ${error}`,
+          ]);
+          setIsRunning(false);
+          return;
+        }
 
         // Debug output
         console.log('[Run] Live mode environment variables:', envVars);
@@ -853,7 +883,8 @@ execution:
       const result = await workspaceApi.runComponent(
         selectedFile,
         dataSourceMode === 'parquet' ? selectedDataset : null,
-        envVars
+        envVars,
+        candleData
       );
 
       // Process stdout lines

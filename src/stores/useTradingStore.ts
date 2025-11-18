@@ -42,7 +42,7 @@ export const useTradingStore = create<TradingState>()(
 
         // Actions - same API as TradingContext
         setPair: (pair) => {
-          set((state) => {
+          set((_state) => {
             return { selectedPair: pair };
           });
         },

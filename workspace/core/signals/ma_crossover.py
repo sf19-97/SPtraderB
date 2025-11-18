@@ -278,6 +278,7 @@ if __name__ == "__main__":
             "signal_type": row['crossover_type'],
             "strength": float(row['signal_strength']),
             "metadata": {
+                "crossover_type": row['crossover_type'],  # Add this for strategy matching
                 "ma_fast": float(ma_fast[idx]) if not pd.isna(ma_fast[idx]) else None,
                 "ma_slow": float(ma_slow[idx]) if not pd.isna(ma_slow[idx]) else None,
                 "close": float(test_data.loc[idx, 'close']),

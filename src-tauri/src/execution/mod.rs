@@ -30,6 +30,7 @@ impl ExecutionEngine {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn submit_order(&self, mut order: Order) -> Result<String, String> {
         // Validate order
         validate_order(&order)?;
@@ -291,6 +292,7 @@ pub struct QueueStatus {
     pub failed_orders: usize,
 }
 
+#[allow(dead_code)]
 pub async fn get_queue_status(redis_client: &RedisClient) -> Result<QueueStatus, String> {
     let mut conn = redis_client
         .get_async_connection()

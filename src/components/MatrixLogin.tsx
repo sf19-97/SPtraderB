@@ -30,7 +30,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   const [typedText, setTypedText] = useState('');
   const [showAccess, setShowAccess] = useState(false);
   const [accessText, setAccessText] = useState('');
-  const [frameCount, setFrameCount] = useState(0);
+  const [_frameCount, _setFrameCount] = useState(0);
   const [cornerChars, setCornerChars] = useState<{ [key: string]: string }>({});
   const [cornerGlitch, setCornerGlitch] = useState<{ [key: string]: boolean }>({});
   const [cornerFlicker, setCornerFlicker] = useState<{ [key: string]: number }>({});
@@ -38,7 +38,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   const [glitchTimers, setGlitchTimers] = useState<{ [key: string]: number }>({});
   const linesRef = useRef<MatrixLine[]>([]);
   const availableColumnsRef = useRef<number[]>([]);
-  const startTimeRef = useRef<number>(Date.now());
+  const _startTimeRef = useRef<number>(Date.now());
 
   // Glitch mapping for stable characters
   const glyphMap: { [key: string]: string } = {
@@ -188,7 +188,7 @@ export const MatrixLogin: React.FC<MatrixLoginProps> = ({ onComplete }) => {
   // Update frame counter and corner text
   useEffect(() => {
     const frameInterval = setInterval(() => {
-      setFrameCount((prev) => {
+      _setFrameCount((prev) => {
         const newFrame = prev + 1;
 
         // Update corner characters based on frame

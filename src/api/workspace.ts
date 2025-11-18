@@ -132,7 +132,8 @@ export const workspaceApi = {
   runComponent: async (
     filePath: string,
     dataset: string | null,
-    envVars: Record<string, string>
+    envVars: Record<string, string>,
+    candleData?: any
   ): Promise<RunComponentResponse> => {
     return apiFetch<RunComponentResponse>('/api/workspace/run-component', {
       method: 'POST',
@@ -140,6 +141,7 @@ export const workspaceApi = {
         file_path: filePath,
         dataset,
         env_vars: envVars,
+        candle_data: candleData,
       }),
     });
   },

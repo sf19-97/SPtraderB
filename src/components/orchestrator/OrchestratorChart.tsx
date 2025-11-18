@@ -72,18 +72,18 @@ export const OrchestratorChart = ({
   equityCurve,
   chartMode = 'candles',
   showTrades = true,
-  showPositions = true,
+  showPositions: _showPositions = true,
   height = 400,
   isFullscreen = false,
   onToggleFullscreen,
 }: OrchestratorChartProps) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [hoveredTrade, setHoveredTrade] = useState<Trade | null>(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const { highlightedTradeId } = useOrchestratorStore();
+  const _canvasRef = useRef<HTMLCanvasElement>(null);
+  const [_hoveredTrade, _setHoveredTrade] = useState<Trade | null>(null);
+  const [_mousePos, _setMousePos] = useState({ x: 0, y: 0 });
+  const { highlightedTradeId: _highlightedTradeId } = useOrchestratorStore();
 
   // For equity curve mode, transform the data
-  const chartData =
+  const _chartData =
     chartMode === 'equity' && equityCurve
       ? {
           time: equityCurve.timestamps,
@@ -151,7 +151,7 @@ export const OrchestratorChart = ({
         <Group justify="space-between" mb="sm">
           <SegmentedControl
             value={chartMode}
-            onChange={(value) => {
+            onChange={(_value) => {
               /* Handle mode change */
             }}
             data={[
@@ -205,7 +205,7 @@ export const OrchestratorChart = ({
         <Group justify="space-between" mb="sm">
           <SegmentedControl
             value={chartMode}
-            onChange={(value) => {
+            onChange={(_value) => {
               /* Handle mode change */
             }}
             data={[

@@ -118,7 +118,7 @@ export const OrchestratorProvider = ({ children }: { children: ReactNode }) => {
 
   const [backtestResults, setBacktestResults] = useState<BacktestResults | null>(null);
   const [isBacktestRunning, setIsBacktestRunning] = useState(false);
-  const [backtestLogs, setBacktestLogs] = useState<string[]>([]);
+  const [backtestLogs, _setBacktestLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   // Persist to localStorage when values change

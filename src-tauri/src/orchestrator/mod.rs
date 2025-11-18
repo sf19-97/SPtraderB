@@ -1364,30 +1364,27 @@ impl Orchestrator {
                         symbol, timeframe, from.format("%Y-%m-%d"), to.format("%Y-%m-%d"))
                 })).ok();
                 
-                // Use the existing fetch_candles function that handles cache/database intelligently
-                let request = crate::DataRequest {
-                    symbol: symbol.clone(),
-                    timeframe: timeframe.clone(),
-                    from: from.timestamp(),
-                    to: to.timestamp(),
-                };
-                
-                // Call fetch_candles through tauri command invocation
+                // Fetch candles from the market_candles command which uses the cloud API
                 let state = window.state::<crate::AppState>();
-                let candles = crate::fetch_candles(request, state, window.clone()).await
-                    .map_err(|e| format!("Failed to fetch candles: {}", e))?;
-                
-                // Convert main::Candle to orchestrator::Candle
-                let orchestrator_candles: Vec<Candle> = candles.into_iter()
+                let response = crate::candles::commands::get_market_candles(
+                    state,
+                    symbol.clone(),
+                    timeframe.clone(),
+                    from.timestamp(),
+                    to.timestamp(),
+                ).await.map_err(|e| format!("Failed to fetch candles: {}", e))?;
+
+                // Convert MarketCandle (strings) to orchestrator::Candle (Decimal)
+                let orchestrator_candles: Vec<Candle> = response.data.into_iter()
                     .map(|c| Candle {
-                        time: DateTime::from_timestamp(c.time, 0)
+                        time: DateTime::from_timestamp(c.time.parse::<i64>().unwrap_or(0), 0)
                             .unwrap_or_else(|| Utc::now())
                             .with_timezone(&Utc),
-                        open: Decimal::from_f64(c.open).unwrap_or(Decimal::ZERO),
-                        high: Decimal::from_f64(c.high).unwrap_or(Decimal::ZERO),
-                        low: Decimal::from_f64(c.low).unwrap_or(Decimal::ZERO),
-                        close: Decimal::from_f64(c.close).unwrap_or(Decimal::ZERO),
-                        volume: c.volume,
+                        open: c.open.parse::<Decimal>().unwrap_or(Decimal::ZERO),
+                        high: c.high.parse::<Decimal>().unwrap_or(Decimal::ZERO),
+                        low: c.low.parse::<Decimal>().unwrap_or(Decimal::ZERO),
+                        close: c.close.parse::<Decimal>().unwrap_or(Decimal::ZERO),
+                        volume: c.volume.unwrap_or(0),
                     })
                     .collect();
                 

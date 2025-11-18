@@ -49,15 +49,17 @@ export const PairSelector = () => {
     };
     
     loadSymbols();
-    
-    // Listen for pipeline changes
-    const unlistenAdded = listen('asset-added', () => loadSymbols());
-    const unlistenRemoved = listen('asset-removed', () => loadSymbols());
-    
-    return () => {
-      unlistenAdded.then(fn => fn());
-      unlistenRemoved.then(fn => fn());
-    };
+
+    // Listen for pipeline changes (only in Tauri environment)
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      const unlistenAdded = listen('asset-added', () => loadSymbols());
+      const unlistenRemoved = listen('asset-removed', () => loadSymbols());
+
+      return () => {
+        unlistenAdded.then(fn => fn());
+        unlistenRemoved.then(fn => fn());
+      };
+    }
   }, []);
 
   const handlePairChange = (value: string | null) => {

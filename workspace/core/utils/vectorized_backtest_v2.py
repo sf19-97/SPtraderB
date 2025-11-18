@@ -164,7 +164,11 @@ def run_vectorized_backtest(candles, strategy_config):
                             for ind_name, ind_values in signal_indicators.items():
                                 if ind_name != 'close' and idx in ind_values.index:
                                     metadata[ind_name] = float(ind_values.loc[idx])
-                            
+
+                            # Add signal-specific metadata (like crossover_type)
+                            if 'crossover_type' in signal_df.columns:
+                                metadata['crossover_type'] = signal_df.loc[idx, 'crossover_type']
+
                             signal_events.append({
                                 'timestamp': timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp),
                                 'signal_type': signal_type,

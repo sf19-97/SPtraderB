@@ -105,7 +105,7 @@ const initialState = {
 export const useOrchestratorStore = create<OrchestratorState>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set, _get) => ({
         ...initialState,
 
         // Actions

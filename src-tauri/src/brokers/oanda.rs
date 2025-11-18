@@ -13,6 +13,7 @@ use crate::orders::{Order, OrderSide, OrderStatus, OrderType};
 pub struct OandaBroker {
     api_url: String,
     account_id: String,
+    #[allow(dead_code)]
     api_token: String,
     client: Client,
     connected: bool,
@@ -23,6 +24,7 @@ pub struct OandaConfig {
     pub api_url: String,
     pub account_id: String,
     pub api_token: String,
+    #[allow(dead_code)]
     pub practice: bool,
 }
 
@@ -347,6 +349,7 @@ impl BrokerAPI for OandaBroker {
 
 // OANDA API response structures
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OandaOrderRequest {
     #[serde(rename = "type")]
     order_type: String,
@@ -370,6 +373,7 @@ struct OandaOrderResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OandaTransaction {
     id: String,
     time: String,
@@ -383,6 +387,7 @@ struct OandaOrderInfo {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OandaOrderDetails {
     id: String,
     state: String,

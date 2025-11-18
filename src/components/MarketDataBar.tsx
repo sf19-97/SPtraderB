@@ -5,7 +5,7 @@ import { useTradingStore } from '../stores/useTradingStore';
 import { PairSelector } from './PairSelector';
 
 export const MarketDataBar = () => {
-  const { selectedPair } = useTradingStore();
+  const { selectedPair: _selectedPair } = useTradingStore();
 
   // Mock data - replace with real data
   const marketData = {

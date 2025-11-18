@@ -146,8 +146,8 @@ export const InteractiveTradeOverlay = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw trades
-    trades.forEach((trade, index) => {
-      const normalizedTime = normalizeTime(trade.entryTime);
+    trades.forEach((trade, _index) => {
+      const _normalizedTime = normalizeTime(trade.entryTime);
       const entryX = xScale(trade.entryTime);
 
       if (entryX === -1) {

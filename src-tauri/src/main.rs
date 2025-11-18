@@ -20,14 +20,11 @@ mod brokers;
 mod execution;
 mod database;
 mod orchestrator;
-mod candle_monitor;
 mod market_data;
 mod candles;
-mod commands {
-    pub mod bitcoin_data;
-}
 
-use execution::ExecutionEngine;
+// Execution engine not used with cloud API
+// use execution::ExecutionEngine;
 use market_data::commands::*;
 use market_data::{PipelineStatus, DataSource};
 use market_data::symbols::CachedMetadata;
@@ -93,7 +90,7 @@ async fn save_final_state(engine: Arc<Mutex<market_data::MarketDataEngine>>) -> 
 }
 
 // Orders module still exists but not used directly anymore
-use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
+// use brokers::{BrokerAPI, oanda::{OandaBroker, OandaConfig}};
 
 #[derive(Clone, Debug, Serialize)]
 struct LogEvent {
@@ -102,56 +99,17 @@ struct LogEvent {
     message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Candle {
-    time: i64,
-    open: f64,
-    high: f64,
-    low: f64,
-    close: f64,
-    volume: i64,  // Note: This is tick_count (number of price updates), not traded volume
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-struct DatabaseStatus {
-    connected: bool,
-    database_name: String,
-    host: String,
-    error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DataRequest {
-    symbol: String,
-    timeframe: String,
-    from: i64,
-    to: i64,
-}
+// DELETED: Candle, DatabaseStatus, DataRequest structs (using cloud API now)
 
 struct AppState {
     db_pool: Arc<Mutex<sqlx::PgPool>>,
-    candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
-    market_candle_cache: candles::cache::CandleCache,  // Cache for MarketCandle (string-based)
+    // REMOVED: candle_cache, inflight_requests (using cloud API)
+    market_candle_cache: candles::cache::CandleCache,  // Still used for orchestrator
     metadata_cache: Arc<RwLock<HashMap<String, CachedMetadata>>>,
-    // Request coalescing for concurrent duplicate requests
-    inflight_requests: Arc<RwLock<HashMap<String, Arc<tokio::sync::broadcast::Sender<Result<Vec<Candle>, String>>>>>>,
-    // Order execution
-    broker: Arc<RwLock<Option<Box<dyn BrokerAPI>>>>,
-    redis_url: String,
-    redis_client: Arc<Mutex<Option<RedisClient>>>,
-    execution_engine: Arc<Mutex<Option<ExecutionEngine>>>,
-    orders_db: Arc<Mutex<sqlx::SqlitePool>>,
+    // REMOVED: broker, redis, execution (not using broker API)
+    orders_db: Arc<Mutex<sqlx::SqlitePool>>,  // Still used for orchestrator
     // Backtest cancellation
     active_backtests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
-    // Candle update monitors
-    candle_monitors: Arc<Mutex<HashMap<String, Arc<candle_monitor::CandleUpdateMonitor>>>>,
-}
-
-#[derive(Clone)]
-struct CachedCandles {
-    data: Vec<Candle>,
-    cached_at: i64,
 }
 
 
@@ -171,307 +129,7 @@ fn emit_log<R: tauri::Runtime>(window: &impl Emitter<R>, level: &str, message: &
     window.emit("backend-log", &event).ok();
 }
 
-#[tauri::command]
-async fn fetch_candles(
-    request: DataRequest,
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<Vec<Candle>, String> {
-    // Normalize timestamps to match frontend and prevent cache misses
-    let normalization_factor = match request.timeframe.as_str() {
-        "1m" => 300,      // 5 minutes
-        "5m" => 900,      // 15 minutes
-        "15m" => 3600,    // 1 hour
-        "1h" => 7200,     // 2 hours
-        "4h" => 14400,    // 4 hours
-        "12h" => 43200,   // 12 hours
-        _ => 3600,        // Default to 1 hour
-    };
-
-    let normalized_from = (request.from / normalization_factor) * normalization_factor;
-    let normalized_to = (request.to / normalization_factor) * normalization_factor;
-
-    // Create cache key with normalized timestamps
-    let cache_key = format!("{}-{}-{}-{}", request.symbol, request.timeframe, normalized_from, normalized_to);
-    let current_time = chrono::Utc::now().timestamp();
-    
-    // Try to get from cache first
-    {
-        let cache = state.candle_cache.read().await;
-        if let Some(cached) = cache.get(&cache_key) {
-            // Check if cache is still fresh (10 minutes)
-            if current_time - cached.cached_at < 600 {
-                emit_log(&window, "DEBUG", &format!("[CACHE HIT] Returning cached data for {}", cache_key));
-                return Ok(cached.data.clone());
-            }
-        }
-    }
-    
-    // Check if there's already an in-flight request for this cache key
-    let mut rx = {
-        let inflight = state.inflight_requests.read().await;
-        if let Some(tx) = inflight.get(&cache_key) {
-            emit_log(&window, "DEBUG", &format!("[COALESCE] Joining existing request for {}", cache_key));
-            tx.subscribe()
-        } else {
-            drop(inflight);
-            // No in-flight request, we need to create one
-            let (tx, rx) = tokio::sync::broadcast::channel(1);
-            let tx = Arc::new(tx);
-            state.inflight_requests.write().await.insert(cache_key.clone(), tx.clone());
-            
-            // Clone necessary data for the spawned task
-            let cache_key_clone = cache_key.clone();
-            let request_clone = DataRequest {
-                symbol: request.symbol.clone(),
-                timeframe: request.timeframe.clone(),
-                from: normalized_from,
-                to: normalized_to,
-            };
-            let db_pool = state.db_pool.clone();
-            let candle_cache = state.candle_cache.clone();
-            let inflight_requests = state.inflight_requests.clone();
-            let window_clone = window.clone();
-            
-            // Spawn the actual database fetch
-            tokio::spawn(async move {
-                let result = fetch_candles_from_db(
-                    request_clone,
-                    cache_key_clone.clone(),  // Pass the cache key to ensure consistency
-                    db_pool,
-                    candle_cache,
-                    &window_clone
-                ).await;
-                
-                // Broadcast the result to all waiting requests
-                let _ = tx.send(result.clone());
-                
-                // Clean up the in-flight request
-                inflight_requests.write().await.remove(&cache_key_clone);
-            });
-            
-            rx
-        }
-    };
-    
-    // Wait for the result
-    match rx.recv().await {
-        Ok(result) => result,
-        Err(_) => Err("Failed to receive coalesced result".to_string()),
-    }
-}
-
-// Helper function that does the actual database fetch
-async fn fetch_candles_from_db(
-    request: DataRequest,
-    cache_key: String,  // Pass cache key from caller to ensure consistency
-    db_pool: Arc<Mutex<sqlx::PgPool>>,
-    candle_cache: Arc<RwLock<HashMap<String, CachedCandles>>>,
-    window: &tauri::Window,
-) -> Result<Vec<Candle>, String> {
-    let current_time = chrono::Utc::now().timestamp();
-    
-    emit_log(window, "DEBUG", &format!("[CACHE MISS] Fetching from database for {}", cache_key));
-    
-    let table_name = match request.timeframe.as_str() {
-        "1m" => "forex_candles_1m",
-        "5m" => "forex_candles_5m",
-        "15m" => "forex_candles_15m",
-        "1h" => "forex_candles_1h",
-        "4h" => "forex_candles_4h",
-        "12h" => "forex_candles_12h",
-        _ => return Err(format!("Invalid timeframe: {}", request.timeframe)),
-    };
-
-    let query = format!(
-        "SELECT
-            time,
-            open::FLOAT8 as open,
-            high::FLOAT8 as high,
-            low::FLOAT8 as low,
-            close::FLOAT8 as close,
-            tick_count::INT8 as volume  -- Volume is tick count (number of price updates), not traded volume
-         FROM {} 
-         WHERE symbol = $1
-           AND time >= to_timestamp($2)
-           AND time <= to_timestamp($3)
-         ORDER BY time",
-        table_name
-    );
-
-    emit_log(window, "DEBUG", &format!("[FETCH_CANDLES] Query: {}", query));
-    emit_log(window, "DEBUG", &format!("[FETCH_CANDLES] Params: symbol={}, from={}, to={}",
-             request.symbol, request.from, request.to));
-
-    let pool = db_pool.lock().await;
-    let rows = sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, f64, f64, f64, f64, i64)>(&query)
-        .bind(&request.symbol)
-        .bind(request.from)
-        .bind(request.to)
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    let candles: Vec<Candle> = rows.into_iter().map(|(time, open, high, low, close, volume)| Candle {
-        time: time.timestamp(),
-        open,
-        high,
-        low,
-        close,
-        volume,
-    }).collect();
-    
-    // Update cache with new data
-    {
-        let mut cache = candle_cache.write().await;
-        
-        // Simple LRU: if cache is full (>100 entries), remove oldest
-        if cache.len() >= 100 {
-            // Find the oldest entry
-            if let Some(oldest_key) = cache.iter()
-                .min_by_key(|(_, v)| v.cached_at)
-                .map(|(k, _)| k.clone()) {
-                cache.remove(&oldest_key);
-                emit_log(window, "DEBUG", &format!("[CACHE EVICT] Removed oldest entry: {}", oldest_key));
-            }
-        }
-        
-        cache.insert(cache_key.clone(), CachedCandles {
-            data: candles.clone(),
-            cached_at: current_time,
-        });
-        emit_log(window, "DEBUG", &format!("[CACHE UPDATE] Stored {} candles for {}", candles.len(), cache_key));
-    }
-    
-    Ok(candles)
-}
-
-#[derive(Debug, Deserialize)]
-struct HierarchicalRequest {
-    symbol: String,
-    from: i64,
-    to: i64,
-    detail_level: String,
-}
-
-#[tauri::command]
-async fn check_database_connection(
-    state: State<'_, AppState>,
-) -> Result<DatabaseStatus, String> {
-    let pool = state.db_pool.lock().await;
-    
-    // Try to execute a simple query to check if connection is alive
-    match sqlx::query("SELECT current_database(), inet_server_addr()::text")
-        .fetch_one(&*pool)
-        .await
-    {
-        Ok(row) => {
-            let db_name: String = row.try_get(0).unwrap_or_else(|_| "unknown".to_string());
-            let host: Option<String> = row.try_get(1).ok();
-            
-            Ok(DatabaseStatus {
-                connected: true,
-                database_name: db_name,
-                host: host.unwrap_or_else(|| "localhost".to_string()),
-                error: None,
-            })
-        },
-        Err(e) => {
-            Ok(DatabaseStatus {
-                connected: false,
-                database_name: "forex_trading".to_string(),
-                host: "localhost".to_string(),
-                error: Some(format!("Connection error: {}", e)),
-            })
-        }
-    }
-}
-
-#[tauri::command]
-async fn fetch_candles_v2(
-    request: HierarchicalRequest,
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<Vec<Candle>, String> {
-    let start_time = std::time::Instant::now();
-    
-    emit_log(&window, "DEBUG", &format!("[V2] Fetch request: symbol={}, from={}, to={}, detail={}", 
-             request.symbol, request.from, request.to, request.detail_level));
-
-    let query = match request.detail_level.as_str() {
-        "4h" => {
-            "SELECT 
-                EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours')))::BIGINT as time,
-                (array_agg(h4_open ORDER BY m15_idx))[1]::FLOAT8 as open,
-                MAX(h4_high)::FLOAT8 as high,
-                MIN(h4_low)::FLOAT8 as low,
-                (array_agg(h4_close ORDER BY m15_idx DESC))[1]::FLOAT8 as close,
-                SUM(tick_count)::BIGINT as volume
-             FROM experimental.candle_hierarchy
-             WHERE symbol = $1 
-             AND base_time + (h4_idx * interval '4 hours') BETWEEN to_timestamp($2) AND to_timestamp($3)
-             GROUP BY EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours')))
-             ORDER BY time"
-        },
-        "1h" => {
-            "SELECT 
-                EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour')))::BIGINT as time,
-                (array_agg(h1_open ORDER BY m15_idx))[1]::FLOAT8 as open,
-                MAX(h1_high)::FLOAT8 as high,
-                MIN(h1_low)::FLOAT8 as low,
-                (array_agg(h1_close ORDER BY m15_idx DESC))[1]::FLOAT8 as close,
-                SUM(tick_count)::BIGINT as volume
-             FROM experimental.candle_hierarchy
-             WHERE symbol = $1 
-             AND base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour') 
-                 BETWEEN to_timestamp($2) AND to_timestamp($3)
-             GROUP BY EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour')))
-             ORDER BY time"
-        },
-        "15m" => {
-            "SELECT 
-                EXTRACT(EPOCH FROM (base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour') + (m15_idx * interval '15 minutes')))::BIGINT as time,
-                m15_open::FLOAT8 as open,
-                m15_high::FLOAT8 as high,
-                m15_low::FLOAT8 as low,
-                m15_close::FLOAT8 as close,
-                tick_count::BIGINT as volume
-             FROM experimental.candle_hierarchy
-             WHERE symbol = $1 
-             AND base_time + (h4_idx * interval '4 hours') + (h1_idx * interval '1 hour') + (m15_idx * interval '15 minutes')
-                 BETWEEN to_timestamp($2) AND to_timestamp($3)
-             ORDER BY time"
-        },
-        _ => return Err(format!("Invalid detail level: {}", request.detail_level)),
-    };
-
-    emit_log(&window, "DEBUG", &format!("[V2] Query: {}", query));
-
-    let pool = state.db_pool.lock().await;
-    let rows = sqlx::query_as::<_, (i64, f64, f64, f64, f64, i64)>(query)
-        .bind(&request.symbol)
-        .bind(request.from)
-        .bind(request.to)
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| format!("Database error: {}", e))?;
-
-    let candles: Vec<Candle> = rows.into_iter().map(|(time, open, high, low, close, volume)| Candle {
-        time,
-        open,
-        high,
-        low,
-        close,
-        volume,
-    }).collect();
-
-    let duration = start_time.elapsed();
-    emit_log(&window, "PERF", &format!("Fetched {} candles in {}ms", candles.len(), duration.as_millis()));
-
-    Ok(candles)
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExportDataRequest {
     symbol: String,
     timeframe: String,
@@ -812,7 +470,7 @@ async fn cancel_backtest(
 async fn run_orchestrator_live(
     strategy_name: String,
     initial_capital: Option<f64>,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     window: Window,
 ) -> Result<serde_json::Value, String> {
     emit_log(&window, "INFO", &format!("Starting orchestrator live mode for strategy: {}", strategy_name));
@@ -831,11 +489,11 @@ async fn run_orchestrator_live(
         .unwrap_or(rust_decimal::Decimal::from(10000));
     
     emit_log(&window, "INFO", &format!("Starting live trading with initial capital: ${}", initial_capital));
-    
+
     // Spawn the live trading task
-    let redis_url = state.redis_url.clone();
+    let redis_url = "redis://127.0.0.1:6379"; // Dummy value, not actually used
     tokio::spawn(async move {
-        match orchestrator.run_live_mode(&redis_url, initial_capital, &window).await {
+        match orchestrator.run_live_mode(redis_url, initial_capital, &window).await {
             Ok(_) => {
                 emit_log(&window, "INFO", "Live trading stopped");
             }
@@ -851,349 +509,14 @@ async fn run_orchestrator_live(
     }))
 }
 
-// Get broker connection status
-#[tauri::command]
-async fn get_broker_connection_status(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    let broker_guard = state.broker.read().await;
-    
-    if let Some(broker) = broker_guard.as_ref() {
-        let connected = broker.is_connected();
-        let latency = if connected {
-            match broker.ping().await {
-                Ok(duration) => duration.as_millis() as u64,
-                Err(_) => 0,
-            }
-        } else {
-            0
-        };
-        
-        Ok(serde_json::json!({
-            "connected": connected,
-            "latency_ms": latency,
-            "broker_type": "oanda"
-        }))
-    } else {
-        Ok(serde_json::json!({
-            "connected": false,
-            "latency_ms": 0,
-            "broker_type": "mock"
-        }))
-    }
-}
 
-// Extract stored credentials (for debugging)
-#[tauri::command]
-async fn extract_stored_credentials() -> Result<serde_json::Value, String> {
-    // This command just returns a placeholder
-    // The actual credentials are stored in frontend localStorage
-    Ok(serde_json::json!({
-        "message": "Credentials are stored in frontend localStorage under 'brokerAccounts' key",
-        "instruction": "Use the frontend to retrieve them"
-    }))
-}
 
-// Initialize broker with profile (called when dropdown selection changes)
-#[tauri::command]
-async fn init_broker_from_profile(
-    broker_type: String,
-    api_key: String,
-    account_id: String,
-    environment: Option<String>,
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<String, String> {
-    emit_log(&window, "INFO", &format!("Initializing {} broker...", broker_type));
-    
-    match broker_type.as_str() {
-        "oanda" => {
-            // Determine API URL based on environment
-            let env = environment.unwrap_or("demo".to_string());
-            let api_url = match env.as_str() {
-                "live" => "https://api-fxtrade.oanda.com",
-                "demo" | "practice" => "https://api-fxpractice.oanda.com",
-                _ => "https://api-fxpractice.oanda.com" // Default to practice
-            };
-            
-            // Debug logging
-            emit_log(&window, "DEBUG", &format!("API URL: {}", api_url));
-            emit_log(&window, "DEBUG", &format!("Account ID: {}", account_id));
-            emit_log(&window, "DEBUG", &format!("API Key length: {}", api_key.len()));
-            emit_log(&window, "DEBUG", &format!("API Key preview: {}...{}", 
-                &api_key.chars().take(8).collect::<String>(),
-                &api_key.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>()
-            ));
-            
-            let config = OandaConfig {
-                api_url: api_url.to_string(),
-                account_id: account_id.clone(),
-                api_token: api_key.clone(),
-                practice: env != "live",
-            };
-            
-            let mut oanda_broker = OandaBroker::new(config.clone());
-            
-            // Test connection
-            match oanda_broker.connect().await {
-                Ok(_) => {
-                    emit_log(&window, "SUCCESS", "Connected to Oanda successfully");
-                    
-                    // Store the broker
-                    let mut broker_guard = state.broker.write().await;
-                    *broker_guard = Some(Box::new(oanda_broker));
-                    
-                    // Now initialize ExecutionEngine with the same broker config
-                    emit_log(&window, "INFO", "Initializing ExecutionEngine with Oanda broker...");
-                    
-                    // Create another instance for ExecutionEngine
-                    let mut engine_broker = OandaBroker::new(config.clone());
-                    match engine_broker.connect().await {
-                        Ok(_) => {
-                            match init_execution_engine_with_broker(Box::new(engine_broker), config, &state, &window).await {
-                                Ok(_) => {
-                                    emit_log(&window, "SUCCESS", "ExecutionEngine initialized with Oanda broker");
-                                }
-                                Err(e) => {
-                                    emit_log(&window, "ERROR", &format!("Failed to initialize ExecutionEngine: {}", e));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            emit_log(&window, "ERROR", &format!("Failed to connect engine broker: {}", e));
-                        }
-                    }
-                    
-                    Ok("Oanda broker initialized".to_string())
-                }
-                Err(e) => {
-                    emit_log(&window, "ERROR", &format!("Failed to connect to Oanda: {}", e));
-                    Err(format!("Failed to connect to Oanda: {}", e))
-                }
-            }
-        }
-        _ => Err(format!("Unsupported broker type: {}", broker_type))
-    }
-}
 
-// Get recent orders from database
-#[tauri::command]
-async fn get_recent_orders(
-    limit: i32,
-    state: State<'_, AppState>,
-) -> Result<Vec<serde_json::Value>, String> {
-    let db = state.orders_db.lock().await;
-    
-    match database::orders::get_recent_orders(&db, limit).await {
-        Ok(orders) => {
-            let json_orders: Vec<serde_json::Value> = orders.into_iter()
-                .map(|o| serde_json::Value::Object(o.into_iter().collect()))
-                .collect();
-            Ok(json_orders)
-        }
-        Err(e) => Err(format!("Failed to get recent orders: {}", e))
-    }
-}
 
 // Helper function to initialize execution engine with a specific broker
-async fn init_execution_engine_with_broker(
-    broker: Box<dyn BrokerAPI>,
-    broker_config: OandaConfig, // Add config parameter
-    state: &State<'_, AppState>,
-    window: &tauri::Window,
-) -> Result<String, String> {
-    emit_log(window, "DEBUG", "Starting init_execution_engine_with_broker");
-    
-    // Check if already initialized
-    {
-        let engine_guard = state.execution_engine.lock().await;
-        if engine_guard.is_some() {
-            emit_log(window, "DEBUG", "ExecutionEngine already initialized");
-            return Ok("ExecutionEngine already initialized".to_string());
-        }
-    }
-    
-    emit_log(window, "DEBUG", "Checking Redis connection...");
-    
-    // Check if Redis is available
-    let redis_client = match RedisClient::open(state.redis_url.clone()) {
-        Ok(client) => {
-            emit_log(window, "DEBUG", "Redis client created");
-            client
-        }
-        Err(e) => {
-            emit_log(window, "ERROR", &format!("Failed to create Redis client: {}", e));
-            return Err(format!("Failed to connect to Redis: {}", e));
-        }
-    };
-    
-    // Test Redis connection
-    {
-        emit_log(window, "DEBUG", "Testing Redis connection...");
-        match redis_client.get_async_connection().await {
-            Ok(_conn) => {
-                emit_log(window, "DEBUG", "Redis connection test successful");
-            }
-            Err(e) => {
-                emit_log(window, "ERROR", &format!("Redis connection test failed: {}", e));
-                return Err(format!("Redis not available: {}", e));
-            }
-        }
-    }
-    
-    emit_log(window, "DEBUG", "Creating ExecutionEngine with provided broker...");
-    
-    // Create ExecutionEngine with the provided broker
-    let engine = ExecutionEngine::new(&state.redis_url, broker, state.orders_db.clone())
-        .map_err(|e| {
-            emit_log(window, "ERROR", &format!("Failed to create ExecutionEngine: {}", e));
-            e
-        })?;
-    
-    emit_log(window, "DEBUG", "Creating Redis client...");
-    
-    // Create Redis client
-    let redis_client = RedisClient::open(state.redis_url.clone())
-        .map_err(|e| {
-            emit_log(window, "ERROR", &format!("Failed to create Redis client: {}", e));
-            format!("Failed to create Redis client: {}", e)
-        })?;
-    
-    emit_log(window, "DEBUG", "Storing Redis client...");
-    
-    // Store Redis client
-    {
-        let mut client_guard = state.redis_client.lock().await;
-        *client_guard = Some(redis_client);
-        emit_log(window, "DEBUG", "Redis client stored");
-    }
-    
-    emit_log(window, "DEBUG", "Starting ExecutionEngine in background task...");
-    
-    // Don't store the engine in AppState - it runs independently in the background
-    // Instead, mark that it's running
-    {
-        let mut engine_guard = state.execution_engine.lock().await;
-        *engine_guard = Some(engine); // Store temporarily to mark as initialized
-    }
-    
-    // Start the execution engine in a background task with its own broker
-    let redis_url_clone = state.redis_url.clone();
-    let orders_db_clone = state.orders_db.clone();
-    let engine_window = window.clone();
-    let broker_config_clone = broker_config.clone();
-    
-    tokio::spawn(async move {
-        emit_log(&engine_window, "INFO", "ExecutionEngine background task started");
-        
-        // Create a new broker instance for the ExecutionEngine
-        let mut engine_broker = OandaBroker::new(broker_config_clone);
-        match engine_broker.connect().await {
-            Ok(_) => {
-                emit_log(&engine_window, "INFO", "ExecutionEngine broker connected");
-                
-                // Create a new ExecutionEngine with its own broker
-                match ExecutionEngine::new(&redis_url_clone, Box::new(engine_broker), orders_db_clone) {
-                    Ok(engine) => {
-                        emit_log(&engine_window, "INFO", "Starting ExecutionEngine main loop...");
-                        // This runs forever
-                        if let Err(e) = engine.run().await {
-                            emit_log(&engine_window, "ERROR", &format!("ExecutionEngine error: {}", e));
-                        }
-                    }
-                    Err(e) => {
-                        emit_log(&engine_window, "ERROR", &format!("Failed to create ExecutionEngine: {}", e));
-                    }
-                }
-            }
-            Err(e) => {
-                emit_log(&engine_window, "ERROR", &format!("Failed to connect engine broker: {}", e));
-            }
-        }
-        
-        emit_log(&engine_window, "WARN", "ExecutionEngine background task ended");
-    });
-    
-    emit_log(window, "DEBUG", "init_execution_engine_with_broker completed successfully");
-    Ok("ExecutionEngine initialized".to_string())
-}
 
 
-// Initialize execution engine
-#[tauri::command]
-async fn init_execution_engine(
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<String, String> {
-    emit_log(&window, "INFO", "Initializing execution engine...");
-    
-    // Check if Redis is available
-    let _redis_client = match RedisClient::open(state.redis_url.clone()) {
-        Ok(client) => {
-            emit_log(&window, "SUCCESS", "Connected to Redis");
-            client
-        }
-        Err(e) => {
-            emit_log(&window, "ERROR", &format!("Failed to connect to Redis: {}", e));
-            return Err(format!("Failed to connect to Redis: {}. Make sure Redis is running on port 6379", e));
-        }
-    };
-    
-    // Check if we have a real broker connected
-    {
-        let broker_guard = state.broker.read().await;
-        if broker_guard.is_none() {
-            emit_log(&window, "ERROR", "No broker connected. Please select a broker profile first.");
-            return Err("No broker connected. Please select a broker profile.".to_string());
-        }
-    }
-    
-    emit_log(&window, "ERROR", "ExecutionEngine requires dedicated broker instance");
-    Err("Please use the broker profile dropdown to initialize ExecutionEngine".to_string())
-}
 
-// Cancel an order
-#[tauri::command]
-async fn cancel_order(
-    order_id: String,
-    state: State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<serde_json::Value, String> {
-    emit_log(&window, "INFO", &format!("Cancelling order: {}", order_id));
-    
-    // For now, we'll just mark it as cancelled in the database
-    // In a real implementation, we'd also send cancel to the broker
-    let broker_guard = state.broker.read().await;
-    if let Some(broker) = broker_guard.as_ref() {
-        match broker.cancel_order(&order_id).await {
-            Ok(_response) => {
-                emit_log(&window, "SUCCESS", &format!("Order {} cancelled", order_id));
-                
-                // TODO: Update order status in database
-                
-                // Emit order update event
-                window.emit("order-update", serde_json::json!({
-                    "order_id": order_id.clone(),
-                    "status": "Cancelled",
-                    "action": "cancelled"
-                })).unwrap();
-                
-                Ok(serde_json::json!({
-                    "success": true,
-                    "order_id": order_id,
-                    "status": "Cancelled"
-                }))
-            }
-            Err(e) => {
-                emit_log(&window, "ERROR", &format!("Failed to cancel order: {}", e));
-                Err(format!("Failed to cancel order: {}", e))
-            }
-        }
-    } else {
-        emit_log(&window, "ERROR", "ExecutionEngine not initialized");
-        Err("ExecutionEngine not initialized. Is Redis running?".to_string())
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -1232,35 +555,27 @@ async fn main() {
     database::orders::init_orders_db(&orders_pool)
         .await
         .expect("Failed to initialize orders database");
-    
-    let redis_url = "redis://127.0.0.1:6379";
+
+    let _redis_url = "redis://127.0.0.1:6379"; // Not used with cloud API
     
     // Initialize market data engine
     let market_data_state = market_data::commands::init_market_data_engine(pool.clone());
     
-    let app_state = AppState { 
+    let app_state = AppState {
         db_pool: Arc::new(Mutex::new(pool)),
-        candle_cache: Arc::new(RwLock::new(HashMap::new())),
-        market_candle_cache: candles::cache::create_cache(),  // Initialize the market candle cache
+        market_candle_cache: candles::cache::create_cache(),  // Still used for orchestrator
         metadata_cache: Arc::new(RwLock::new(HashMap::new())),
-        inflight_requests: Arc::new(RwLock::new(HashMap::new())),
-        broker: Arc::new(RwLock::new(None)),
-        redis_url: redis_url.to_string(),
-        redis_client: Arc::new(Mutex::new(None)),
-        execution_engine: Arc::new(Mutex::new(None)),
-        orders_db: Arc::new(Mutex::new(orders_pool)),
+        orders_db: Arc::new(Mutex::new(orders_pool)),  // Still used for orchestrator
         active_backtests: Arc::new(Mutex::new(HashMap::new())),
-        // bitcoin_consumers: Arc::new(Mutex::new(HashMap::new())), // Removed - using direct DB ingestion
-        candle_monitors: Arc::new(Mutex::new(HashMap::new())),
     };
 
     Builder::default()
         .manage(app_state)
         .manage(market_data_state)
         .invoke_handler(tauri::generate_handler![
-            fetch_candles, 
-            fetch_candles_v2, 
-            check_database_connection,
+            // fetch_candles,  // DEAD: Using cloud API for charts
+            // fetch_candles_v2,  // DEAD: Using cloud API for charts
+            // check_database_connection,  // DEAD: Not using PostgreSQL for charts
             workspace::get_workspace_tree,
             workspace::read_component_file,
             workspace::save_component_file,
@@ -1278,27 +593,18 @@ async fn main() {
             workspace::write_temp_candles,
             market_data::symbols::commands::get_available_data,
             market_data::symbols::commands::get_all_available_symbols,
-            get_broker_connection_status,
-            get_recent_orders,
-            cancel_order,
-            init_execution_engine,
-            init_broker_from_profile,
-            extract_stored_credentials,
+            // get_broker_connection_status,  // DEAD: Not using broker API
+            // get_recent_orders,  // DEAD: Not using broker API
+            // cancel_order,  // DEAD: Not using broker API
+            // init_execution_engine,  // DEAD: Not using execution engine
+            // init_broker_from_profile,  // DEAD: Not using broker API
+            // extract_stored_credentials,  // DEAD: Not using broker API
             market_data::symbols::commands::get_symbol_metadata,
             export_test_data,
             test_orchestrator_load,
             run_orchestrator_backtest,
             cancel_backtest,
             run_orchestrator_live,
-            // Bitcoin-specific commands (separate from forex)
-            commands::bitcoin_data::get_bitcoin_chart_data,
-            commands::bitcoin_data::get_bitcoin_realtime_data,
-            commands::bitcoin_data::get_latest_bitcoin_tick,
-            commands::bitcoin_data::get_bitcoin_24h_stats,
-            // Candle monitor commands
-            candle_monitor::start_candle_monitor,
-            candle_monitor::stop_candle_monitor,
-            candle_monitor::trigger_candle_update,
             // Market data commands
             search_assets,
             add_market_asset,
@@ -1327,12 +633,12 @@ async fn main() {
             let window_clone = window.clone();
             let app_handle = app.handle().clone();
             tokio::spawn(async move {
-                if let Some(state) = app_handle.try_state::<AppState>() {
+                if let Some(_state) = app_handle.try_state::<AppState>() {
                     // Wait a moment for everything to be ready
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     
                     // Try to connect to Redis
-                    match RedisClient::open(state.redis_url.clone()) {
+                    match RedisClient::open("redis://127.0.0.1:6379".to_string()) {
                         Ok(_) => {
                             emit_log(&window_clone, "INFO", "Redis is available - order execution ready");
                         }

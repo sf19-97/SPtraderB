@@ -9,6 +9,7 @@ use crate::orders::{Order, OrderStatus};
 pub mod oanda;
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait BrokerAPI: Send + Sync {
     /// Connect to broker
     async fn connect(&mut self) -> Result<(), String>;

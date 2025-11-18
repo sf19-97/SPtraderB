@@ -19,17 +19,19 @@ export function BacktestRunner() {
     clearLogs,
   } = useOrchestratorStore();
 
-  // Listen for backtest started event
+  // Listen for backtest started event (only in Tauri environment)
   useEffect(() => {
-    const unlisten = listen('backtest_started', (event: any) => {
-      if (event.payload && event.payload.backtest_id) {
-        setCurrentBacktestId(event.payload.backtest_id);
-      }
-    });
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      const unlisten = listen('backtest_started', (event: any) => {
+        if (event.payload && event.payload.backtest_id) {
+          setCurrentBacktestId(event.payload.backtest_id);
+        }
+      });
 
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+      return () => {
+        unlisten.then((fn) => fn());
+      };
+    }
   }, [setCurrentBacktestId]);
 
   const handleRunBacktest = async () => {

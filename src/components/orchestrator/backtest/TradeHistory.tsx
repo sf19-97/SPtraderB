@@ -21,7 +21,7 @@ export function TradeHistory() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<keyof Trade>('entryTime');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const tableRef = useRef<HTMLDivElement>(null);
+  const _tableRef = useRef<HTMLDivElement>(null);
   const highlightedRowRef = useRef<HTMLTableRowElement>(null);
 
   // Scroll to highlighted trade when it changes - MUST be before any returns

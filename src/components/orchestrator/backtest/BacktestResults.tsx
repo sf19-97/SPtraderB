@@ -72,7 +72,7 @@ export function BacktestResults() {
     isBacktestRunning,
     activeResultsTab,
     setActiveResultsTab,
-    highlightedTradeId,
+    highlightedTradeId: _highlightedTradeId,
     highlightTrade,
   } = useOrchestratorStore();
   const [marketData, setMarketData] = useState<any>(null);

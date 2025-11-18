@@ -256,76 +256,78 @@ export function AssetManager() {
   useEffect(() => {
     loadActivePipelines();
 
-    // Listen for asset events
-    const unlistenAdded = listen('asset-added', (event) => {
-      notifications.show({
-        title: 'Asset Added',
-        message: `Successfully added ${event.payload}`,
-        color: 'green',
-        icon: <IconCheck />,
+    // Listen for asset events (only in Tauri environment)
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      const unlistenAdded = listen('asset-added', (event) => {
+        notifications.show({
+          title: 'Asset Added',
+          message: `Successfully added ${event.payload}`,
+          color: 'green',
+          icon: <IconCheck />,
+        });
+        loadActivePipelines();
       });
-      loadActivePipelines();
-    });
 
-    const unlistenProgress = listen<{ symbol: string; progress: number }>(
-      'ingestion-progress',
-      (event) => {
-        // Handle progress updates if needed
-        console.log('Ingestion progress:', event.payload);
-      }
-    );
+      const unlistenProgress = listen<{ symbol: string; progress: number }>(
+        'ingestion-progress',
+        (event) => {
+          // Handle progress updates if needed
+          console.log('Ingestion progress:', event.payload);
+        }
+      );
 
-    const unlistenCatchup = listen<{
-      symbol: string;
-      gap_minutes: number;
-      status: string;
-      message?: string;
-      error?: string;
-    }>('catchup-status', (event) => {
-      console.log('Catchup status:', event.payload);
-      const { symbol, gap_minutes, status, message, error } = event.payload;
+      const unlistenCatchup = listen<{
+        symbol: string;
+        gap_minutes: number;
+        status: string;
+        message?: string;
+        error?: string;
+      }>('catchup-status', (event) => {
+        console.log('Catchup status:', event.payload);
+        const { symbol, gap_minutes, status, message, error } = event.payload;
 
-      switch (status) {
-        case 'completed':
-          notifications.show({
-            title: `Catchup Complete: ${symbol}`,
-            message: message || `Successfully filled ${gap_minutes} minute gap`,
-            color: 'green',
-            icon: <IconCheck />,
-          });
-          break;
-        case 'failed':
-          notifications.show({
-            title: `Catchup Failed: ${symbol}`,
-            message: error || `Failed to fill ${gap_minutes} minute gap`,
-            color: 'red',
-            icon: <IconAlertCircle />,
-          });
-          break;
-        case 'skipped':
-          notifications.show({
-            title: `Catchup Skipped: ${symbol}`,
-            message: message || `Gap too large (${gap_minutes} minutes)`,
-            color: 'orange',
-            icon: <IconAlertCircle />,
-          });
-          break;
-        case 'error':
-          notifications.show({
-            title: `Catchup Error: ${symbol}`,
-            message: error || 'Failed to run catchup process',
-            color: 'red',
-            icon: <IconAlertCircle />,
-          });
-          break;
-      }
-    });
+        switch (status) {
+          case 'completed':
+            notifications.show({
+              title: `Catchup Complete: ${symbol}`,
+              message: message || `Successfully filled ${gap_minutes} minute gap`,
+              color: 'green',
+              icon: <IconCheck />,
+            });
+            break;
+          case 'failed':
+            notifications.show({
+              title: `Catchup Failed: ${symbol}`,
+              message: error || `Failed to fill ${gap_minutes} minute gap`,
+              color: 'red',
+              icon: <IconAlertCircle />,
+            });
+            break;
+          case 'skipped':
+            notifications.show({
+              title: `Catchup Skipped: ${symbol}`,
+              message: message || `Gap too large (${gap_minutes} minutes)`,
+              color: 'orange',
+              icon: <IconAlertCircle />,
+            });
+            break;
+          case 'error':
+            notifications.show({
+              title: `Catchup Error: ${symbol}`,
+              message: error || 'Failed to run catchup process',
+              color: 'red',
+              icon: <IconAlertCircle />,
+            });
+            break;
+        }
+      });
 
-    return () => {
-      unlistenAdded.then((fn) => fn());
-      unlistenProgress.then((fn) => fn());
-      unlistenCatchup.then((fn) => fn());
-    };
+      return () => {
+        unlistenAdded.then((fn) => fn());
+        unlistenProgress.then((fn) => fn());
+        unlistenCatchup.then((fn) => fn());
+      };
+    }
   }, []);
 
   const loadActivePipelines = async () => {
