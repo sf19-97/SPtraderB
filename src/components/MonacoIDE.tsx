@@ -106,6 +106,24 @@ function constrainDateToBounds(
   return date;
 }
 
+/**
+ * Converts timeframe code to human-readable label.
+ * @param tf - Timeframe code (e.g., "1m", "1h", "1d")
+ * @returns Human-readable label (e.g., "1 minute", "1 hour", "1 day")
+ */
+function timeframeToLabel(tf: string): string {
+  const timeframeLabels: Record<string, string> = {
+    '1m': '1 minute',
+    '5m': '5 minutes',
+    '15m': '15 minutes',
+    '1h': '1 hour',
+    '4h': '4 hours',
+    '12h': '12 hours',
+    '1d': '1 day',
+  };
+  return timeframeLabels[tf] || tf;
+}
+
 export const MonacoIDE = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -185,6 +203,7 @@ export const MonacoIDE = () => {
     latest: null,
     loading: true,
   });
+  const [availableTimeframes, setAvailableTimeframes] = useState<string[]>([]);
   const [componentOutput, setComponentOutput] = useState({
     lastValue: '--',
     signal: '--',
@@ -257,6 +276,11 @@ export const MonacoIDE = () => {
           latest: latestDate,
           loading: false,
         });
+
+        // Extract available timeframes from metadata
+        if (metadata.timeframes && Array.isArray(metadata.timeframes)) {
+          setAvailableTimeframes(metadata.timeframes);
+        }
 
         // Update date params to be within bounds if they're outside
         setLiveDataParams((prev) => {
@@ -2093,9 +2117,8 @@ execution:
                     }
                     data={[
                       { value: 'EURUSD', label: 'EUR/USD' },
-                      { value: 'USDJPY', label: 'USD/JPY' },
-                      { value: 'GBPUSD', label: 'GBP/USD' },
-                      { value: 'AUDUSD', label: 'AUD/USD' },
+                      // Only symbols with available data are shown
+                      // TODO: Fetch available symbols from API when endpoint is available
                     ]}
                     styles={{
                       input: {
@@ -2116,12 +2139,12 @@ execution:
                     onChange={(value) =>
                       setLiveDataParams((prev) => ({ ...prev, timeframe: value || '1h' }))
                     }
-                    data={[
-                      { value: '15m', label: '15 minutes' },
-                      { value: '1h', label: '1 hour' },
-                      { value: '4h', label: '4 hours' },
-                      { value: '12h', label: '12 hours' },
-                    ]}
+                    data={availableTimeframes.map(tf => ({
+                      value: tf,
+                      label: timeframeToLabel(tf),
+                    }))}
+                    disabled={availableTimeframes.length === 0}
+                    placeholder={availableTimeframes.length === 0 ? "Loading..." : "Select timeframe"}
                     styles={{
                       input: {
                         background: '#2a2a2a',
@@ -2707,9 +2730,7 @@ execution:
             onChange={(value) => setExportSymbol(value || 'EURUSD')}
             data={[
               { value: 'EURUSD', label: 'EUR/USD' },
-              { value: 'USDJPY', label: 'USD/JPY' },
-              { value: 'GBPUSD', label: 'GBP/USD' },
-              { value: 'AUDUSD', label: 'AUD/USD' },
+              // Only symbols with available data
             ]}
             required
           />
@@ -2718,13 +2739,12 @@ execution:
             label="Timeframe"
             value={exportTimeframe}
             onChange={(value) => setExportTimeframe(value || '1h')}
-            data={[
-              { value: '5m', label: '5 minutes' },
-              { value: '15m', label: '15 minutes' },
-              { value: '1h', label: '1 hour' },
-              { value: '4h', label: '4 hours' },
-              { value: '12h', label: '12 hours' },
-            ]}
+            data={availableTimeframes.map(tf => ({
+              value: tf,
+              label: timeframeToLabel(tf),
+            }))}
+            disabled={availableTimeframes.length === 0}
+            placeholder={availableTimeframes.length === 0 ? "Loading..." : "Select timeframe"}
             required
           />
 
