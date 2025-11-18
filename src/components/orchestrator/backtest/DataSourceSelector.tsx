@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Stack, Radio, Select, Group, Text, Loader } from '@mantine/core';
 import { IconDatabase, IconFile } from '@tabler/icons-react';
-import { invoke } from '@tauri-apps/api/core';
 
 interface DataSourceSelectorProps {
   dataSource: 'database' | 'parquet';
@@ -37,8 +36,9 @@ export function DataSourceSelector({
   const loadDatasets = async () => {
     setLoadingDatasets(true);
     try {
-      const files = await invoke<string[]>('list_test_datasets');
-      setDatasets(files);
+      // Parquet files are not supported in web-only mode
+      // TODO: Add support for uploading/managing datasets via API
+      setDatasets([]);
     } catch (err) {
       console.error('Failed to load datasets:', err);
       setDatasets([]);

@@ -11,15 +11,8 @@ import {
   Center,
 } from '@mantine/core';
 import { IconSearch, IconFile } from '@tabler/icons-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useOrchestratorStore } from '../../stores/useOrchestratorStore';
-
-interface FileNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  children?: FileNode[];
-}
+import { workspaceApi, FileNode } from '../../api/workspace';
 
 export function StrategyList() {
   const { strategies, setStrategies, selectedStrategy, setSelectedStrategy } =
@@ -39,7 +32,7 @@ export function StrategyList() {
 
     try {
       // Get workspace tree to find strategy YAML files
-      const tree = await invoke<FileNode[]>('get_workspace_tree');
+      const tree = await workspaceApi.getTree();
 
       // Find the strategies folder
       const strategiesNode = tree.find((node) => node.name === 'strategies');
@@ -53,7 +46,7 @@ export function StrategyList() {
       const loadedStrategies = await Promise.all(
         strategyFiles.map(async (file) => {
           try {
-            const content = await invoke<string>('read_component_file', { filePath: file.path });
+            const content = await workspaceApi.readFile(file.path);
             const metadata = parseStrategyMetadata(content);
             return {
               name: file.name.replace('.yaml', ''),
@@ -90,7 +83,7 @@ export function StrategyList() {
 
     const files: FileNode[] = [];
 
-    if (!node.is_dir && node.name && node.name.endsWith('.yaml')) {
+    if (node.type === 'file' && node.name && node.name.endsWith('.yaml')) {
       files.push(node);
     }
 

@@ -27,7 +27,6 @@ import { useOrchestratorStore } from '../../../stores/useOrchestratorStore';
 import { OrchestratorChart } from '../OrchestratorChart';
 import { TradeHistory } from './TradeHistory';
 import { useState, useMemo, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { notifications } from '@mantine/notifications';
 
 interface StatCardProps {
@@ -218,18 +217,22 @@ export function BacktestResults() {
     setIsLoadingChart(true);
 
     try {
-      // Always fetch from database/cache using the same mechanism as AdaptiveChart
+      // Fetch candle data from market data API
       const fromTimestamp = Math.floor(new Date(backtestConfig.startDate).getTime() / 1000);
       const toTimestamp = Math.floor(new Date(backtestConfig.endDate).getTime() / 1000);
 
-      const candles = await invoke('fetch_candles', {
-        request: {
-          symbol: backtestConfig.symbol,
-          timeframe: backtestConfig.timeframe,
-          from: fromTimestamp,
-          to: toTimestamp,
-        },
-      });
+      const marketDataUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
+      const url = `${marketDataUrl}/api/candles?symbol=${backtestConfig.symbol}&timeframe=${backtestConfig.timeframe}&from=${fromTimestamp}&to=${toTimestamp}`;
+
+      console.log('[BacktestResults] Fetching candles from:', url);
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch candles: HTTP ${response.status}`);
+      }
+
+      const candles = await response.json();
 
       // Convert to chart data format
       if (Array.isArray(candles) && candles.length > 0) {

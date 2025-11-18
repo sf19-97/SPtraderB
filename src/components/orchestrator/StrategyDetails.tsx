@@ -12,8 +12,8 @@ import {
   Button,
 } from '@mantine/core';
 import { IconCode, IconSettings, IconShieldCheck, IconRefresh } from '@tabler/icons-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useOrchestratorStore } from '../../stores/useOrchestratorStore';
+import { workspaceApi } from '../../api/workspace';
 import Editor from '@monaco-editor/react';
 
 export function StrategyDetails() {
@@ -36,9 +36,7 @@ export function StrategyDetails() {
     setError(null);
 
     try {
-      const strategyContent = await invoke<string>('read_component_file', {
-        filePath: selectedStrategy.path,
-      });
+      const strategyContent = await workspaceApi.readFile(selectedStrategy.path);
       setContent(strategyContent);
 
       // Try to parse YAML to extract structured data
