@@ -79,6 +79,33 @@ interface CandleData {
   volume?: number;
 }
 
+// Constants
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Constrains a date to be within the available data bounds.
+ *
+ * @param date - The date to constrain
+ * @param earliest - The earliest available date
+ * @param latest - The latest available date
+ * @param isFromDate - Whether this is a "from" date (affects how we handle out-of-bounds dates)
+ * @returns The constrained date within bounds
+ */
+function constrainDateToBounds(
+  date: Date,
+  earliest: Date,
+  latest: Date,
+  isFromDate: boolean
+): Date {
+  if (date < earliest) return earliest;
+  if (date > latest) {
+    // For "from" date, go back 30 days from latest
+    // For "to" date, just use latest
+    return isFromDate ? new Date(latest.getTime() - THIRTY_DAYS_MS) : latest;
+  }
+  return date;
+}
+
 export const MonacoIDE = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -146,7 +173,7 @@ export const MonacoIDE = () => {
   const [liveDataParams, setLiveDataParams] = useState({
     symbol: 'EURUSD',
     timeframe: '1h',
-    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
+    from: new Date(Date.now() - THIRTY_DAYS_MS), // 30 days ago
     to: new Date(),
   });
   const [metadataBounds, setMetadataBounds] = useState<{
@@ -193,34 +220,63 @@ export const MonacoIDE = () => {
         const metadata = await response.json();
         console.log('[MonacoIDE] Fetched metadata:', metadata);
 
-        if (metadata.earliest && metadata.latest) {
-          const earliestDate = new Date(metadata.earliest * 1000);
-          const latestDate = new Date(metadata.latest * 1000);
+        // Validate response
+        if (!metadata || typeof metadata.earliest !== 'number' || typeof metadata.latest !== 'number') {
+          console.error('[MonacoIDE] Invalid metadata response:', metadata);
+          // Fallback to safe defaults
+          const fallbackEarliest = new Date('2024-01-01');
+          const fallbackLatest = new Date();
 
           setMetadataBounds({
-            earliest: earliestDate,
-            latest: latestDate,
+            earliest: fallbackEarliest,
+            latest: fallbackLatest,
             loading: false,
           });
-
-          // Update date params to be within bounds if they're outside
-          setLiveDataParams((prev) => {
-            const from = prev.from < earliestDate ? earliestDate :
-                        prev.from > latestDate ? new Date(latestDate.getTime() - 30 * 24 * 60 * 60 * 1000) :
-                        prev.from;
-            const to = prev.to > latestDate ? latestDate :
-                      prev.to < earliestDate ? latestDate :
-                      prev.to;
-
-            return {
-              ...prev,
-              from,
-              to,
-            };
-          });
-        } else {
-          setMetadataBounds((prev) => ({ ...prev, loading: false }));
+          return;
         }
+
+        // Additional validation: earliest should be before latest
+        if (metadata.earliest >= metadata.latest) {
+          console.error('[MonacoIDE] Invalid date range: earliest >= latest');
+          const fallbackEarliest = new Date('2024-01-01');
+          const fallbackLatest = new Date();
+
+          setMetadataBounds({
+            earliest: fallbackEarliest,
+            latest: fallbackLatest,
+            loading: false,
+          });
+          return;
+        }
+
+        const earliestDate = new Date(metadata.earliest * 1000);
+        const latestDate = new Date(metadata.latest * 1000);
+
+        setMetadataBounds({
+          earliest: earliestDate,
+          latest: latestDate,
+          loading: false,
+        });
+
+        // Update date params to be within bounds if they're outside
+        setLiveDataParams((prev) => {
+          // Check if dates need correction
+          const fromNeedsUpdate = prev.from < earliestDate || prev.from > latestDate;
+          const toNeedsUpdate = prev.to > latestDate || prev.to < earliestDate;
+
+          if (!fromNeedsUpdate && !toNeedsUpdate) {
+            return prev; // Early return - no update needed
+          }
+
+          const from = constrainDateToBounds(prev.from, earliestDate, latestDate, true);
+          const to = constrainDateToBounds(prev.to, earliestDate, latestDate, false);
+
+          return {
+            ...prev,
+            from,
+            to,
+          };
+        });
       } catch (error) {
         // Don't log abort errors - they're expected when user changes symbol/timeframe
         if (error instanceof Error && error.name === 'AbortError') {
@@ -228,7 +284,22 @@ export const MonacoIDE = () => {
           return;
         }
         console.error('[MonacoIDE] Error fetching metadata:', error);
-        setMetadataBounds((prev) => ({ ...prev, loading: false }));
+
+        // Set fallback bounds on error
+        const fallbackEarliest = new Date('2024-01-01');
+        const fallbackLatest = new Date();
+
+        setMetadataBounds({
+          earliest: fallbackEarliest,
+          latest: fallbackLatest,
+          loading: false,
+        });
+
+        // Show error in terminal
+        setTerminalOutput((prev) => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] ⚠️ Failed to fetch date range. Using defaults: ${fallbackEarliest.toLocaleDateString()} - ${fallbackLatest.toLocaleDateString()}`,
+        ]);
       }
     };
 
