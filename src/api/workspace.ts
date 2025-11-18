@@ -2,6 +2,8 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+console.log('[API] Using API base URL:', API_BASE);
+
 // ============================================================================
 // Types (matching backend)
 // ============================================================================
@@ -39,7 +41,10 @@ async function apiFetch<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const url = `${API_BASE}${endpoint}`;
+  console.log('[API] Fetching:', url, 'Method:', options?.method || 'GET');
+
+  const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -47,8 +52,11 @@ async function apiFetch<T>(
     },
   });
 
+  console.log('[API] Response:', response.status, response.statusText);
+
   if (!response.ok) {
     const error = await response.text();
+    console.error('[API] Error response:', error);
     throw new Error(error || `HTTP ${response.status}`);
   }
 
