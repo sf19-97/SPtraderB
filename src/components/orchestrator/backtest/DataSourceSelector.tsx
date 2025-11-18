@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Stack, Radio, Select, Group, Text, Loader } from '@mantine/core';
 import { IconDatabase, IconFile } from '@tabler/icons-react';
+import { useTradingStore } from '../../../stores/useTradingStore';
 
 interface DataSourceSelectorProps {
   dataSource: 'database' | 'parquet';
@@ -23,8 +24,14 @@ export function DataSourceSelector({
   parquetFile,
   onParquetFileChange,
 }: DataSourceSelectorProps) {
+  const { catalog, fetchCatalog } = useTradingStore();
   const [datasets, setDatasets] = useState<string[]>([]);
   const [loadingDatasets, setLoadingDatasets] = useState(false);
+
+  // Fetch catalog on mount
+  useEffect(() => {
+    fetchCatalog();
+  }, [fetchCatalog]);
 
   // Load available parquet files when component mounts or data source changes
   useEffect(() => {
@@ -47,8 +54,17 @@ export function DataSourceSelector({
     }
   };
 
-  const symbols = ['EURUSD', 'USDJPY', 'GBPUSD', 'USDCAD', 'AUDUSD'];
-  const timeframes = ['5m', '15m', '1h', '4h', '12h'];
+  // Format symbols and timeframes from catalog
+  const symbols = useMemo(() => {
+    return catalog.symbols.map((s) => ({
+      value: s.symbol,
+      label: s.symbol.replace(/([A-Z]{3})([A-Z]{3})/, '$1/$2'), // EURUSD -> EUR/USD
+    }));
+  }, [catalog.symbols]);
+
+  const timeframes = useMemo(() => {
+    return catalog.timeframes.map((tf) => ({ value: tf, label: tf }));
+  }, [catalog.timeframes]);
 
   return (
     <Stack gap="md">
@@ -83,19 +99,24 @@ export function DataSourceSelector({
         <>
           <Select
             label="Symbol"
-            placeholder="Select a symbol"
+            placeholder={catalog.loading ? 'Loading symbols...' : 'Select a symbol'}
             value={symbol}
             onChange={(value) => onSymbolChange(value || '')}
             data={symbols}
+            disabled={catalog.loading}
+            rightSection={catalog.loading ? <Loader size="xs" /> : null}
+            searchable
             required
           />
 
           <Select
             label="Timeframe"
-            placeholder="Select a timeframe"
+            placeholder={catalog.loading ? 'Loading timeframes...' : 'Select a timeframe'}
             value={timeframe}
             onChange={(value) => onTimeframeChange(value || '')}
             data={timeframes}
+            disabled={catalog.loading}
+            rightSection={catalog.loading ? <Loader size="xs" /> : null}
             required
           />
         </>
