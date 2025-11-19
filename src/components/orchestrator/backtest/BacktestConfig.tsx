@@ -1,11 +1,31 @@
-import { Stack, Paper, NumberInput, Group, Text, Select } from '@mantine/core';
+import { Stack, Paper, NumberInput, Group, Text, Select, Loader } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { IconCalendar, IconCurrencyDollar, IconChartLine, IconClock } from '@tabler/icons-react';
 import { useOrchestratorStore } from '../../../stores/useOrchestratorStore';
+import { useTradingStore } from '../../../stores/useTradingStore';
 import { StrategySelector } from '../StrategySelector';
+import { useEffect, useMemo } from 'react';
 
 export function BacktestConfig() {
   const { backtestConfig, updateBacktestConfig, selectedStrategy } = useOrchestratorStore();
+  const { catalog, fetchCatalog } = useTradingStore();
+
+  // Fetch catalog on mount
+  useEffect(() => {
+    fetchCatalog();
+  }, [fetchCatalog]);
+
+  // Format symbols and timeframes from catalog
+  const symbols = useMemo(() => {
+    return catalog.symbols.map((s) => ({
+      value: s.symbol,
+      label: s.symbol.replace(/([A-Z]{3})([A-Z]{3})/, '$1/$2'), // EURUSD -> EUR/USD
+    }));
+  }, [catalog.symbols]);
+
+  const timeframes = useMemo(() => {
+    return catalog.timeframes.map((tf) => ({ value: tf, label: tf }));
+  }, [catalog.timeframes]);
 
   return (
     <Paper p="md" withBorder>
@@ -47,26 +67,25 @@ export function BacktestConfig() {
             <Group grow>
               <Select
                 label="Symbol"
-                placeholder="Select symbol"
+                placeholder={catalog.loading ? 'Loading symbols...' : 'Select symbol'}
                 value={backtestConfig.symbol}
                 onChange={(value) => value && updateBacktestConfig({ symbol: value })}
-                data={['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD']}
+                data={symbols}
                 leftSection={<IconChartLine size={16} />}
+                rightSection={catalog.loading ? <Loader size="xs" /> : null}
+                disabled={catalog.loading}
+                searchable
               />
 
               <Select
                 label="Timeframe"
-                placeholder="Select timeframe"
+                placeholder={catalog.loading ? 'Loading timeframes...' : 'Select timeframe'}
                 value={backtestConfig.timeframe}
                 onChange={(value) => value && updateBacktestConfig({ timeframe: value })}
-                data={[
-                  { value: '5m', label: '5 minutes' },
-                  { value: '15m', label: '15 minutes' },
-                  { value: '1h', label: '1 hour' },
-                  { value: '4h', label: '4 hours' },
-                  { value: '12h', label: '12 hours' },
-                ]}
+                data={timeframes}
                 leftSection={<IconClock size={16} />}
+                rightSection={catalog.loading ? <Loader size="xs" /> : null}
+                disabled={catalog.loading}
               />
             </Group>
 
