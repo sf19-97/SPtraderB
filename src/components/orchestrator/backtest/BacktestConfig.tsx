@@ -4,16 +4,65 @@ import { IconCalendar, IconCurrencyDollar, IconChartLine, IconClock } from '@tab
 import { useOrchestratorStore } from '../../../stores/useOrchestratorStore';
 import { useTradingStore } from '../../../stores/useTradingStore';
 import { StrategySelector } from '../StrategySelector';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export function BacktestConfig() {
   const { backtestConfig, updateBacktestConfig, selectedStrategy } = useOrchestratorStore();
   const { catalog, fetchCatalog } = useTradingStore();
 
+  // Metadata bounds for date pickers
+  const [metadataBounds, setMetadataBounds] = useState<{
+    earliest: Date | null;
+    latest: Date | null;
+    loading: boolean;
+  }>({
+    earliest: null,
+    latest: null,
+    loading: false,
+  });
+
   // Fetch catalog on mount
   useEffect(() => {
     fetchCatalog();
   }, [fetchCatalog]);
+
+  // Update metadata bounds when symbol changes
+  useEffect(() => {
+    if (!backtestConfig.symbol || catalog.symbols.length === 0) {
+      return;
+    }
+
+    const symbolData = catalog.symbols.find((s) => s.symbol === backtestConfig.symbol);
+
+    if (!symbolData) {
+      console.warn('[BacktestConfig] Symbol not found in catalog:', backtestConfig.symbol);
+      return;
+    }
+
+    const earliestDate = new Date(symbolData.earliest * 1000);
+    const latestDate = new Date(symbolData.latest * 1000);
+
+    setMetadataBounds({
+      earliest: earliestDate,
+      latest: latestDate,
+      loading: false,
+    });
+
+    // Auto-adjust dates if they're outside bounds
+    const needsStartUpdate = backtestConfig.startDate < earliestDate || backtestConfig.startDate > latestDate;
+    const needsEndUpdate = backtestConfig.endDate > latestDate || backtestConfig.endDate < earliestDate;
+
+    if (needsStartUpdate || needsEndUpdate) {
+      const thirtyDaysAgo = new Date(latestDate);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const constrainedStart = thirtyDaysAgo < earliestDate ? earliestDate : thirtyDaysAgo;
+
+      updateBacktestConfig({
+        startDate: needsStartUpdate ? constrainedStart : backtestConfig.startDate,
+        endDate: needsEndUpdate ? latestDate : backtestConfig.endDate,
+      });
+    }
+  }, [backtestConfig.symbol, catalog.symbols]);
 
   // Format symbols and timeframes from catalog
   const symbols = useMemo(() => {
@@ -43,22 +92,35 @@ export function BacktestConfig() {
             <Group grow>
               <DatePickerInput
                 label="Start Date"
-                placeholder="Select start date"
+                placeholder={
+                  catalog.loading || metadataBounds.loading
+                    ? 'Loading available dates...'
+                    : 'Select start date'
+                }
                 value={backtestConfig.startDate}
                 onChange={(date) => date && updateBacktestConfig({ startDate: new Date(date) })}
                 leftSection={<IconCalendar size={16} />}
-                maxDate={new Date()}
+                rightSection={catalog.loading || metadataBounds.loading ? <Loader size="xs" /> : null}
+                minDate={metadataBounds.earliest || undefined}
+                maxDate={metadataBounds.latest || undefined}
+                disabled={catalog.loading || metadataBounds.loading}
                 clearable={false}
               />
 
               <DatePickerInput
                 label="End Date"
-                placeholder="Select end date"
+                placeholder={
+                  catalog.loading || metadataBounds.loading
+                    ? 'Loading available dates...'
+                    : 'Select end date'
+                }
                 value={backtestConfig.endDate}
                 onChange={(date) => date && updateBacktestConfig({ endDate: new Date(date) })}
                 leftSection={<IconCalendar size={16} />}
-                maxDate={new Date()}
+                rightSection={catalog.loading || metadataBounds.loading ? <Loader size="xs" /> : null}
                 minDate={backtestConfig.startDate}
+                maxDate={metadataBounds.latest || undefined}
+                disabled={catalog.loading || metadataBounds.loading}
                 clearable={false}
               />
             </Group>
