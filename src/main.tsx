@@ -1,10 +1,12 @@
 import ReactDOM from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import { DatesProvider } from '@mantine/dates';
+import { Notifications } from '@mantine/notifications';
 import { getHTTPDataProvider, chartDataCoordinator } from 'sptrader-chart-lib';
 import App from './App';
 import '@mantine/core/styles.css';
 import '@mantine/dates/styles.css';
+import '@mantine/notifications/styles.css';
 import 'dayjs/locale/en';
 
 // Configure the chart library to use your ws-market-data-server
@@ -28,6 +30,7 @@ window.__CHART_LOG_LEVEL__ = 'ERROR'; // Only show errors, suppress INFO/WARN/DE
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <MantineProvider defaultColorScheme="dark">
+      <Notifications position="top-right" zIndex={10000} />
       <DatesProvider settings={{ locale: 'en' }}>
         <App />
       </DatesProvider>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import {
@@ -15,8 +15,11 @@ import {
   TextInput,
   Select,
   SegmentedControl,
+  Switch,
+  Badge,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
+import { notifications } from '@mantine/notifications';
 import {
   IconChevronLeft,
   IconDeviceFloppy,
@@ -41,19 +44,16 @@ import { PreviewChart } from './PreviewChart';
 import { workspaceApi } from '../api/workspace';
 import { useTradingStore } from '../stores/useTradingStore';
 
-// Tauri imports - only used for desktop app features (data export, parquet loading)
-// Component execution now uses HTTP API instead
-// @ts-ignore - Tauri may not be available in web browser
-import { invoke } from '@tauri-apps/api/core';
-
+// Tauri is no longer used - all functionality migrated to HTTP API
 // Check if running in Tauri (desktop app) vs browser
 const isTauriAvailable = () => {
-  try {
-    // @ts-ignore - __TAURI__ is injected by Tauri runtime
-    return typeof invoke !== 'undefined' && typeof window !== 'undefined' && window.__TAURI__ !== undefined;
-  } catch {
-    return false;
-  }
+  // Always return false since we've migrated to HTTP API
+  return false;
+};
+
+// Stub for invoke - used for legacy data export functionality
+const invoke = async <T = any>(..._args: any[]): Promise<T> => {
+  throw new Error('Data export requires desktop app (Tauri)');
 };
 
 interface FileNode {
@@ -124,6 +124,25 @@ function timeframeToLabel(tf: string): string {
   return timeframeLabels[tf] || tf;
 }
 
+// Save functionality constants
+const AUTO_SAVE_DELAY_MS = 2000;
+const SUCCESS_NOTIFICATION_DURATION_MS = 2000;
+const ERROR_NOTIFICATION_DURATION_MS = 5000;
+
+// Helper functions
+const sanitizeForDisplay = (text: string): string => {
+  return text.replace(/[<>\"']/g, '').slice(0, 200);
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String(error.message);
+  }
+  return 'An unknown error occurred';
+};
+
 export const MonacoIDE = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -148,6 +167,22 @@ export const MonacoIDE = () => {
   const [customCategoryName, setCustomCategoryName] = useState('');
   const [componentStatus, setComponentStatus] = useState<string>('prototype');
   const [isRunning, setIsRunning] = useState(false);
+
+  // Save state management
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('autoSaveEnabled');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+  const [savedCode, setSavedCode] = useState('');
+  const autoSaveTimeoutRef = useRef<number | null>(null);
+  const isSavingRef = useRef(false); // Prevent race conditions
 
   // Resizable dimensions
   const [fileTreeWidth, setFileTreeWidth] = useState(250);
@@ -609,19 +644,107 @@ execution:
     return () => clearInterval(interval);
   }, []);
 
+  // Define handleSave before useEffects that use it
+  const handleSave = useCallback(async (silent: boolean = false) => {
+    if (!selectedFile || selectedFile.startsWith('new_')) {
+      if (!silent) {
+        setTerminalOutput((prev) => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] Error: No file selected`,
+        ]);
+        notifications.show({
+          title: 'Save Error',
+          message: 'No file selected',
+          color: 'red',
+          autoClose: ERROR_NOTIFICATION_DURATION_MS,
+        });
+      }
+      return;
+    }
+
+    // Use ref to prevent race conditions
+    if (isSavingRef.current) {
+      console.log('[Save] Save already in progress, skipping');
+      return;
+    }
+
+    isSavingRef.current = true;
+    setIsSaving(true);
+
+    if (!silent) {
+      setTerminalOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] Saving ${sanitizeForDisplay(selectedFile)}...`,
+      ]);
+    }
+
+    try {
+      await workspaceApi.saveFile(selectedFile, code);
+      setSavedCode(code);
+      setHasUnsavedChanges(false);
+      setLastSaved(new Date());
+
+      if (!silent) {
+        setTerminalOutput((prev) => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] ✓ File saved successfully`,
+        ]);
+        notifications.show({
+          title: 'File Saved',
+          message: `${sanitizeForDisplay(selectedFile)} saved successfully`,
+          color: 'green',
+          autoClose: SUCCESS_NOTIFICATION_DURATION_MS,
+        });
+      }
+    } catch (error) {
+      const errorMsg = getErrorMessage(error);
+      setTerminalOutput((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] ❌ Error saving file: ${errorMsg}`,
+      ]);
+      notifications.show({
+        title: 'Save Error',
+        message: `Failed to save ${sanitizeForDisplay(selectedFile)}: ${errorMsg}`,
+        color: 'red',
+        autoClose: ERROR_NOTIFICATION_DURATION_MS,
+      });
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [selectedFile, code]);
+
   // Load file content
   useEffect(() => {
     const loadFile = async () => {
+      // Warn user if they have unsaved changes before loading new file
+      if (hasUnsavedChanges && selectedFile && !selectedFile.startsWith('new_')) {
+        const confirmed = window.confirm(
+          `You have unsaved changes in ${sanitizeForDisplay(selectedFile)}. Do you want to discard them and load a new file?`
+        );
+        if (!confirmed) {
+          // User chose to stay, don't load new file
+          return;
+        }
+      }
+
       setIsLoading(true);
 
       if (fileName === 'new') {
-        setCode(templates[type] || '# New file');
+        const newCode = templates[type] || '# New file';
+        setCode(newCode);
+        setSavedCode(newCode);
         setSelectedFile(`new_${type}.${type === 'strategy' ? 'yaml' : 'py'}`);
+        setHasUnsavedChanges(false);
+        setLastSaved(null);
       } else if (filePath) {
         try {
           const content = await workspaceApi.readFile(filePath);
           setCode(content);
+          setSavedCode(content);
           setSelectedFile(filePath);
+          setHasUnsavedChanges(false);
+          setLastSaved(null);
 
           // Extract status from metadata if it's a Python file
           if (filePath.endsWith('.py')) {
@@ -644,6 +767,56 @@ execution:
     loadFile();
   }, [type, fileName, filePath]);
 
+  // Persist auto-save preference to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('autoSaveEnabled', JSON.stringify(autoSaveEnabled));
+    } catch (error) {
+      console.error('Failed to persist auto-save preference:', error);
+    }
+  }, [autoSaveEnabled]);
+
+  // Track changes and update hasUnsavedChanges (sets both true and false)
+  useEffect(() => {
+    if (!isSaving) {
+      setHasUnsavedChanges(code !== savedCode);
+    }
+  }, [code, savedCode, isSaving]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current !== null) {
+        clearTimeout(autoSaveTimeoutRef.current);
+        autoSaveTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Auto-save functionality with debouncing
+  useEffect(() => {
+    if (!autoSaveEnabled || !hasUnsavedChanges || isSaving || !selectedFile || selectedFile.startsWith('new_')) {
+      return;
+    }
+
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Set new timeout for auto-save
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      handleSave(true); // Silent save (no notifications)
+    }, AUTO_SAVE_DELAY_MS);
+
+    // Cleanup
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [code, autoSaveEnabled, hasUnsavedChanges, isSaving, selectedFile, handleSave]);
+
   const toggleFolder = (path: string) => {
     const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(path)) {
@@ -652,34 +825,6 @@ execution:
       newExpanded.add(path);
     }
     setExpandedFolders(newExpanded);
-  };
-
-  const handleSave = async () => {
-    if (!selectedFile || selectedFile.startsWith('new_')) {
-      setTerminalOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Error: No file selected`,
-      ]);
-      return;
-    }
-
-    setTerminalOutput((prev) => [
-      ...prev,
-      `[${new Date().toLocaleTimeString()}] Saving ${selectedFile}...`,
-    ]);
-
-    try {
-      await workspaceApi.saveFile(selectedFile, code);
-      setTerminalOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] ✓ File saved successfully`,
-      ]);
-    } catch (error) {
-      setTerminalOutput((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] ❌ Error saving file: ${error}`,
-      ]);
-    }
   };
 
   const handleStatusChange = (newStatus: string | null) => {
@@ -1805,13 +1950,37 @@ execution:
             >
               <IconQuestionMark size={16} />
             </ActionIcon>
+            <Group gap="xs">
+              <Switch
+                size="xs"
+                label="Auto-save"
+                checked={autoSaveEnabled}
+                onChange={(event) => setAutoSaveEnabled(event.currentTarget.checked)}
+                styles={{
+                  root: { display: 'flex', alignItems: 'center' },
+                  label: { fontSize: '12px', cursor: 'pointer' },
+                }}
+              />
+              {hasUnsavedChanges && !isSaving && (
+                <Badge size="xs" color="yellow" variant="dot">
+                  Unsaved
+                </Badge>
+              )}
+              {lastSaved && !hasUnsavedChanges && (
+                <Text size="xs" c="dimmed">
+                  Saved {Math.floor((Date.now() - lastSaved.getTime()) / 1000)}s ago
+                </Text>
+              )}
+            </Group>
             <Button
               size="xs"
               leftSection={<IconDeviceFloppy size={14} />}
               variant="subtle"
-              onClick={handleSave}
+              onClick={() => handleSave(false)}
+              loading={isSaving}
+              disabled={isSaving || selectedFile.startsWith('new_')}
             >
-              Save
+              {isSaving ? 'Saving...' : hasUnsavedChanges ? 'Save *' : 'Save'}
             </Button>
             <Button
               size="xs"
@@ -1863,6 +2032,19 @@ execution:
                 insertSpaces: true,
               }}
               onMount={(editor) => {
+                // Add keyboard shortcut for save (Cmd+S / Ctrl+S)
+                editor.addAction({
+                  id: 'save-file',
+                  label: 'Save File',
+                  keybindings: [
+                    // Cmd+S on Mac, Ctrl+S on Windows/Linux
+                    2048 /* CtrlCmd */ + 49 /* KeyS */,
+                  ],
+                  run: () => {
+                    handleSave(false);
+                  },
+                });
+
                 // Add keyboard shortcut for run
                 editor.addAction({
                   id: 'run-code',
