@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { useBrokerStore, BrokerProfile } from '../stores/useBrokerStore';
+
+// AssetManager requires Tauri backend - not available in web-only mode
+// These are stubs to prevent crashes
+const invoke = async <T = any>(..._args: any[]): Promise<T> => {
+  throw new Error('Asset management requires desktop app (Tauri)');
+};
+const listen = async <T = any>(..._args: any[]): Promise<() => void> => () => {};
 import {
   TextInput,
   Button,
@@ -258,7 +263,7 @@ export function AssetManager() {
 
     // Listen for asset events (only in Tauri environment)
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      const unlistenAdded = listen('asset-added', (event) => {
+      const unlistenAdded = listen('asset-added', (event: any) => {
         notifications.show({
           title: 'Asset Added',
           message: `Successfully added ${event.payload}`,
@@ -270,7 +275,7 @@ export function AssetManager() {
 
       const unlistenProgress = listen<{ symbol: string; progress: number }>(
         'ingestion-progress',
-        (event) => {
+        (event: any) => {
           // Handle progress updates if needed
           console.log('Ingestion progress:', event.payload);
         }
@@ -282,7 +287,7 @@ export function AssetManager() {
         status: string;
         message?: string;
         error?: string;
-      }>('catchup-status', (event) => {
+      }>('catchup-status', (event: any) => {
         console.log('Catchup status:', event.payload);
         const { symbol, gap_minutes, status, message, error } = event.payload;
 

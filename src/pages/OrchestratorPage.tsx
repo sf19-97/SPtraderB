@@ -19,8 +19,6 @@ import {
   IconRefresh,
   IconArrowLeft,
 } from '@tabler/icons-react';
-import { useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { useNavigate } from 'react-router-dom';
 import { useOrchestratorStore } from '../stores/useOrchestratorStore';
 
@@ -34,34 +32,9 @@ import { BacktestPanel } from '../components/orchestrator/backtest/BacktestPanel
 export function OrchestratorPage() {
   const [opened, { toggle }] = useDisclosure();
   const navigate = useNavigate();
-  const { mode, setMode, isConnected, selectedStrategy, addLog } = useOrchestratorStore();
+  const { mode, setMode, isConnected, selectedStrategy } = useOrchestratorStore();
 
-  // Listen for log events
-  useEffect(() => {
-    const unlisten = listen('log', (event: any) => {
-      addLog({
-        timestamp: new Date().toISOString(),
-        level: event.payload.level,
-        message: event.payload.message,
-      });
-    });
-
-    // Also listen for component output
-    const unlistenOutput = listen('component-output', (event: any) => {
-      if (event.payload.type === 'stdout') {
-        addLog({
-          timestamp: new Date().toISOString(),
-          level: 'OUTPUT',
-          message: event.payload.line,
-        });
-      }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-      unlistenOutput.then((fn) => fn());
-    };
-  }, [addLog]);
+  // Note: Log events are now handled via HTTP API polling instead of Tauri events
 
   const getModeColor = () => {
     switch (mode) {

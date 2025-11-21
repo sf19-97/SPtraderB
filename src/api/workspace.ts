@@ -146,3 +146,67 @@ export const workspaceApi = {
     });
   },
 };
+
+// ============================================================================
+// Orchestrator / Backtest API
+// ============================================================================
+
+export interface BacktestRequest {
+  strategy_name: string;
+  start_date: string; // ISO 8601 format
+  end_date: string; // ISO 8601 format
+  symbol: string;
+  timeframe: string;
+  initial_capital: number;
+}
+
+export interface BacktestResponse {
+  backtest_id: string;
+  status: string;
+}
+
+export interface BacktestStatus {
+  backtest_id: string;
+  status: string;
+  progress?: number;
+}
+
+export interface BacktestResults {
+  backtest_id: string;
+  start_capital: number;
+  end_capital: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  total_pnl: number;
+  max_drawdown: number;
+  sharpe_ratio: number;
+  signals_generated: number;
+}
+
+export const orchestratorApi = {
+  // POST /api/backtest/run
+  runBacktest: async (request: BacktestRequest): Promise<BacktestResponse> => {
+    return apiFetch<BacktestResponse>('/api/backtest/run', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  // GET /api/backtest/{id}/status
+  getBacktestStatus: async (backtestId: string): Promise<BacktestStatus> => {
+    return apiFetch<BacktestStatus>(`/api/backtest/${backtestId}/status`);
+  },
+
+  // GET /api/backtest/{id}/results
+  getBacktestResults: async (backtestId: string): Promise<BacktestResults> => {
+    return apiFetch<BacktestResults>(`/api/backtest/${backtestId}/results`);
+  },
+
+  // POST /api/backtest/{id}/cancel
+  cancelBacktest: async (backtestId: string): Promise<void> => {
+    return apiFetch<void>(`/api/backtest/${backtestId}/cancel`, {
+      method: 'POST',
+    });
+  },
+};
