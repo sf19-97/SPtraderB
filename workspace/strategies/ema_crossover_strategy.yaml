@@ -15,8 +15,15 @@ parameters:
 
 signal_config:
   ema_crossover:
-    fast_period: 12
-    slow_period: 26
+    required_indicators:
+      - name: ema_fast
+        type: ema
+        parameters:
+          period: 12
+      - name: ema_slow
+        type: ema
+        parameters:
+          period: 26
 
 entry:
   when:

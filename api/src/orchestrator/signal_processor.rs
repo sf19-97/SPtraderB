@@ -72,6 +72,15 @@ impl SignalProcessor {
                                     Err(_) => return false,
                                 };
                                 let signal_value = s.metadata.get(key_str);
+
+                                tracing::debug!(
+                                    "Metadata comparison - key: {}, expected: {:?}, actual: {:?}, match: {}",
+                                    key_str,
+                                    value_json,
+                                    signal_value,
+                                    signal_value == Some(&value_json)
+                                );
+
                                 if signal_value != Some(&value_json) {
                                     return false;
                                 }

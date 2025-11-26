@@ -96,7 +96,8 @@ def generate_signals(indicators, parameters=None):
             'metadata': {
                 'ema_fast': float(ema_fast.get(idx, 0)),
                 'ema_slow': float(ema_slow.get(idx, 0)),
-                'crossover_delta': float(ema_fast.get(idx, 0) - ema_slow.get(idx, 0))
+                'crossover_delta': float(ema_fast.get(idx, 0) - ema_slow.get(idx, 0)),
+                'crossover_type': row['signal_type']
             }
         }
         signals.append(signal)

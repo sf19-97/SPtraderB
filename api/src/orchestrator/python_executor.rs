@@ -28,6 +28,7 @@ struct StrategyConfigData {
     entry: serde_json::Value,
     exit: serde_json::Value,
     parameters: HashMap<String, serde_json::Value>,
+    signal_config: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,6 +89,16 @@ pub async fn execute_python_backtest(
         })
         .collect();
 
+    let signal_config_json: HashMap<String, serde_json::Value> = strategy_config
+        .signal_config
+        .iter()
+        .map(|(k, v)| {
+            let json_value: serde_json::Value = serde_yaml::from_value(v.clone())
+                .unwrap_or(serde_json::Value::Null);
+            (k.clone(), json_value)
+        })
+        .collect();
+
     let strategy_data = StrategyConfigData {
         name: strategy_config.name.clone(),
         dependencies: Dependencies {
@@ -96,6 +107,7 @@ pub async fn execute_python_backtest(
         entry: entry_json,
         exit: exit_json,
         parameters: parameters_json,
+        signal_config: signal_config_json,
     };
 
     let input = PythonBacktestInput {
@@ -107,15 +119,20 @@ pub async fn execute_python_backtest(
     let input_json = serde_json::to_string(&input)
         .map_err(|e| format!("Failed to serialize input: {}", e))?;
 
-    // Find workspace path (go up from api/ to root/)
-    let workspace_path = std::env::current_dir()
-        .map_err(|e| format!("Failed to get current dir: {}", e))?
-        .parent()
-        .ok_or("Failed to find parent directory")?
-        .to_path_buf();
+    // Find workspace path
+    // Try Docker production path first, then local development path
+    let workspace_path = if std::path::Path::new("/app/workspace").exists() {
+        std::path::PathBuf::from("/app/workspace")
+    } else {
+        // Local development: go up from api/ to root/workspace
+        std::env::current_dir()
+            .map_err(|e| format!("Failed to get current dir: {}", e))?
+            .parent()
+            .ok_or("Failed to find parent directory")?
+            .join("workspace")
+    };
 
     let python_script = workspace_path
-        .join("workspace")
         .join("core")
         .join("utils")
         .join("vectorized_backtest_v2.py");
@@ -132,8 +149,8 @@ pub async fn execute_python_backtest(
     // Spawn Python process
     let mut child = Command::new("python3")
         .arg(&python_script)
-        .current_dir(&workspace_path.join("workspace"))
-        .env("PYTHONPATH", workspace_path.join("workspace").to_str().unwrap())
+        .current_dir(&workspace_path)
+        .env("PYTHONPATH", workspace_path.to_str().unwrap())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

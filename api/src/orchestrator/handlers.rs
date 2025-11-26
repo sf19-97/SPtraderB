@@ -69,13 +69,15 @@ pub async fn run_backtest(
     let initial_capital = Decimal::from_f64(payload.initial_capital)
         .ok_or((StatusCode::BAD_REQUEST, "Invalid initial_capital".to_string()))?;
 
-    // Load strategy YAML
-    // Try local path first (for development), then /data/strategies (for production)
-    let local_path = format!("{}.yaml", payload.strategy_name);
-    let prod_path = format!("/data/strategies/{}.yaml", payload.strategy_name);
+    // Load strategy YAML from workspace volume
+    // Try workspace path (Docker volume), then local development path
+    let workspace_path = format!("/app/workspace/strategies/{}.yaml", payload.strategy_name);
+    let local_path = format!("workspace/strategies/{}.yaml", payload.strategy_name);
+    let fallback_path = format!("{}.yaml", payload.strategy_name);
 
-    let yaml_content = std::fs::read_to_string(&local_path)
-        .or_else(|_| std::fs::read_to_string(&prod_path))
+    let yaml_content = std::fs::read_to_string(&workspace_path)
+        .or_else(|_| std::fs::read_to_string(&local_path))
+        .or_else(|_| std::fs::read_to_string(&fallback_path))
         .map_err(|e| (StatusCode::NOT_FOUND, format!("Strategy not found: {}", e)))?;
 
     // Create backtest engine
