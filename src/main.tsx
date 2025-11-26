@@ -14,7 +14,7 @@ const apiUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-da
 
 getHTTPDataProvider({
   baseUrl: apiUrl,
-  timeout: 30000
+  timeout: 60000  // 60s to handle Fly.io cold starts
 });
 chartDataCoordinator.enableHTTP(true);
 
