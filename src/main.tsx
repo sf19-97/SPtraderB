@@ -2,23 +2,11 @@ import ReactDOM from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import { DatesProvider } from '@mantine/dates';
 import { Notifications } from '@mantine/notifications';
-import { getHTTPDataProvider, chartDataCoordinator } from 'sptrader-chart-lib';
 import App from './App';
 import '@mantine/core/styles.css';
 import '@mantine/dates/styles.css';
 import '@mantine/notifications/styles.css';
 import 'dayjs/locale/en';
-
-// Configure the chart library to use your ws-market-data-server
-const apiUrl = import.meta.env.VITE_MARKET_DATA_API_URL || 'https://ws-market-data-server.fly.dev';
-
-getHTTPDataProvider({
-  baseUrl: apiUrl,
-  timeout: 60000  // 60s to handle Fly.io cold starts
-});
-chartDataCoordinator.enableHTTP(true);
-
-console.log('[Chart Library] Configured to use HTTP data from:', apiUrl);
 
 // Disable chart library logging
 declare global {
