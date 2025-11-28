@@ -25,6 +25,7 @@ export const TradingPage = () => {
             timeframe={selectedTimeframe}
             isFullscreen={isChartFullscreen}
             onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
+            preloadAdjacentTimeframes={true}
           />
         </Box>
 
