@@ -29,7 +29,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.6.2",
-    "sptrader-chart-lib": "^2.0.14",
+    "sptrader-chart-lib": "file:../sptrader-chart-lib/sptrader-chart-lib-2.0.15.tgz",
     "talib-web": "^0.1.3",
     "zustand": "^5.0.5"
   },
