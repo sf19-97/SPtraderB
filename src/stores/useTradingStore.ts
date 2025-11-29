@@ -9,7 +9,7 @@ interface CatalogSymbol {
 }
 
 interface TradingState {
-  // Chart settings (from TradingContext)
+  // Chart settings
   selectedPair: string;
   selectedTimeframe: string;
   chartType: 'candlestick' | 'line' | 'bar';
@@ -45,7 +45,7 @@ export const useTradingStore = create<TradingState>()(
   devtools(
     persist(
       (set, get) => ({
-        // Initial state - matches TradingContext defaults
+        // Initial state
         selectedPair: 'EURUSD',
         selectedTimeframe: '1h',
         chartType: 'candlestick',
@@ -66,7 +66,7 @@ export const useTradingStore = create<TradingState>()(
           lastFetched: null,
         },
 
-        // Actions - same API as TradingContext
+        // Actions
         setPair: (pair) => {
           set((_state) => {
             return { selectedPair: pair };
@@ -155,7 +155,7 @@ export const useTradingStore = create<TradingState>()(
         },
       }),
       {
-        name: 'trading-storage',
+        name: 'sptraderb-trading-storage', // Unique key to avoid conflicts with chart library
         // Only persist user preferences, not UI state
         partialize: (state) => ({
           selectedPair: state.selectedPair,
@@ -172,12 +172,12 @@ export const useTradingStore = create<TradingState>()(
   )
 );
 
-// Compatibility hook to ease migration
+// Compatibility hook for simplified access
 export const useTrading = () => {
   const state = useTradingStore();
   return {
     ...state,
-    // Ensure complete compatibility with TradingContext API
+    // Ensure all actions are available
     setTimeframe: state.setTimeframe,
   };
 };
