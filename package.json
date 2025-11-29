@@ -12,7 +12,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "typecheck": "tsc --noEmit",
     "check-all": "npm run typecheck && npm run lint",
-    "errors": "node check-errors.js"
+    "errors": "node check-errors.js",
+    "deploy": "npm update sptrader-chart-lib && git add -A && git commit -m 'update chart lib' && git push"
   },
   "dependencies": {
     "@mantine/charts": "^8.1.0",
