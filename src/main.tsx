@@ -14,7 +14,7 @@ declare global {
     __CHART_LOG_LEVEL__?: string;
   }
 }
-window.__CHART_LOG_LEVEL__ = 'ERROR'; // Only show errors, suppress INFO/WARN/DEBUG logs
+window.__CHART_LOG_LEVEL__ = 'DEBUG'; // Enable debug logging
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <MantineProvider defaultColorScheme="dark">

@@ -94,21 +94,18 @@ export const useTradingStore = create<TradingState>()(
           }));
         },
 
-        // Fetch catalog data from API (cached)
+        // Fetch catalog data from API (caching disabled for debugging)
         fetchCatalog: async () => {
           const { catalog } = get();
-
-          // Skip if already fetched within last 5 minutes
-          if (catalog.lastFetched && Date.now() - catalog.lastFetched < 5 * 60 * 1000) {
-            console.log('[TradingStore] Using cached catalog data');
-            return;
-          }
 
           // Skip if already loading
           if (catalog.loading) {
             console.log('[TradingStore] Catalog fetch already in progress');
             return;
           }
+
+          // Caching disabled - always fetch fresh
+          console.log('[TradingStore] Fetching catalog (caching disabled)');
 
           set((state) => ({
             catalog: { ...state.catalog, loading: true, error: null },
