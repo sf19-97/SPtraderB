@@ -8,8 +8,7 @@ import { useTradingStore } from '../stores/useTradingStore';
 
 export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const { selectedPair, selectedTimeframe, setTimeframe } = useTradingStore();
-  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
+  const { selectedPair } = useTradingStore();
 
   return (
     <Box style={{ display: 'flex', height: '100%', width: '100%' }}>
@@ -22,10 +21,6 @@ export const TradingPage = () => {
         <Box style={{ flex: 1, background: '#0a0a0a', position: 'relative' }}>
           <MarketDataChart
             symbol={selectedPair}
-            timeframe={selectedTimeframe}
-            isFullscreen={isChartFullscreen}
-            onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
-            onTimeframeChange={(tf: string) => setTimeframe(tf)}
             preloadAdjacentTimeframes={true}
           />
         </Box>
