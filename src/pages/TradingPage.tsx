@@ -8,11 +8,11 @@ import { useTradingStore } from '../stores/useTradingStore';
 
 export const TradingPage = () => {
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const { selectedPair, selectedTimeframe } = useTradingStore();
+  const { selectedPair, selectedTimeframe, setTimeframe } = useTradingStore();
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
 
   return (
-    <Box style={{ display: 'flex', height: '100vh', width: '100%' }}>
+    <Box style={{ display: 'flex', height: '100%', width: '100%' }}>
       {/* Main content area */}
       <Box style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Market Data Bar at top */}
@@ -25,6 +25,7 @@ export const TradingPage = () => {
             timeframe={selectedTimeframe}
             isFullscreen={isChartFullscreen}
             onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
+            onTimeframeChange={(tf: string) => setTimeframe(tf)}
             preloadAdjacentTimeframes={true}
           />
         </Box>
