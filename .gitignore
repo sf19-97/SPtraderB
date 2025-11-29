@@ -14,9 +14,6 @@ dist-ssr/
 *.sln
 *.sw?
 
-# Tauri
-src-tauri/target/
-src-tauri/WixTools/
 
 # Python
 data-ingestion/venv/

@@ -1,11 +1,6 @@
 # API directory (separate deployment - Rust backend only)
 /api/
 
-# Rust/Tauri (not needed for web)
-src-tauri/
-target/
-Cargo.toml
-Cargo.lock
 
 # Python workspace (not needed for web)
 workspace/
