@@ -1,0 +1,21 @@
+name: Deploy Market Data Server to Fly.io
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/market-data-server/**'
+
+jobs:
+  deploy:
+    name: Deploy market-data-server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/market-data-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.DEPLOYTOFLY }}

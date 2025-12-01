@@ -57,7 +57,7 @@ data-ingestion/backfill/dukascopy/data/*.parquet
 *.parquet
 
 # Build artifacts
-backend/target/
+backend/api/target/
 target/
 orders.db
 
@@ -76,7 +76,7 @@ test-*.log
 test-*.sh
 
 # Backend backtests (runtime generated)
-backend/backtests/
+backend/api/backtests/
 
 # Temporary logs
 /tmp/*.log
