@@ -1,7 +1,7 @@
 # Dependencies
-node_modules/
-dist/
-dist-ssr/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
 *.local
 
 # Editor directories and files
@@ -57,6 +57,7 @@ data-ingestion/backfill/dukascopy/data/*.parquet
 *.parquet
 
 # Build artifacts
+backend/target/
 target/
 orders.db
 
@@ -74,8 +75,8 @@ test-*.json
 test-*.log
 test-*.sh
 
-# API backtests (runtime generated)
-api/backtests/
+# Backend backtests (runtime generated)
+backend/backtests/
 
 # Temporary logs
 /tmp/*.log

@@ -1,12 +1,8 @@
-# API directory (separate deployment - Rust backend only)
-/api/
+# Backend directory (separate deployment - Rust backend only)
+/backend/
 
-
-# Python workspace (not needed for web)
-workspace/
-
-# Data ingestion (not needed for web)
-data-ingestion/
+# Services directory (Python services not needed for web)
+/services/
 
 # Documentation
 *.md
@@ -27,8 +23,8 @@ test-*
 .env
 .env.local
 
-# Build artifacts from Rust
-api/target/
+# Build artifacts
+backend/target/
 
 # Database files
 *.db
