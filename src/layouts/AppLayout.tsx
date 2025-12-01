@@ -12,7 +12,6 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconRobot,
-  IconChartCandle,
 } from '@tabler/icons-react';
 
 export const AppLayout = () => {
@@ -24,7 +23,6 @@ export const AppLayout = () => {
     { path: '/trading', label: 'Trading', icon: IconChartLine },
     { path: '/build', label: 'Build', icon: IconCode },
     { path: '/market-data', label: 'Market Data', icon: IconDatabase },
-    { path: '/market-chart', label: 'Market Chart', icon: IconChartCandle },
     { path: '/history', label: 'History', icon: IconHistory },
     { path: '/orchestrator', label: 'Orchestrator', icon: IconRobot },
   ];

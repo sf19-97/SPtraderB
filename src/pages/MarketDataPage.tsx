@@ -24,7 +24,7 @@ export function MarketDataPage() {
             <Button
               size="lg"
               leftSection={<IconChartLine size={20} />}
-              onClick={() => navigate('/market-chart')}
+              onClick={() => navigate('/')}
               variant="gradient"
               gradient={{ from: 'blue', to: 'cyan' }}
             >

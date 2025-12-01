@@ -27,7 +27,6 @@ const OrdersPage = lazy(() => import('./pages/OrdersPage').then(m => ({ default:
 const MonacoIDE = lazy(() => import('./components/MonacoIDE').then(m => ({ default: m.MonacoIDE })));
 const OrchestratorPage = lazy(() => import('./pages/OrchestratorPage').then(m => ({ default: m.OrchestratorPage })));
 const MarketDataPage = lazy(() => import('./pages/MarketDataPage').then(m => ({ default: m.MarketDataPage })));
-const MarketChartPage = lazy(() => import('./pages/MarketChartPage').then(m => ({ default: m.MarketChartPage })));
 
 function App() {
   const [showMatrix, setShowMatrix] = useState(true);
@@ -37,12 +36,11 @@ function App() {
     // Preload critical components while Matrix is showing
     const preloadComponents = async () => {
       try {
-        // Start loading the most likely first page
-        await import('./pages/MarketChartPage');
+        // Start loading the most likely first page (Trading)
+        await import('./pages/TradingPage');
 
         // Preload other critical components in parallel
         await Promise.all([
-          import('./pages/TradingPage'),
           import('./layouts/AppLayout'),
         ]);
 
@@ -118,14 +116,13 @@ function App() {
         >
           <Routes>
             <Route path="/" element={<AppLayout />}>
-              <Route index element={<Navigate to="/market-chart" />} />
+              <Route index element={<Navigate to="/trading" />} />
               <Route path="trading" element={<TradingPage />} />
               <Route path="build" element={<BuildPage />} />
               <Route path="history" element={<OrdersPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="orchestrator" element={<OrchestratorPage />} />
               <Route path="market-data" element={<MarketDataPage />} />
-              <Route path="market-chart" element={<MarketChartPage />} />
             </Route>
 
             {/* IDE route outside AppLayout for full screen */}
