@@ -1,9 +1,6 @@
 # Backend directory (separate deployment - Rust backend only)
 /backend/
 
-# Services directory (Python services not needed for web)
-/services/
-
 # Documentation
 *.md
 !README.md
