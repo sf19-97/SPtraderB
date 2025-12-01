@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "rootDirectory": "frontend",
   "buildCommand": "VITE_API_URL=https://sptraderb-api.fly.dev npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
