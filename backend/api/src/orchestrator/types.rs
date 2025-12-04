@@ -1,7 +1,9 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{atomic::AtomicBool, Arc};
+use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyConfig {
@@ -46,6 +48,7 @@ pub struct BacktestResult {
     pub end_capital: Decimal,
     pub signals_generated: u32,
     pub daily_returns: Vec<(DateTime<Utc>, Decimal)>,
+    pub completed_trades: Vec<Trade>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,7 +129,10 @@ impl Portfolio {
 
         for (symbol, position) in &self.positions {
             if let Some(price) = current_prices.get(symbol) {
-                let value = position.size * price;
+                let value = match position.side {
+                    PositionSide::Long => position.size * price,
+                    PositionSide::Short => -(position.size * price),
+                };
                 position_value += value;
             }
         }
@@ -160,34 +166,46 @@ pub struct RiskManager {
 
 impl RiskManager {
     pub fn from_strategy_config(config: &StrategyConfig) -> Self {
-        use std::str::FromStr;
         use rust_decimal::prelude::*;
+        use std::str::FromStr;
 
-        let max_drawdown = config.risk.get("max_drawdown")
+        let max_drawdown = config
+            .risk
+            .get("max_drawdown")
             .and_then(|v| v.as_f64())
             .and_then(Decimal::from_f64)
             .unwrap_or(Decimal::from_str("0.15").unwrap());
 
-        let daily_loss_limit = config.risk.get("daily_loss_limit")
+        let daily_loss_limit = config
+            .risk
+            .get("daily_loss_limit")
             .and_then(|v| v.as_f64())
             .and_then(Decimal::from_f64)
             .unwrap_or(Decimal::from_str("0.03").unwrap());
 
-        let position_limit = config.risk.get("position_limit")
+        let position_limit = config
+            .risk
+            .get("position_limit")
             .and_then(|v| v.as_f64())
             .and_then(Decimal::from_f64)
             .unwrap_or(Decimal::from_str("0.05").unwrap());
 
-        let max_positions = config.parameters.get("max_positions")
+        let max_positions = config
+            .parameters
+            .get("max_positions")
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as usize;
 
-        let stop_loss = config.parameters.get("stop_loss")
+        let stop_loss = config
+            .parameters
+            .get("stop_loss")
             .and_then(|v| v.as_f64())
             .and_then(Decimal::from_f64)
             .unwrap_or(Decimal::from_str("0.02").unwrap());
 
-        let take_profit = config.parameters.get("take_profit")
+        let take_profit = config
+            .parameters
+            .get("take_profit")
             .and_then(|v| v.as_f64())
             .and_then(Decimal::from_f64)
             .unwrap_or(Decimal::from_str("0.04").unwrap());
@@ -205,19 +223,33 @@ impl RiskManager {
     pub fn check_risk_limits(&self, portfolio: &Portfolio) -> Result<(), String> {
         // Check max drawdown
         if portfolio.max_drawdown > self.max_drawdown_limit {
-            return Err(format!("Max drawdown limit exceeded: {:.2}% > {:.2}%",
+            return Err(format!(
+                "Max drawdown limit exceeded: {:.2}% > {:.2}%",
                 portfolio.max_drawdown * Decimal::from(100),
-                self.max_drawdown_limit * Decimal::from(100)));
+                self.max_drawdown_limit * Decimal::from(100)
+            ));
         }
 
         // Check daily loss limit
         let daily_loss_pct = -portfolio.daily_pnl / portfolio.initial_capital;
         if daily_loss_pct > self.daily_loss_limit {
-            return Err(format!("Daily loss limit exceeded: {:.2}% > {:.2}%",
+            return Err(format!(
+                "Daily loss limit exceeded: {:.2}% > {:.2}%",
                 daily_loss_pct * Decimal::from(100),
-                self.daily_loss_limit * Decimal::from(100)));
+                self.daily_loss_limit * Decimal::from(100)
+            ));
         }
 
         Ok(())
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct BacktestState {
+    pub status: String, // running | completed | failed | cancelled
+    pub progress: f64,  // 0.0 - 100.0
+    pub error: Option<String>,
+    pub cancel_flag: Arc<AtomicBool>,
+}
+
+pub type BacktestRegistry = Arc<RwLock<HashMap<String, BacktestState>>>;

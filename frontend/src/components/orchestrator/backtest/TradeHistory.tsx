@@ -34,35 +34,21 @@ export function TradeHistory() {
     }
   }, [highlightedTradeId]);
 
-  // Use completed_trades if available, otherwise try to reconstruct from orders
+  // Use completed trades from backtest results
   let trades: Trade[] = [];
 
   if (backtestResults?.completed_trades && backtestResults.completed_trades.length > 0) {
-    // Use actual completed trades from backtest
     trades = backtestResults.completed_trades.map((trade: any) => ({
       id: trade.id,
       entryTime: new Date(trade.entry_time).toLocaleString(),
       exitTime: new Date(trade.exit_time).toLocaleString(),
       symbol: trade.symbol,
-      side: trade.side?.toLowerCase() === 'long' ? 'buy' : 'sell',
+      side: trade.side === 'long' ? 'buy' : 'sell',
       quantity: Number(trade.quantity || 0),
       entryPrice: Number(trade.entry_price || 0),
       exitPrice: trade.exit_price ? Number(trade.exit_price) : undefined,
       pnl: trade.pnl !== undefined && trade.pnl !== null ? Number(trade.pnl) : undefined,
-      signalType: trade.exit_reason || 'Signal',
-    }));
-  } else if (backtestResults?.executedOrders && backtestResults.executedOrders.length > 0) {
-    // Fallback to executed orders
-    trades = backtestResults.executedOrders.map((order: any) => ({
-      entryTime: new Date(order.created_at || Date.now()).toLocaleString(),
-      exitTime: order.filled_at ? new Date(order.filled_at).toLocaleString() : undefined,
-      symbol: order.symbol,
-      side: order.side.toLowerCase() as 'buy' | 'sell',
-      quantity: Number(order.quantity || 0),
-      entryPrice: Number(order.metadata?.entry_price || 0),
-      exitPrice: order.metadata?.exit_price ? Number(order.metadata.exit_price) : undefined,
-      pnl: order.metadata?.pnl !== undefined ? Number(order.metadata.pnl) : undefined,
-      signalType: order.metadata?.signal_type,
+      signalType: trade.exit_reason || 'signal',
     }));
   }
 

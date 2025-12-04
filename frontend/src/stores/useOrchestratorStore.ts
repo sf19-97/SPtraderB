@@ -41,6 +41,7 @@ interface OrchestratorState {
   backtestResults: BacktestResults | null;
   isBacktestRunning: boolean;
   currentBacktestId: string | null;
+  progress: number;
 
   // Live Trading
   isConnected: boolean;
@@ -63,6 +64,7 @@ interface OrchestratorState {
   setBacktestResults: (results: BacktestResults | null) => void;
   setIsBacktestRunning: (running: boolean) => void;
   setCurrentBacktestId: (id: string | null) => void;
+  setProgress: (p: number) => void;
   setIsConnected: (connected: boolean) => void;
   setPortfolioState: (state: PortfolioState | null) => void;
   addLog: (log: LogEntry) => void;
@@ -94,6 +96,7 @@ const initialState = {
   backtestResults: null,
   isBacktestRunning: false,
   currentBacktestId: null,
+  progress: 0,
   isConnected: false,
   portfolioState: null,
   logs: [],
@@ -127,6 +130,8 @@ export const useOrchestratorStore = create<OrchestratorState>()(
         setIsBacktestRunning: (running) => set({ isBacktestRunning: running }),
 
         setCurrentBacktestId: (id) => set({ currentBacktestId: id }),
+
+        setProgress: (p) => set({ progress: p }),
 
         setIsConnected: (connected) => set({ isConnected: connected }),
 

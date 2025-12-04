@@ -88,7 +88,8 @@ export class R2Client {
     const day = String(date.getUTCDate()).padStart(2, '0');
     const timestamp = Date.now();
 
-    const key = `ticks/${symbol}/${year}/${month}/${day}/part-${timestamp}.json`;
+    const prefix = process.env.TICKS_PREFIX || 'ticks';
+    const key = `${prefix}/${symbol}/${year}/${month}/${day}/part-${timestamp}.json`;
 
     try {
       await this.s3.send(new PutObjectCommand({
@@ -154,7 +155,8 @@ export class R2Client {
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const day = String(date.getUTCDate()).padStart(2, '0');
 
-    const prefix = `ticks/${symbol}/${year}/${month}/${day}/`;
+    const basePrefix = process.env.TICKS_PREFIX || 'ticks';
+    const prefix = `${basePrefix}/${symbol}/${year}/${month}/${day}/`;
 
     logger.debug({ prefix }, 'Listing tick files from R2');
 

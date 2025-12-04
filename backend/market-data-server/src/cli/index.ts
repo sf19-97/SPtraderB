@@ -32,7 +32,10 @@ const COMMANDS: Record<string, string> = {
   materialize: 'materialize.ts',
   migrate: 'migrate.ts',
   backfill: 'backfill.ts',
-  analyze: 'analyze.ts'
+  analyze: 'analyze.ts',
+  verify: 'verify.ts',
+  'normalize-ticks': 'normalize-ticks.ts',
+  'heal-ticks': 'heal-ticks.ts'
 };
 
 function showUsage(): void {
@@ -44,7 +47,7 @@ Usage:
 
 Commands:
   import      Import tick data from Dukascopy to R2
-              Usage: import <SYMBOL> <START_DATE> <END_DATE> [CHUNK_HOURS] [DELAY_SECONDS]
+              Usage: import <SYMBOL> <START_DATE> <END_DATE> [CHUNK_HOURS] [DELAY_SECONDS] [CONCURRENCY] [--local-dir=<path>] [--local-only]
 
   materialize Materialize R2 candles to PostgreSQL
               Usage: materialize <SYMBOL> <START_DATE> [END_DATE] [--dry-run]
@@ -63,6 +66,9 @@ Examples:
   npx tsx src/cli/index.ts materialize EURUSD 2024-01-01 2024-12-31
   npx tsx src/cli/index.ts migrate EURUSD 2024-01-01 2024-12-31
   npx tsx src/cli/index.ts backfill EURUSD 2024-01-01 2024-12-31 --dry-run
+  npx tsx src/cli/index.ts verify EURUSD 2024-01-01 2024-12-31
+  npx tsx src/cli/index.ts normalize-ticks EURUSD 2024-01-01 2024-12-31
+  npx tsx src/cli/index.ts heal-ticks EURUSD 2024-01-01 2024-12-31
   npx tsx src/cli/index.ts analyze --sample
 `);
 }

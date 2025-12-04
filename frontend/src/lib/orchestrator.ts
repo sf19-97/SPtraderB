@@ -30,14 +30,16 @@ export interface BacktestResult {
 }
 
 // Run a backtest with the specified configuration
-export async function runBacktest(config: BacktestConfig): Promise<BacktestResult> {
+export async function runBacktest(
+  config: BacktestConfig,
+  onProgress?: (progress: number, status: string) => void,
+  onId?: (id: string) => void
+): Promise<BacktestResult> {
   console.log('[Orchestrator] Running backtest:', config);
 
-  // Convert to ISO 8601 strings
   const startDate = new Date(config.startDate).toISOString();
   const endDate = new Date(config.endDate).toISOString();
 
-  // Start the backtest
   const response = await orchestratorApi.runBacktest({
     strategy_name: config.strategyName,
     start_date: startDate,
@@ -47,23 +49,30 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     initial_capital: config.initialCapital,
   });
 
-  console.log('[Orchestrator] Backtest started:', response.backtest_id);
-
-  // Poll for completion
   const backtestId = response.backtest_id;
+  onId?.(backtestId);
+
+  console.log('[Orchestrator] Backtest started:', backtestId);
+
+  // Poll for completion or failure/cancel
   let status = await orchestratorApi.getBacktestStatus(backtestId);
 
   while (status.status === 'running') {
-    await new Promise((resolve) => setTimeout(resolve, 1000)); // Poll every second
+    onProgress?.(status.progress ?? 0, status.status);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     status = await orchestratorApi.getBacktestStatus(backtestId);
     console.log('[Orchestrator] Backtest status:', status);
   }
 
-  // Get final results
+  onProgress?.(status.progress ?? 100, status.status);
+
+  if (status.status === 'failed' || status.status === 'cancelled') {
+    throw new Error(`Backtest ${status.status}`);
+  }
+
   const results = await orchestratorApi.getBacktestResults(backtestId);
   console.log('[Orchestrator] Backtest completed:', results);
 
-  // Convert to expected format
   return {
     backtest_id: results.backtest_id,
     result: {
@@ -76,6 +85,8 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
       max_drawdown: results.max_drawdown,
       sharpe_ratio: results.sharpe_ratio,
       signals_generated: results.signals_generated,
+      completed_trades: results.completed_trades,
+      daily_returns: results.daily_returns as any,
     },
   };
 }

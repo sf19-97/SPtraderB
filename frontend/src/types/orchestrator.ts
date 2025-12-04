@@ -32,8 +32,6 @@ export interface BacktestResults {
   sharpeRatio: number;
   signalsGenerated?: any[] | number;
   signals_generated?: any[]; // Snake case version from Rust
-  executedOrders?: any[];
-  executed_orders?: any[]; // Snake case version from Rust
   completed_trades?: any[];
   finalPortfolio?: any;
   final_portfolio?: any; // Snake case version from Rust

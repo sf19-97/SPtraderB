@@ -1,32 +1,34 @@
 use axum::{
-    extract::{State, Path, Query, WebSocketUpgrade},
-    http::{StatusCode, Method},
+    extract::{Path, Query, State, WebSocketUpgrade},
+    http::{Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post, delete, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use std::collections::HashMap;
 use std::sync::Arc;
-use tower_http::cors::{CorsLayer, Any};
-use tracing::{info, error};
+use tower_http::cors::{Any, CorsLayer};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // Core business logic modules
 // Note: Market data (live AND historical) is handled by ws-market-data-server
-mod database;     // Database utilities (optional - can use filesystem)
+mod database; // Database utilities (optional - can use filesystem)
 mod orchestrator; // Backtesting engine (fetches data from ws-market-data-server)
-mod workspace;    // Workspace management
+mod workspace; // Workspace management
 
 // Optional - only if needed for backtesting simulation
-mod execution;    // Order execution simulation
-mod orders;       // Order management
+mod execution; // Order execution simulation
+mod orders; // Order management
 
 // Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
     db: Option<sqlx::PgPool>,
     redis: Option<redis::Client>,
+    backtests: orchestrator::BacktestRegistry,
 }
 
 #[derive(Serialize)]
@@ -63,7 +65,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/sptraderb".to_string());
 
-    info!("Attempting database connection: {}", database_url.split('@').last().unwrap_or("localhost"));
+    info!(
+        "Attempting database connection: {}",
+        database_url.split('@').last().unwrap_or("localhost")
+    );
 
     let pool = match PgPoolOptions::new()
         .max_connections(20)
@@ -75,14 +80,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(pool)
         }
         Err(e) => {
-            error!("Failed to connect to database: {}. Continuing without database...", e);
+            error!(
+                "Failed to connect to database: {}. Continuing without database...",
+                e
+            );
             None
         }
     };
 
     // Optional Redis connection
-    let redis_url = std::env::var("REDIS_URL")
-        .unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
 
     let redis_client = match redis::Client::open(redis_url) {
         Ok(client) => {
@@ -90,21 +98,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(client)
         }
         Err(e) => {
-            error!("Failed to initialize Redis: {}. Continuing without Redis...", e);
+            error!(
+                "Failed to initialize Redis: {}. Continuing without Redis...",
+                e
+            );
             None
         }
     };
+
+    let backtests: orchestrator::BacktestRegistry =
+        Arc::new(tokio::sync::RwLock::new(HashMap::new()));
 
     // Create application state
     let state = AppState {
         db: pool,
         redis: redis_client,
+        backtests,
     };
 
     // Configure CORS
     let cors = CorsLayer::new()
         .allow_origin(Any)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::PATCH,
+        ])
         .allow_headers(Any);
 
     // Build router
@@ -113,41 +134,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         // Health check
         .route("/health", get(health_check))
-
         // Backtest routes (core feature)
-        .route("/api/backtest/run", post(orchestrator::handlers::run_backtest))
-        .route("/api/backtest/:id/status", get(orchestrator::handlers::get_backtest_status))
-        .route("/api/backtest/:id/results", get(orchestrator::handlers::get_backtest_results))
-        .route("/api/backtest/:id/cancel", post(orchestrator::handlers::cancel_backtest))
-
+        .route(
+            "/api/backtest/run",
+            post(orchestrator::handlers::run_backtest),
+        )
+        .route(
+            "/api/backtest/:id/status",
+            get(orchestrator::handlers::get_backtest_status),
+        )
+        .route(
+            "/api/backtest/:id/results",
+            get(orchestrator::handlers::get_backtest_results),
+        )
+        .route(
+            "/api/backtest/:id/cancel",
+            post(orchestrator::handlers::cancel_backtest),
+        )
         // WebSocket for backtest progress updates
-        .route("/ws/backtest/:id", get(orchestrator::handlers::backtest_websocket))
-
+        .route(
+            "/ws/backtest/:id",
+            get(orchestrator::handlers::backtest_websocket),
+        )
         // Workspace management (save/load projects)
         .route("/api/workspace", get(workspace::handlers::list_workspaces))
         .route("/api/workspace", post(workspace::handlers::save_workspace))
-        .route("/api/workspace/:id", get(workspace::handlers::get_workspace))
-        .route("/api/workspace/:id", delete(workspace::handlers::delete_workspace))
-
+        .route(
+            "/api/workspace/:id",
+            get(workspace::handlers::get_workspace),
+        )
+        .route(
+            "/api/workspace/:id",
+            delete(workspace::handlers::delete_workspace),
+        )
         // Workspace file management (NEW)
-        .route("/api/workspace/tree", get(workspace::handlers::get_workspace_tree))
-        .route("/api/workspace/files", post(workspace::handlers::create_file))
-        .route("/api/workspace/files/*path", get(workspace::handlers::read_file))
-        .route("/api/workspace/files/*path", put(workspace::handlers::save_file))
-        .route("/api/workspace/files/*path", delete(workspace::handlers::delete_file))
-        .route("/api/workspace/rename", post(workspace::handlers::rename_file))
-        .route("/api/workspace/components", get(workspace::handlers::get_components))
-        .route("/api/workspace/categories/:type", get(workspace::handlers::get_categories))
-        .route("/api/workspace/run-component", post(workspace::handlers::run_component))
-
+        .route(
+            "/api/workspace/tree",
+            get(workspace::handlers::get_workspace_tree),
+        )
+        .route(
+            "/api/workspace/files",
+            post(workspace::handlers::create_file),
+        )
+        .route(
+            "/api/workspace/files/*path",
+            get(workspace::handlers::read_file),
+        )
+        .route(
+            "/api/workspace/files/*path",
+            put(workspace::handlers::save_file),
+        )
+        .route(
+            "/api/workspace/files/*path",
+            delete(workspace::handlers::delete_file),
+        )
+        .route(
+            "/api/workspace/rename",
+            post(workspace::handlers::rename_file),
+        )
+        .route(
+            "/api/workspace/components",
+            get(workspace::handlers::get_components),
+        )
+        .route(
+            "/api/workspace/categories/:type",
+            get(workspace::handlers::get_categories),
+        )
+        .route(
+            "/api/workspace/run-component",
+            post(workspace::handlers::run_component),
+        )
         // Note: Candle queries are handled by ws-market-data-server
         // Backtesting fetches historical data via HTTP from ws-market-data-server
-
         // Strategy management (load/save YAML strategies)
-        .route("/api/strategies", get(orchestrator::handlers::list_strategies))
-        .route("/api/strategies/:name", get(orchestrator::handlers::get_strategy))
-        .route("/api/strategies/:name", post(orchestrator::handlers::save_strategy))
-
+        .route(
+            "/api/strategies",
+            get(orchestrator::handlers::list_strategies),
+        )
+        .route(
+            "/api/strategies/:name",
+            get(orchestrator::handlers::get_strategy),
+        )
+        .route(
+            "/api/strategies/:name",
+            post(orchestrator::handlers::save_strategy),
+        )
         // Apply middleware
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())

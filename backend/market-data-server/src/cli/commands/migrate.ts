@@ -36,6 +36,13 @@ export class TickToCandleMigrator {
     }
   }
 
+  private expectedBarsForDay(d: Date): number {
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) return 0; // weekend
+    if (dow === 5) return 18 * 12; // Friday truncated (skip weekend close window)
+    return 24 * 12;
+  }
+
   private buildFiveMinuteCandles(symbol: string, ticks: Tick[]): Candle[] {
     if (ticks.length === 0) return [];
 
@@ -97,6 +104,75 @@ export class TickToCandleMigrator {
     }
 
     return candles;
+  }
+
+  private validateCandlesIntegrity(candles: Candle[], context: string): void {
+    const issues: string[] = [];
+    const dayMap = new Map<string, Candle[]>();
+
+    for (const candle of candles) {
+      const values = [candle.open, candle.high, candle.low, candle.close];
+      if (values.some((v) => typeof v !== 'number' || !Number.isFinite(v))) {
+        issues.push(`${context}: non-finite OHLC at ${candle.time.toISOString()}`);
+        continue;
+      }
+      if (candle.high < candle.low) {
+        issues.push(`${context}: high < low at ${candle.time.toISOString()}`);
+        continue;
+      }
+      if (!(candle.time instanceof Date) || Number.isNaN(candle.time.getTime())) {
+        issues.push(`${context}: invalid time on candle`);
+        continue;
+      }
+
+      const day = candle.time.toISOString().split('T')[0];
+      if (!dayMap.has(day)) dayMap.set(day, []);
+      dayMap.get(day)!.push(candle);
+    }
+
+    for (const [day, dayCandles] of dayMap) {
+      const dow = new Date(day + 'T00:00:00Z').getUTCDay();
+      dayCandles.sort((a, b) => a.time.getTime() - b.time.getTime());
+      const uniqTimes = new Set<number>();
+      let stepIssues = 0;
+      for (let i = 0; i < dayCandles.length; i++) {
+        const t = dayCandles[i].time.getTime();
+        if (uniqTimes.has(t)) {
+          issues.push(`${context}: duplicate candle at ${day} ${dayCandles[i].time.toISOString()}`);
+        }
+        uniqTimes.add(t);
+
+        if (i > 0) {
+          const delta = t - dayCandles[i - 1].time.getTime();
+          if (delta !== 300000) {
+            stepIssues++;
+          }
+        }
+      }
+      if (stepIssues > 0) {
+        const msg = `${context}: ${stepIssues} non-5m gaps/overlaps on ${day}`;
+        if (dow === 5) {
+          logger.warn(msg);
+        } else {
+          logger.warn(msg);
+        }
+      }
+
+      const expected = this.expectedBarsForDay(new Date(day + 'T00:00:00Z'));
+      const tolerance = dow === 5 ? 0.75 : 0.95;
+      if (expected > 0 && dayCandles.length < expected * tolerance) {
+        if (dow === 5) {
+          logger.warn(`${context}: only ${dayCandles.length}/${expected} candles on ${day} (Friday, tolerated)`);
+        } else {
+          logger.warn(`${context}: only ${dayCandles.length}/${expected} candles on ${day}`);
+        }
+      }
+    }
+
+    if (issues.length > 0) {
+      const preview = issues.slice(0, 5).join('; ');
+      throw new Error(`Candle integrity check failed (${issues.length} issues). ${preview}`);
+    }
   }
 
   private cleanTicks(ticks: Tick[], qualityThreshold: number = 5): Tick[] {
@@ -224,6 +300,7 @@ export class TickToCandleMigrator {
 
       console.log(`   🕯️  Building candles from ${cleanedTicks.length.toLocaleString()} clean ticks...`);
       const candles = this.buildFiveMinuteCandles(symbol, cleanedTicks);
+      this.validateCandlesIntegrity(candles, monthKey);
 
       if (dryRun) {
         logger.info(

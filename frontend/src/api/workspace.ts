@@ -182,6 +182,23 @@ export interface BacktestResults {
   max_drawdown: number;
   sharpe_ratio: number;
   signals_generated: number;
+  daily_returns?: any;
+  completed_trades: Trade[];
+}
+
+export interface Trade {
+  id: string;
+  symbol: string;
+  side: string;
+  entry_time: string;
+  entry_price: number;
+  exit_time: string;
+  exit_price: number;
+  quantity: number;
+  pnl: number;
+  pnl_percent: number;
+  exit_reason: string;
+  holding_period_hours: number;
 }
 
 export const orchestratorApi = {

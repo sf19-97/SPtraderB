@@ -1,0 +1,19 @@
+defaults:
+  source_tz: Europe/Zurich
+  session:
+    mon_thu:
+      open: "00:00"
+      close: "24:00"
+    fri:
+      open: "00:00"
+      close: "22:00"
+brokers:
+  dukascopy:
+    source_tz: Europe/Zurich
+    session:
+      mon_thu:
+        open: "00:00"
+        close: "24:00"
+      fri:
+        open: "00:00"
+        close: "22:00"

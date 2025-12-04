@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { CandlesService } from '../../services/candlesService.js';
 import { MetadataService } from '../../services/metadataService.js';
 import { ApiError, sanitizeSymbol } from '../../middleware/validation.js';
-import { CACHE_DURATIONS } from '../../utils/constants.js';
+import { CACHE_DURATIONS, MAX_API_DATE_RANGE } from '../../utils/constants.js';
 import { Timeframe } from '../../types/index.js';
 
 /**
@@ -73,15 +73,42 @@ export class CandlesController {
       );
     }
 
+    // Validate from/to are numeric
+    if (!/^\d+$/.test(from) || !/^\d+$/.test(to)) {
+      throw new ApiError(
+        400,
+        "'from' and 'to' must be Unix timestamps in seconds (numeric values)",
+        'INVALID_TIMESTAMP'
+      );
+    }
+
     const normalizedSymbol = sanitizeSymbol(symbol);
     const fromTimestamp = parseInt(from);
     const toTimestamp = parseInt(to);
 
-    // Validate timeframe
-    if (!['1m', '5m', '15m', '1h', '4h', '12h'].includes(timeframe)) {
+    // Validate from < to
+    if (fromTimestamp >= toTimestamp) {
       throw new ApiError(
         400,
-        `Invalid timeframe '${timeframe}'. Must be one of: 1m, 5m, 15m, 1h, 4h, 12h`,
+        "'from' timestamp must be before 'to' timestamp",
+        'INVALID_DATE_RANGE'
+      );
+    }
+
+    // Validate max date range (2 years)
+    if (toTimestamp - fromTimestamp > MAX_API_DATE_RANGE) {
+      throw new ApiError(
+        400,
+        'Date range cannot exceed 2 years',
+        'DATE_RANGE_EXCEEDED'
+      );
+    }
+
+    // Validate timeframe
+    if (!['5m', '15m', '1h', '4h', '12h'].includes(timeframe)) {
+      throw new ApiError(
+        400,
+        `Invalid timeframe '${timeframe}'. Must be one of: 5m, 15m, 1h, 4h, 12h`,
         'INVALID_TIMEFRAME'
       );
     }

@@ -175,17 +175,20 @@ export class MaterializationService {
       // Step 1: Download pre-built candles from R2
       const candles = await this.r2Client.downloadAllCandles(symbol, date);
 
-      if (candles.length === 0) {
-        logger.warn({ symbol, date }, 'No candles found in R2');
+      const targetDay = date.toISOString().split('T')[0];
+      const dayCandles = candles.filter(c => c.time.toISOString().split('T')[0] === targetDay);
+
+      if (dayCandles.length === 0) {
+        logger.warn({ symbol, date }, 'No candles found in R2 for day');
         return 0;
       }
 
-      logger.debug({ symbol, date, candleCount: candles.length }, 'Downloaded candles from R2');
+      logger.debug({ symbol, date, candleCount: dayCandles.length }, 'Downloaded candles from R2');
 
       // Step 2: Insert into PostgreSQL
-      await this.insertCandles(candles);
+      await this.insertCandles(dayCandles);
 
-      return candles.length;
+      return dayCandles.length;
 
     } catch (error: any) {
       logger.error({ error, symbol, date }, 'Materialization failed for day');

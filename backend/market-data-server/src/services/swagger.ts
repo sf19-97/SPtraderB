@@ -11,7 +11,7 @@ All-Purpose WebSocket Market Data Server with REST API for historical data queri
 
 ## Features
 - Real-time market data streaming via WebSocket
-- Historical OHLC candle data (1m, 5m, 15m, 1h, 4h, 12h timeframes)
+- Historical OHLC candle data (5m, 15m, 1h, 4h, 12h timeframes)
 - Symbol metadata and date range discovery
 - Multi-broker support (Binance, OANDA)
 - PostgreSQL-backed data persistence with materialized views
@@ -159,9 +159,9 @@ With a symbol parameter, returns detailed metadata for that specific symbol incl
                           type: 'array',
                           items: {
                             type: 'string',
-                            enum: ['1m', '5m', '15m', '1h', '4h', '12h']
+                            enum: ['5m', '15m', '1h', '4h', '12h']
                           },
-                          example: ['1m', '5m', '15m', '1h', '4h', '12h']
+                          example: ['5m', '15m', '1h', '4h', '12h']
                         }
                       }
                     },
@@ -194,7 +194,6 @@ With a symbol parameter, returns detailed metadata for that specific symbol incl
 Query historical OHLC (Open, High, Low, Close) candle data for a specific symbol and timeframe.
 
 ## Timeframes
-- \`1m\`: 1 minute (aggregated from raw ticks)
 - \`5m, 15m, 1h, 4h, 12h\`: Pre-computed using materialized views for fast queries
 
 ## Date Range Limits
@@ -224,7 +223,7 @@ Results are cached with ETag support for efficient re-queries.
             required: false,
             schema: {
               type: 'string',
-              enum: ['1m', '5m', '15m', '1h', '4h', '12h'],
+              enum: ['5m', '15m', '1h', '4h', '12h'],
               default: '1h'
             },
             description: 'Candle timeframe (defaults to 1h)'
@@ -339,9 +338,9 @@ Results are cached with ETag support for efficient re-queries.
             type: 'array',
             items: {
               type: 'string',
-              enum: ['1m', '5m', '15m', '1h', '4h', '12h']
+              enum: ['5m', '15m', '1h', '4h', '12h']
             },
-            example: ['1m', '5m', '15m', '1h', '4h', '12h'],
+            example: ['5m', '15m', '1h', '4h', '12h'],
             description: 'Available timeframes for this symbol'
           }
         },

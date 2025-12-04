@@ -15,6 +15,8 @@ export function BacktestRunner() {
     setBacktestResults,
     addLog,
     clearLogs,
+    setProgress,
+    progress,
   } = useOrchestratorStore();
 
   const handleRunBacktest = async () => {
@@ -60,14 +62,25 @@ export function BacktestRunner() {
           ? backtestConfig.endDate
           : new Date(backtestConfig.endDate);
 
-      const result = await runBacktest({
-        strategyName: selectedStrategy.name.replace('.yaml', ''),
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        symbol: backtestConfig.symbol,
-        timeframe: backtestConfig.timeframe,
-        initialCapital: backtestConfig.initialCapital,
-      });
+      const result = await runBacktest(
+        {
+          strategyName: selectedStrategy.name.replace('.yaml', ''),
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          symbol: backtestConfig.symbol,
+          timeframe: backtestConfig.timeframe,
+          initialCapital: backtestConfig.initialCapital,
+        },
+        (p, status) => {
+          setProgress(p);
+          addLog({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: `Backtest status: ${status} (${p.toFixed(1)}%)`,
+          });
+        },
+        (id) => setCurrentBacktestId(id)
+      );
 
       // Map snake_case from Rust to camelCase for TypeScript
       const backtestResult = result.result as any;
@@ -81,8 +94,7 @@ export function BacktestRunner() {
         maxDrawdown: backtestResult.max_drawdown,
         sharpeRatio: backtestResult.sharpe_ratio,
         signalsGenerated: backtestResult.signals_generated,
-        executedOrders: backtestResult.executed_orders,
-        completed_trades: backtestResult.completed_trades,
+        completed_trades: backtestResult.completed_trades || [],
         finalPortfolio: backtestResult.final_portfolio,
         daily_returns: backtestResult.daily_returns,
         indicatorData: backtestResult.indicator_data || {},
@@ -120,6 +132,7 @@ export function BacktestRunner() {
     } finally {
       setIsBacktestRunning(false);
       setCurrentBacktestId(null);
+      setProgress(0);
     }
   };
 
@@ -190,7 +203,7 @@ export function BacktestRunner() {
               <Text size="sm" c="dimmed">
                 Running backtest...
               </Text>
-              <Progress value={30} animated />
+              <Progress value={progress || 0} animated />
             </Stack>
           )}
         </Stack>

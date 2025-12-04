@@ -65,6 +65,11 @@ fly secrets set REDIS_URL="redis://..."
 fly deploy
 ```
 
+### GitHub Actions
+
+- `.github/workflows/api.yml` deploys the API to Fly on pushes to `main` when `backend/api/**` changes (secret `DEPLOYTOFLYNONDATASERVERAPI`).
+- `.github/workflows/api-check.yml` runs fmt/clippy/tests for `backend/api/**` on push/PR.
+
 ### Fly.io Postgres Setup
 
 ```bash
@@ -110,7 +115,23 @@ GET    /api/workspace/list
 POST   /api/workspace/save
 GET    /api/workspace/:id
 DELETE /api/workspace/:id
+
+# Updated file ops & execution
+GET    /api/workspace/tree
+GET    /api/workspace/files/*path
+PUT    /api/workspace/files/*path
+POST   /api/workspace/files
+DELETE /api/workspace/files/*path
+POST   /api/workspace/rename
+GET    /api/workspace/components
+GET    /api/workspace/categories/:type
+POST   /api/workspace/run-component
 ```
+Workspace root resolution order:
+1) `WORKSPACE_PATH` env var
+2) `/app/workspace` (Fly production volume)
+3) `./workspace` relative to current dir (local)
+All workspace operations reject traversal (`..`) and paths outside the workspace.
 
 ### Candles
 ```
@@ -122,6 +143,24 @@ GET    /api/candles?symbol=EURUSD&timeframe=1h&from=...&to=...
 GET    /api/strategies/list
 GET    /api/strategies/:name
 ```
+
+### Workspace (updated)
+```
+GET    /api/workspace/tree
+GET    /api/workspace/files/*path
+PUT    /api/workspace/files/*path
+POST   /api/workspace/files
+DELETE /api/workspace/files/*path
+POST   /api/workspace/rename
+GET    /api/workspace/components
+GET    /api/workspace/categories/:type
+POST   /api/workspace/run-component
+```
+Workspace root resolution order:
+1) `WORKSPACE_PATH` env var
+2) `/app/workspace` (Fly production volume)
+3) `./workspace` relative to current dir (local)
+All workspace operations reject traversal (`..`) and paths outside the workspace.
 
 ### Brokers
 ```

@@ -63,6 +63,7 @@ interface OrchestratorChartProps {
   height?: number;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  showModeToggle?: boolean;
 }
 
 export const OrchestratorChart = ({
@@ -76,6 +77,7 @@ export const OrchestratorChart = ({
   height = 400,
   isFullscreen = false,
   onToggleFullscreen,
+  showModeToggle = true,
 }: OrchestratorChartProps) => {
   const _canvasRef = useRef<HTMLCanvasElement>(null);
   const [_hoveredTrade, _setHoveredTrade] = useState<Trade | null>(null);
@@ -147,31 +149,33 @@ export const OrchestratorChart = ({
   if (chartMode === 'candles' && data) {
     return (
       <Paper p="md" withBorder>
-        {/* Mode selector */}
-        <Group justify="space-between" mb="sm">
-          <SegmentedControl
-            value={chartMode}
-            onChange={(_value) => {
-              /* Handle mode change */
-            }}
-            data={[
-              { label: 'Price Chart', value: 'candles' },
-              { label: 'Equity Curve', value: 'equity' },
-            ]}
-            w={200}
-          />
+        {/* Mode selector (optional) */}
+        {showModeToggle && (
+          <Group justify="space-between" mb="sm">
+            <SegmentedControl
+              value={chartMode}
+              onChange={(_value) => {
+                /* Handle mode change */
+              }}
+              data={[
+                { label: 'Price Chart', value: 'candles' },
+                { label: 'Equity Curve', value: 'equity' },
+              ]}
+              w={200}
+            />
 
-          <Group gap="xs">
-            <Text size="xs" c="dimmed">
-              {trades.length} trades
-            </Text>
-            {positions.length > 0 && (
+            <Group gap="xs">
               <Text size="xs" c="dimmed">
-                {positions.length} open positions
+                {trades.length} trades
               </Text>
-            )}
+              {positions.length > 0 && (
+                <Text size="xs" c="dimmed">
+                  {positions.length} open positions
+                </Text>
+              )}
+            </Group>
           </Group>
-        </Group>
+        )}
 
         {/* Use PreviewChart as base and overlay trades */}
         <Box ref={containerRef} style={{ position: 'relative' }}>
@@ -202,23 +206,25 @@ export const OrchestratorChart = ({
   if (chartMode === 'equity' && equityCurve) {
     return (
       <Paper p="md" withBorder>
-        <Group justify="space-between" mb="sm">
-          <SegmentedControl
-            value={chartMode}
-            onChange={(_value) => {
-              /* Handle mode change */
-            }}
-            data={[
-              { label: 'Price Chart', value: 'candles' },
-              { label: 'Equity Curve', value: 'equity' },
-            ]}
-            w={200}
-          />
+        {showModeToggle && (
+          <Group justify="space-between" mb="sm">
+            <SegmentedControl
+              value={chartMode}
+              onChange={(_value) => {
+                /* Handle mode change */
+              }}
+              data={[
+                { label: 'Price Chart', value: 'candles' },
+                { label: 'Equity Curve', value: 'equity' },
+              ]}
+              w={200}
+            />
 
-          <Text size="sm" fw={500}>
-            Portfolio Value Over Time
-          </Text>
-        </Group>
+            <Text size="sm" fw={500}>
+              Portfolio Value Over Time
+            </Text>
+          </Group>
+        )}
 
         <EquityChart data={equityCurve} height={height} trades={trades} showTrades={showTrades} />
       </Paper>
@@ -258,6 +264,7 @@ const EquityChart = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height });
+  const lastDrawKey = useRef<string | null>(null);
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -269,17 +276,39 @@ const EquityChart = ({
       }
     };
 
-    updateDimensions();
+    // Run once after mount and whenever equity data changes
+    const raf = requestAnimationFrame(updateDimensions);
+
+    // Listen for container resizes
+    let observer: ResizeObserver | null = null;
+    if (canvasRef.current?.parentElement) {
+      observer = new ResizeObserver(updateDimensions);
+      observer.observe(canvasRef.current.parentElement);
+    }
+
     window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
-  }, [height]);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', updateDimensions);
+      if (observer && canvasRef.current?.parentElement) {
+        observer.unobserve(canvasRef.current.parentElement);
+      }
+    };
+  }, [height, data.timestamps, data.values]);
 
   useEffect(() => {
-    if (!canvasRef.current || !data || dimensions.width === 0) return;
+    if (!canvasRef.current || !data || dimensions.width === 0 || dimensions.height === 0) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const drawKey = `${dimensions.width}x${dimensions.height}-${data.timestamps.length}-${data.values.length}-${data.values[0]}-${data.values[data.values.length - 1]}`;
+    if (lastDrawKey.current === drawKey) {
+      return;
+    }
+    lastDrawKey.current = drawKey;
 
     // Set canvas size
     canvas.width = dimensions.width;
@@ -296,10 +325,14 @@ const EquityChart = ({
 
     const minValue = Math.min(...data.values);
     const maxValue = Math.max(...data.values);
-    const valueRange = maxValue - minValue;
+    const rawRange = maxValue - minValue;
+    const valueRange = rawRange === 0 ? Math.abs(maxValue || 1) * 0.01 || 1 : rawRange;
     const valuePadding = valueRange * 0.1;
 
-    const xScale = (i: number) => padding.left + (i / (data.values.length - 1)) * chartWidth;
+    const xScale = (i: number) =>
+      data.values.length > 1
+        ? padding.left + (i / (data.values.length - 1)) * chartWidth
+        : padding.left;
     const yScale = (value: number) => {
       const normalized = (value - (minValue - valuePadding)) / (valueRange + 2 * valuePadding);
       return padding.top + (1 - normalized) * chartHeight;

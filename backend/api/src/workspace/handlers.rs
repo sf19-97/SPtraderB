@@ -1,10 +1,11 @@
+use super::workspace_root;
+use crate::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Workspace {
@@ -75,8 +76,8 @@ pub async fn delete_workspace(
 // ============================================================================
 
 use super::{
-    operations, executor, ComponentInfo, CreateFileRequest, FileNode, RenameRequest, SaveFileRequest,
-    WORKSPACE_PATH,
+    executor, operations, ComponentInfo, CreateFileRequest, FileNode, RenameRequest,
+    SaveFileRequest,
 };
 use std::path::PathBuf;
 
@@ -85,7 +86,6 @@ use std::path::PathBuf;
 // ============================================================================
 
 fn validate_path(relative_path: &str) -> Result<PathBuf, (StatusCode, String)> {
-    // Prevent directory traversal
     if relative_path.contains("..") {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -93,11 +93,14 @@ fn validate_path(relative_path: &str) -> Result<PathBuf, (StatusCode, String)> {
         ));
     }
 
-    // Build full path
-    let full_path = PathBuf::from(WORKSPACE_PATH).join(relative_path);
+    let workspace_root = workspace_root();
+    let workspace_root = workspace_root.canonicalize().unwrap_or(workspace_root);
+
+    // Prevent directory traversal
+    let full_path = workspace_root.join(relative_path);
 
     // Ensure path is within workspace
-    if !full_path.starts_with(WORKSPACE_PATH) {
+    if !full_path.starts_with(&workspace_root) {
         return Err((
             StatusCode::FORBIDDEN,
             "Access denied: path outside workspace".to_string(),
@@ -115,7 +118,7 @@ fn validate_path(relative_path: &str) -> Result<PathBuf, (StatusCode, String)> {
 pub async fn get_workspace_tree() -> Result<Json<Vec<FileNode>>, (StatusCode, String)> {
     tracing::info!("Getting workspace tree");
 
-    let workspace = PathBuf::from(WORKSPACE_PATH);
+    let workspace = workspace_root();
 
     if !workspace.exists() {
         return Err((
@@ -125,8 +128,12 @@ pub async fn get_workspace_tree() -> Result<Json<Vec<FileNode>>, (StatusCode, St
     }
 
     // Delegate complex tree building to operations.rs
-    let tree = operations::build_file_tree(&workspace, &workspace)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to build tree: {}", e)))?;
+    let tree = operations::build_file_tree(&workspace, &workspace).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to build tree: {}", e),
+        )
+    })?;
 
     Ok(Json(tree))
 }
@@ -202,8 +209,12 @@ pub async fn create_file(
     }
 
     // Delegate template generation to operations.rs (complex logic)
-    let template = operations::get_component_template(&payload.component_type)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid component type: {}", e)))?;
+    let template = operations::get_component_template(&payload.component_type).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid component type: {}", e),
+        )
+    })?;
 
     // Create parent directories
     if let Some(parent) = full_path.parent() {
@@ -262,7 +273,11 @@ pub async fn delete_file(
 pub async fn rename_file(
     Json(payload): Json<RenameRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    tracing::info!("Renaming file: {} -> {}", payload.old_path, payload.new_name);
+    tracing::info!(
+        "Renaming file: {} -> {}",
+        payload.old_path,
+        payload.new_name
+    );
 
     let old_full_path = validate_path(&payload.old_path)?;
 
@@ -286,7 +301,10 @@ pub async fn rename_file(
 
     // Check if destination exists
     if new_full_path.exists() {
-        return Err((StatusCode::CONFLICT, "Destination already exists".to_string()));
+        return Err((
+            StatusCode::CONFLICT,
+            "Destination already exists".to_string(),
+        ));
     }
 
     // Perform rename
@@ -298,8 +316,11 @@ pub async fn rename_file(
     })?;
 
     // Return new relative path
+    let workspace_root = workspace_root();
+    let workspace_root = workspace_root.canonicalize().unwrap_or(workspace_root);
+
     let new_relative = new_full_path
-        .strip_prefix(WORKSPACE_PATH)
+        .strip_prefix(&workspace_root)
         .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -324,11 +345,15 @@ pub async fn rename_file(
 pub async fn get_components() -> Result<Json<Vec<ComponentInfo>>, (StatusCode, String)> {
     tracing::info!("Getting workspace components");
 
-    let workspace = PathBuf::from(WORKSPACE_PATH);
+    let workspace = workspace_root();
 
     // Delegate complex scanning to operations.rs
-    let components = operations::scan_workspace_components(&workspace)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to scan components: {}", e)))?;
+    let components = operations::scan_workspace_components(&workspace).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to scan components: {}", e),
+        )
+    })?;
 
     Ok(Json(components))
 }
@@ -343,7 +368,7 @@ pub async fn get_categories(
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     tracing::info!("Getting categories for: {}", component_type);
 
-    let workspace = PathBuf::from(WORKSPACE_PATH);
+    let workspace = workspace_root();
 
     let component_path = match component_type.as_str() {
         "indicator" => workspace.join("core").join("indicators"),
@@ -402,7 +427,12 @@ pub async fn run_component(
 ) -> Result<Json<executor::RunComponentResponse>, (StatusCode, String)> {
     tracing::info!("Running component: {}", payload.file_path);
 
-    executor::execute_component(WORKSPACE_PATH, payload)
+    // Reuse validate_path to guard execution
+    validate_path(&payload.file_path)?;
+
+    let workspace = workspace_root();
+
+    executor::execute_component(&workspace, payload)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))

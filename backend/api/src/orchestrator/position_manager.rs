@@ -1,4 +1,4 @@
-use super::types::{Position, PositionSide, Portfolio, Trade};
+use super::types::{Portfolio, Position, PositionSide, Trade};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -17,6 +17,7 @@ impl PositionManager {
     /// Open a new position
     pub fn open_position(
         &mut self,
+        portfolio: &mut Portfolio,
         symbol: String,
         side: PositionSide,
         price: Decimal,
@@ -52,12 +53,16 @@ impl PositionManager {
         );
 
         self.open_positions.insert(position_id, position.clone());
+        portfolio
+            .positions
+            .insert(position.id.clone(), position.clone());
         position
     }
 
     /// Check all open positions for stop-loss or take-profit hits
     pub fn check_risk_exits(
         &mut self,
+        portfolio: &mut Portfolio,
         current_prices: &HashMap<String, Decimal>,
         timestamp: DateTime<Utc>,
     ) -> Vec<Trade> {
@@ -75,9 +80,7 @@ impl PositionManager {
                 // Check stop-loss
                 if let Some(stop_loss_pct) = position.stop_loss {
                     let stop_loss_price = match position.side {
-                        PositionSide::Long => {
-                            position.entry_price * (Decimal::ONE - stop_loss_pct)
-                        }
+                        PositionSide::Long => position.entry_price * (Decimal::ONE - stop_loss_pct),
                         PositionSide::Short => {
                             position.entry_price * (Decimal::ONE + stop_loss_pct)
                         }
@@ -134,7 +137,7 @@ impl PositionManager {
         for position_id in positions_to_close {
             if let Some(position) = self.open_positions.remove(&position_id) {
                 let current_price = current_prices[&position.symbol];
-                let trade = Self::create_trade_from_position(position, current_price, timestamp);
+                let trade = Self::close_position(portfolio, position, current_price, timestamp);
                 completed_trades.push(trade);
             }
         }
@@ -145,6 +148,7 @@ impl PositionManager {
     /// Close all open positions
     pub fn close_all_positions(
         &mut self,
+        portfolio: &mut Portfolio,
         current_prices: &HashMap<String, Decimal>,
         timestamp: DateTime<Utc>,
     ) -> Vec<Trade> {
@@ -162,7 +166,7 @@ impl PositionManager {
                 }
             };
 
-            let trade = Self::create_trade_from_position(position, current_price, timestamp);
+            let trade = Self::close_position(portfolio, position, current_price, timestamp);
             completed_trades.push(trade);
         }
 
@@ -172,6 +176,7 @@ impl PositionManager {
     /// Close positions for a specific symbol
     pub fn close_positions_for_symbol(
         &mut self,
+        portfolio: &mut Portfolio,
         symbol: &str,
         current_price: Decimal,
         timestamp: DateTime<Utc>,
@@ -192,7 +197,7 @@ impl PositionManager {
 
         for position_id in positions_to_close {
             if let Some(position) = self.open_positions.remove(&position_id) {
-                let trade = Self::create_trade_from_position(position, current_price, timestamp);
+                let trade = Self::close_position(portfolio, position, current_price, timestamp);
                 completed_trades.push(trade);
             }
         }
@@ -202,7 +207,7 @@ impl PositionManager {
 
     /// Helper to create a Trade from a closed Position
     fn create_trade_from_position(
-        position: Position,
+        position: &Position,
         exit_price: Decimal,
         exit_time: DateTime<Utc>,
     ) -> Trade {
@@ -217,8 +222,8 @@ impl PositionManager {
         };
 
         let holding_period = exit_time.signed_duration_since(position.entry_time);
-        let holding_period_hours = holding_period.num_hours() as f64
-            + (holding_period.num_minutes() % 60) as f64 / 60.0;
+        let holding_period_hours =
+            holding_period.num_hours() as f64 + (holding_period.num_minutes() % 60) as f64 / 60.0;
 
         // Determine exit reason based on position SL/TP
         let exit_reason = if position.stop_loss.is_some() && pnl < Decimal::ZERO {
@@ -243,8 +248,8 @@ impl PositionManager {
         );
 
         Trade {
-            id: position.id,
-            symbol: position.symbol,
+            id: position.id.clone(),
+            symbol: position.symbol.clone(),
             side: position.side,
             entry_price: position.entry_price,
             exit_price,
@@ -294,6 +299,7 @@ impl PositionManager {
 
         // Open position
         let position = self.open_position(
+            portfolio,
             symbol,
             PositionSide::Long,
             price,
@@ -333,6 +339,7 @@ impl PositionManager {
 
         // Open short position
         let position = self.open_position(
+            portfolio,
             symbol,
             PositionSide::Short,
             price,
@@ -347,6 +354,31 @@ impl PositionManager {
     }
 }
 
+impl PositionManager {
+    fn close_position(
+        portfolio: &mut Portfolio,
+        position: Position,
+        exit_price: Decimal,
+        timestamp: DateTime<Utc>,
+    ) -> Trade {
+        let trade = Self::create_trade_from_position(&position, exit_price, timestamp);
+
+        match position.side {
+            PositionSide::Long => {
+                portfolio.cash += position.size * exit_price;
+            }
+            PositionSide::Short => {
+                portfolio.cash -= position.size * exit_price;
+            }
+        }
+
+        portfolio.positions.remove(&position.id);
+        portfolio.daily_pnl += trade.pnl;
+
+        trade
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,8 +387,10 @@ mod tests {
     #[test]
     fn test_stop_loss_hit() {
         let mut manager = PositionManager::new();
+        let mut portfolio = Portfolio::new(Decimal::from_str("100000").unwrap());
 
         let position = manager.open_position(
+            &mut portfolio,
             "EURUSD".to_string(),
             PositionSide::Long,
             Decimal::from_str("1.1000").unwrap(),
@@ -373,7 +407,7 @@ mod tests {
             Decimal::from_str("1.0780").unwrap(), // Hit SL
         );
 
-        let trades = manager.check_risk_exits(&current_prices, Utc::now());
+        let trades = manager.check_risk_exits(&mut portfolio, &current_prices, Utc::now());
         assert_eq!(trades.len(), 1);
         assert!(trades[0].pnl < Decimal::ZERO);
     }

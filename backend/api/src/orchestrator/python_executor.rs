@@ -2,8 +2,9 @@ use super::types::{Candle, SignalEvent, StrategyConfig};
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
-use std::io::Write as IoWrite;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 #[derive(Debug, Serialize)]
 struct PythonBacktestInput {
@@ -45,7 +46,7 @@ struct PythonBacktestOutput {
 #[derive(Debug, Deserialize)]
 struct PythonSignalEvent {
     timestamp: String,
-    signal_name: Option<String>,  // Added to match Python output
+    signal_name: Option<String>, // Added to match Python output
     signal_type: String,
     strength: f64,
     price: f64,
@@ -83,8 +84,8 @@ pub async fn execute_python_backtest(
         .parameters
         .iter()
         .map(|(k, v)| {
-            let json_value: serde_json::Value = serde_yaml::from_value(v.clone())
-                .unwrap_or(serde_json::Value::Null);
+            let json_value: serde_json::Value =
+                serde_yaml::from_value(v.clone()).unwrap_or(serde_json::Value::Null);
             (k.clone(), json_value)
         })
         .collect();
@@ -93,8 +94,8 @@ pub async fn execute_python_backtest(
         .signal_config
         .iter()
         .map(|(k, v)| {
-            let json_value: serde_json::Value = serde_yaml::from_value(v.clone())
-                .unwrap_or(serde_json::Value::Null);
+            let json_value: serde_json::Value =
+                serde_yaml::from_value(v.clone()).unwrap_or(serde_json::Value::Null);
             (k.clone(), json_value)
         })
         .collect();
@@ -116,8 +117,8 @@ pub async fn execute_python_backtest(
     };
 
     // Serialize input to JSON
-    let input_json = serde_json::to_string(&input)
-        .map_err(|e| format!("Failed to serialize input: {}", e))?;
+    let input_json =
+        serde_json::to_string(&input).map_err(|e| format!("Failed to serialize input: {}", e))?;
 
     // Find workspace path
     // Try Docker production path first, then local development path
@@ -161,12 +162,14 @@ pub async fn execute_python_backtest(
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(input_json.as_bytes())
+            .await
             .map_err(|e| format!("Failed to write to Python stdin: {}", e))?;
     }
 
     // Wait for process to complete
     let output = child
         .wait_with_output()
+        .await
         .map_err(|e| format!("Failed to wait for Python process: {}", e))?;
 
     if !output.status.success() {

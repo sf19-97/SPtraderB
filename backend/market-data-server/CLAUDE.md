@@ -422,7 +422,31 @@ npm run refresh-mvs
    - Uses `materialize-candles.ts` script
    - Stores pre-computed 5m candles in PostgreSQL
 
-## Recent Updates (Updated: 2025-11-30)
+## Recent Updates (Updated: 2025-12-02)
+
+### API Validation Fixes (2025-12-02)
+
+**Fixed timeframe and timestamp validation inconsistencies in REST API:**
+
+1. **Removed unsupported `1m` timeframe** (`CandlesController.ts`, `swagger.ts`, `constants.ts`)
+   - Controller allowed `1m` but no materialized view exists for it
+   - Requests with `1m` would pass controller validation, do unnecessary DB lookups, then fail in service layer
+   - Now fails fast at controller with clear error message
+   - Updated OpenAPI spec to match actual supported timeframes: `5m`, `15m`, `1h`, `4h`, `12h`
+
+2. **Added missing validation to path-based candles endpoint** (`CandlesController.ts:76-105`)
+   - Query route (`/api/candles`) used Zod schema with full validation
+   - Path route (`/api/candles/:symbol/:timeframe`) had no validation for `from`/`to` params
+   - `parseInt("abc")` → `NaN` would flow into database queries
+   - Added three validation checks to match query route:
+     - Numeric check: `/^\d+$/` regex ensures only digits
+     - Order check: `from < to` validation
+     - Range check: Max 2 years (`MAX_API_DATE_RANGE`)
+
+**Files changed:**
+- `src/api/controllers/CandlesController.ts` - Added validation, removed `1m`
+- `src/services/swagger.ts` - Removed `1m` from all enums and examples
+- `src/middleware/validation.ts` - Already had `1m` removed from Zod schema
 
 ### R2 Data Lake Migration (Commit: 18be65e) - MAJOR ARCHITECTURE CHANGE
 

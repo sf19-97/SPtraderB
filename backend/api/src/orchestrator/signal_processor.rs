@@ -1,7 +1,7 @@
 use super::types::{SignalEvent, StrategyConfig};
 use chrono::{DateTime, Utc};
+use rust_decimal::prelude::*; // For from_f64
 use rust_decimal::Decimal;
-use rust_decimal::prelude::*;  // For from_f64
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -107,12 +107,8 @@ impl SignalProcessor {
                     .unwrap_or(Decimal::from_str("0.01").unwrap());
 
                 return match action {
-                    "buy" => TradeAction::Buy {
-                        size_percent: size,
-                    },
-                    "sell" => TradeAction::Sell {
-                        size_percent: size,
-                    },
+                    "buy" => TradeAction::Buy { size_percent: size },
+                    "sell" => TradeAction::Sell { size_percent: size },
                     _ => TradeAction::None,
                 };
             }
@@ -149,10 +145,11 @@ impl SignalProcessor {
                                     // Convert yaml key to string
                                     if let Some(key_str) = key.as_str() {
                                         // Convert yaml value to json value for comparison
-                                        let value_json: serde_json::Value = match serde_yaml::from_value(value.clone()) {
-                                            Ok(v) => v,
-                                            Err(_) => return false,
-                                        };
+                                        let value_json: serde_json::Value =
+                                            match serde_yaml::from_value(value.clone()) {
+                                                Ok(v) => v,
+                                                Err(_) => return false,
+                                            };
                                         let signal_value = s.metadata.get(key_str);
                                         if signal_value != Some(&value_json) {
                                             return false;

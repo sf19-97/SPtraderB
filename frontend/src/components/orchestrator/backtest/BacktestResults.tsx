@@ -26,7 +26,7 @@ import {
 import { useOrchestratorStore } from '../../../stores/useOrchestratorStore';
 import { OrchestratorChart } from '../OrchestratorChart';
 import { TradeHistory } from './TradeHistory';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
 
 interface StatCardProps {
@@ -77,6 +77,7 @@ export function BacktestResults() {
   const [marketData, setMarketData] = useState<any>(null);
   const [isLoadingChart, setIsLoadingChart] = useState(false);
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
+  const marketDataCache = useRef<Map<string, any>>(new Map());
 
   const getLogColor = (level: string) => {
     switch (level) {
@@ -133,56 +134,48 @@ export function BacktestResults() {
 
   // Transform trade data for the chart
   const chartTrades = useMemo(() => {
-    if (!backtestResults) return [];
+    if (!backtestResults?.completed_trades) return [];
 
-    // Check if we have completed trades from the backtest
-    if ('completed_trades' in backtestResults && Array.isArray(backtestResults.completed_trades)) {
-      return backtestResults.completed_trades.map((trade: any) => ({
-        id: trade.id,
-        symbol: trade.symbol,
-        entryTime: trade.entry_time,
-        exitTime: trade.exit_time,
-        entryPrice:
-          typeof trade.entry_price === 'string' ? parseFloat(trade.entry_price) : trade.entry_price,
-        exitPrice:
-          typeof trade.exit_price === 'string' ? parseFloat(trade.exit_price) : trade.exit_price,
-        size: typeof trade.quantity === 'string' ? parseFloat(trade.quantity) : trade.quantity,
-        side: (trade.side?.toLowerCase() === 'long' ? 'long' : 'short') as 'long' | 'short',
-        pnl: typeof trade.pnl === 'string' ? parseFloat(trade.pnl) : trade.pnl,
-        pnlPercent:
-          typeof trade.pnl_percent === 'string' ? parseFloat(trade.pnl_percent) : trade.pnl_percent,
-        exitReason: trade.exit_reason,
-        holdingPeriod: trade.holding_period_hours,
-      }));
-    }
-
-    // Fallback: Try to reconstruct from executed orders if no completed trades
-    if (backtestResults.executedOrders && backtestResults.executedOrders.length > 0) {
-      return []; // We can't properly reconstruct trades from orders alone
-    }
-
-    return [];
-  }, [backtestResults]);
+    return backtestResults.completed_trades.map((trade: any) => ({
+      id: trade.id,
+      symbol: trade.symbol,
+      entryTime: trade.entry_time,
+      exitTime: trade.exit_time,
+      entryPrice:
+        typeof trade.entry_price === 'string' ? parseFloat(trade.entry_price) : trade.entry_price,
+      exitPrice:
+        typeof trade.exit_price === 'string' ? parseFloat(trade.exit_price) : trade.exit_price,
+      size: typeof trade.quantity === 'string' ? parseFloat(trade.quantity) : trade.quantity,
+      side: trade.side === 'long' ? ('long' as const) : ('short' as const),
+      pnl: typeof trade.pnl === 'string' ? parseFloat(trade.pnl) : trade.pnl,
+      pnlPercent:
+        typeof trade.pnl_percent === 'string' ? parseFloat(trade.pnl_percent) : trade.pnl_percent,
+      exitReason: trade.exit_reason,
+      holdingPeriod: trade.holding_period_hours,
+    }));
+  }, [backtestResults?.completed_trades]);
 
   // Generate equity curve data
   const equityCurve = useMemo(() => {
-    // Use daily returns if available
+    // Backend returns daily_returns as tuple [timestamp, value]; value is Decimal (string or number)
     if (backtestResults?.daily_returns && backtestResults.daily_returns.length > 0) {
       const timestamps: string[] = [];
       const values: number[] = [];
       let currentValue = startCapital;
 
       // Add starting point
-      timestamps.push(backtestResults.daily_returns[0].timestamp);
+      const firstTs = backtestResults.daily_returns[0][0];
+      timestamps.push(typeof firstTs === 'string' ? firstTs : new Date(firstTs).toISOString());
       values.push(startCapital);
 
-      // Calculate equity curve from daily returns
-      backtestResults.daily_returns.forEach((dr: any) => {
-        const returnValue = typeof dr.value === 'string' ? parseFloat(dr.value) : dr.value;
+      for (const [ts, v] of backtestResults.daily_returns as any) {
+        const returnValue = typeof v === 'string' ? parseFloat(v) : v;
         currentValue = currentValue * (1 + returnValue);
-        timestamps.push(dr.timestamp);
+        const timestamp =
+          typeof ts === 'string' ? ts : new Date(ts).toISOString();
+        timestamps.push(timestamp);
         values.push(currentValue);
-      });
+      }
 
       return { timestamps, values };
     }
@@ -197,14 +190,12 @@ export function BacktestResults() {
     return { timestamps, values };
   }, [backtestResults?.daily_returns, startCapital, endCapital, backtestConfig]);
 
-  // Load market data when chart tab is selected or backtest results change
+  // Load market data when chart tab is selected (cached per request)
   useEffect(() => {
-    if (activeResultsTab === 'chart' && backtestConfig && backtestResults) {
-      // Clear old data and reload when backtest results change
-      setMarketData(null);
-      loadMarketData();
-    }
-  }, [activeResultsTab, backtestConfig, backtestResults]);
+    if (activeResultsTab !== 'chart') return;
+    if (!backtestConfig || !backtestResults) return;
+    loadMarketData();
+  }, [activeResultsTab, backtestResults]);
 
   // Clear highlight when switching away from chart/trades tabs
   useEffect(() => {
@@ -214,6 +205,15 @@ export function BacktestResults() {
   }, [activeResultsTab, highlightTrade]);
 
   const loadMarketData = async () => {
+    const fromTimestamp = Math.floor(new Date(backtestConfig.startDate).getTime() / 1000);
+    const toTimestamp = Math.floor(new Date(backtestConfig.endDate).getTime() / 1000);
+    const cacheKey = `${backtestConfig.symbol}-${backtestConfig.timeframe}-${fromTimestamp}-${toTimestamp}`;
+
+    if (marketDataCache.current.has(cacheKey)) {
+      setMarketData(marketDataCache.current.get(cacheKey));
+      return;
+    }
+
     setIsLoadingChart(true);
 
     try {
@@ -246,24 +246,7 @@ export function BacktestResults() {
           volume: candles.map((c) => c.volume),
         };
 
-        // Add signals if available
-        if (backtestResults?.signalsGenerated && Array.isArray(backtestResults.signalsGenerated)) {
-          const crossovers: number[] = new Array(candles.length).fill(0);
-          const types: string[] = new Array(candles.length).fill('');
-
-          // Map signals to candle indices
-          backtestResults.signalsGenerated.forEach((signal: any) => {
-            const signalTime = new Date(signal.timestamp).getTime();
-            const candleIndex = candles.findIndex((c) => c.time * 1000 >= signalTime);
-
-            if (candleIndex >= 0) {
-              crossovers[candleIndex] = signal.signal_type === 'golden_cross' ? 1 : -1;
-              types[candleIndex] = signal.signal_type;
-            }
-          });
-
-          chartData.signals = { crossovers, types };
-        }
+        // Backend currently returns signals as a count; no plotting available yet
 
         // Add indicator data if available
         if (backtestResults?.indicatorData) {
@@ -295,13 +278,20 @@ export function BacktestResults() {
   };
 
   return (
-    <Tabs value={activeResultsTab} onChange={(value) => value && setActiveResultsTab(value)}>
+    <Tabs
+      value={activeResultsTab}
+      onChange={(value) => value && setActiveResultsTab(value)}
+      keepMounted
+    >
       <Tabs.List>
         <Tabs.Tab value="overview" leftSection={<IconChartBar size={16} />}>
           Overview
         </Tabs.Tab>
         <Tabs.Tab value="chart" leftSection={<IconChartCandle size={16} />}>
           Chart
+        </Tabs.Tab>
+        <Tabs.Tab value="equity" leftSection={<IconChartLine size={16} />}>
+          Equity Curve
         </Tabs.Tab>
         <Tabs.Tab value="trades" leftSection={<IconHistory size={16} />}>
           Trades
@@ -492,17 +482,36 @@ export function BacktestResults() {
               }
             }}
           >
-            <OrchestratorChart
-              data={marketData}
-              trades={chartTrades}
-              equityCurve={equityCurve}
-              chartMode="candles"
-              showTrades={true}
-              height={500}
-              isFullscreen={isChartFullscreen}
-              onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
-            />
-          </div>
+          <OrchestratorChart
+            data={marketData}
+            trades={chartTrades}
+            equityCurve={equityCurve}
+            chartMode="candles"
+            showTrades={true}
+            height={500}
+            isFullscreen={isChartFullscreen}
+            onToggleFullscreen={() => setIsChartFullscreen(!isChartFullscreen)}
+            showModeToggle={false}
+          />
+        </div>
+      )}
+    </Tabs.Panel>
+
+    <Tabs.Panel value="equity" pt="md">
+      {equityCurve && equityCurve.timestamps.length > 0 ? (
+        <OrchestratorChart
+          chartMode="equity"
+          equityCurve={equityCurve}
+          showTrades={false}
+          height={400}
+          showModeToggle={false}
+        />
+      ) : (
+          <Paper p="xl" withBorder>
+            <Stack align="center" gap="md">
+              <Text c="dimmed">Run a backtest to see the equity curve</Text>
+            </Stack>
+          </Paper>
         )}
       </Tabs.Panel>
 
