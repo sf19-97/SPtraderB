@@ -331,6 +331,13 @@ npx tsx src/cli/commands/import.ts EURUSD 2024-01-01 2024-12-31 24
 npx tsx src/cli/commands/analyze.ts --sample
 ```
 
+**Import options (new)**
+- Local-only: `--local-only` writes tick JSON to `LOCAL_TICKS_DIR` (or `--local-dir=./data/ticks`) without touching R2.
+- Dual destination: omit `--local-only` to write both R2 and local.
+- End-date safety: importer caps the range to the last fully available UTC day (yesterday) and exits if the requested range is entirely in the future.
+- Weekend/Friday handling: skips Friday ≥21:00 UTC and weekend closed hours; uses 1h fallback on BufferFetcher errors.
+- Concurrency: `npx tsx ... <SYMBOL> <START> <END> [CHUNK_HOURS] [DELAY_SECONDS] [CONCURRENCY]`
+
 **After importing to R2:**
 ```bash
 # Materialize ticks to candles (if needed for PostgreSQL queries)

@@ -40,6 +40,33 @@ export class MaterializationService {
   ) {}
 
   /**
+   * Get the latest day present in candles_5m for a symbol.
+   */
+  async getLatestCandleDay(symbol: string): Promise<Date | null> {
+    const client = await this.pool.connect();
+
+    try {
+      const result = await client.query(
+        `
+        SELECT MAX(DATE(time)) as day
+        FROM candles_5m
+        WHERE symbol = $1
+        `,
+        [symbol]
+      );
+
+      const day = result.rows[0]?.day as Date | undefined;
+      if (!day) return null;
+      return new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()));
+    } catch (error) {
+      logger.error({ error, symbol }, 'Failed to get latest candle day');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Insert candles into candles_5m table with ON CONFLICT upsert
    * Uses batching to avoid PostgreSQL parameter limits
    */

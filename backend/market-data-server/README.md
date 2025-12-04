@@ -172,6 +172,31 @@ docker build -t ws-market-data-server .
 docker run -p 8080:8080 ws-market-data-server
 ```
 
+## Data Pipeline (CLI)
+
+This repo also ships CLI helpers for managing the R2 data lake and the Postgres candles:
+
+1) Import ticks to R2
+   - `npx tsx src/cli/index.ts import <SYMBOL> <START_DATE> <END_DATE> [...]`
+   - `npx tsx src/cli/index.ts update <SYMBOL|--all>` (continues from last day in R2; respects `--days` fallback)
+
+2) Build candles in R2 from ticks
+   - `npx tsx src/cli/index.ts migrate <SYMBOL> <START_DATE> <END_DATE> [...]` (manual range)
+   - `npx tsx src/cli/index.ts candle-update <SYMBOL|--all>` (continues from last candle month in R2; `--days` fallback)
+
+3) Materialize R2 candles into Postgres
+   - `npx tsx src/cli/index.ts materialize <SYMBOL> <START_DATE> [END_DATE] [--dry-run]`
+   - `npx tsx src/cli/index.ts materialize-update <SYMBOL|--all>` (continues from last DB day; `--days` fallback)
+
+Flags of note:
+- `--dry-run` (check without writing), `--all` (loop all supported symbols), `--days=<n>` (fallback window when empty), `--delete-ticks` (optional cleanup after candle migration), `--skip-refresh` (skip view refresh on materialize-update).
+- Paths honor `R2_ASSET_TYPE`, `TICKS_PREFIX`, `CANDLES_PREFIX` when set.
+
+Quick example (full path):
+- Import ticks: `npx tsx src/cli/index.ts update EURUSD`
+- Build candles: `npx tsx src/cli/index.ts candle-update EURUSD`
+- Materialize to DB: `npx tsx src/cli/index.ts materialize-update EURUSD`
+
 ## Client Usage
 
 ### 1. Connect to the Server

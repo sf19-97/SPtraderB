@@ -22,7 +22,7 @@ dotenv.config();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Supported Dukascopy instruments (forex pairs)
-const VALID_SYMBOLS = [
+export const VALID_SYMBOLS = [
   'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
   'EURGBP', 'EURJPY', 'EURCHF', 'GBPJPY', 'AUDJPY', 'EURAUD', 'GBPAUD'
 ] as const;
@@ -30,7 +30,7 @@ const VALID_SYMBOLS = [
 const DUKASCOPY_HTTP_HOST = 'http://datafeed.dukascopy.com';
 const DUKASCOPY_USER_AGENT = 'curl/8.7.1';
 
-type ValidSymbol = typeof VALID_SYMBOLS[number];
+export type ValidSymbol = typeof VALID_SYMBOLS[number];
 type ChunkRange = { start: Date; end: Date };
 type ImportDestinationOptions = {
   saveToR2: boolean;

@@ -29,7 +29,10 @@ const __dirname = path.dirname(__filename);
 
 const COMMANDS: Record<string, string> = {
   import: 'import.ts',
+  update: 'update.ts',
   materialize: 'materialize.ts',
+  'materialize-update': 'materialize-update.ts',
+  'candle-update': 'candle-update.ts',
   migrate: 'migrate.ts',
   backfill: 'backfill.ts',
   analyze: 'analyze.ts',
@@ -49,8 +52,20 @@ Commands:
   import      Import tick data from Dukascopy to R2
               Usage: import <SYMBOL> <START_DATE> <END_DATE> [CHUNK_HOURS] [DELAY_SECONDS] [CONCURRENCY] [--local-dir=<path>] [--local-only]
 
+  update      Continue importing from the last day found in R2 (or --all)
+              Usage: update <SYMBOL> [--days=<n>] [--chunk-hours=<n>] [--delay-seconds=<n>] [--concurrency=<n>] [--local-dir=<path>] [--local-only] [--dry-run]
+              Usage: update --all [--days=<n>] [--chunk-hours=<n>] [--delay-seconds=<n>] [--concurrency=<n>] [--local-dir=<path>] [--local-only] [--dry-run]
+
   materialize Materialize R2 candles to PostgreSQL
               Usage: materialize <SYMBOL> <START_DATE> [END_DATE] [--dry-run]
+
+  materialize-update Continue materializing from last DB day (or --all)
+               Usage: materialize-update <SYMBOL> [--days=<n>] [--dry-run] [--skip-refresh]
+               Usage: materialize-update --all [--days=<n>] [--dry-run] [--skip-refresh]
+
+  candle-update Migrate ticks → candles in R2 from the last candle month (or --all)
+               Usage: candle-update <SYMBOL> [--days=<n>] [--dry-run] [--delete-ticks]
+               Usage: candle-update --all [--days=<n>] [--dry-run] [--delete-ticks]
 
   migrate     Convert R2 ticks to candles
               Usage: migrate <SYMBOL> <START_DATE> <END_DATE> [--dry-run] [--delete-ticks]
@@ -63,7 +78,11 @@ Commands:
 
 Examples:
   npx tsx src/cli/index.ts import EURUSD 2024-01-01 2024-12-31
+  npx tsx src/cli/index.ts update EURUSD --days=3
+  npx tsx src/cli/index.ts update --all --chunk-hours=12
   npx tsx src/cli/index.ts materialize EURUSD 2024-01-01 2024-12-31
+  npx tsx src/cli/index.ts materialize-update EURUSD
+  npx tsx src/cli/index.ts candle-update EURUSD --dry-run
   npx tsx src/cli/index.ts migrate EURUSD 2024-01-01 2024-12-31
   npx tsx src/cli/index.ts backfill EURUSD 2024-01-01 2024-12-31 --dry-run
   npx tsx src/cli/index.ts verify EURUSD 2024-01-01 2024-12-31
