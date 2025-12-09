@@ -174,27 +174,8 @@ export const AppLayout = () => {
       )}
 
       {/* Main Content - Fills remaining space */}
-      <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Top bar with user menu */}
-        <Box
-          style={{
-            height: '48px',
-            borderBottom: '1px solid #333',
-            backgroundColor: '#151515',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            padding: '0 16px',
-            flexShrink: 0,
-          }}
-        >
-          <UserMenu />
-        </Box>
-
-        {/* Scrollable content */}
-        <Box id="main-content-scroll" style={{ flex: 1, overflow: 'auto' }}>
-          <Outlet />
-        </Box>
+      <Box style={{ flex: 1, overflow: 'auto' }}>
+        <Outlet />
       </Box>
     </Box>
   );
