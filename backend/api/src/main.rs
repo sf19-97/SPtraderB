@@ -1,7 +1,6 @@
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
-    http::{Method, StatusCode},
-    response::{IntoResponse, Response},
+    http::Method,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -15,6 +14,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // Core business logic modules
 // Note: Market data (live AND historical) is handled by ws-market-data-server
+mod auth; // Authentication (GitHub OAuth, JWT)
 mod database; // Database utilities (optional - can use filesystem)
 mod orchestrator; // Backtesting engine (fetches data from ws-market-data-server)
 mod workspace; // Workspace management
@@ -219,6 +219,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/strategies/:name",
             post(orchestrator::handlers::save_strategy),
         )
+        // Authentication routes
+        .route("/api/auth/github", get(auth::handlers::github_login))
+        .route("/api/auth/callback", post(auth::handlers::github_callback))
+        .route("/api/auth/me", get(auth::handlers::get_current_user))
+        .route(
+            "/api/auth/preferences",
+            put(auth::handlers::update_preferences),
+        )
+        .route("/api/auth/memory", put(auth::handlers::update_memory))
+        .route("/api/auth/repos", get(auth::handlers::list_github_repos))
         // Apply middleware
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())
