@@ -188,8 +188,13 @@ export const authApi = {
   // Get GitHub OAuth URL with PKCE + state
   getGitHubAuthUrl: async (): Promise<string> => {
     const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-    const redirectUri = `${window.location.origin}/auth/callback`;
+    const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+    const redirectUri = `${frontendUrl}/auth/callback`;
     const scope = 'user:email,repo';
+
+    if (!clientId) {
+      throw new Error('GitHub Client ID is not configured');
+    }
 
     // Generate state + PKCE code verifier
     const state = crypto.randomUUID();
