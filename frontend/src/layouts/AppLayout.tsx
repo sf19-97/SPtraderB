@@ -38,6 +38,7 @@ export const AppLayout = () => {
           borderRight: '1px solid #333',
           flexShrink: 0,
         }}
+        onMouseEnter={() => setCollapsed(false)}
       >
         {/* Only show icons when collapsed */}
         {collapsed && (
@@ -105,6 +106,7 @@ export const AppLayout = () => {
               zIndex: 100,
               boxShadow: '4px 0 10px rgba(0,0,0,0.5)',
             }}
+            onMouseLeave={() => setCollapsed(true)}
           >
             <Stack h="100%" p="md" justify="space-between" gap={0}>
               <div>
