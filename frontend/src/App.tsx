@@ -1,8 +1,11 @@
 // src/App.tsx
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { MatrixLogin } from './components/MatrixLogin';
 import { AppLayout } from './layouts/AppLayout';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { LoginPage } from './pages/LoginPage';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
+import { useAuthStore } from './stores/useAuthStore';
 import { getHTTPDataProvider, chartDataCoordinator } from 'sptrader-chart-lib';
 import './App.css';
 
@@ -28,108 +31,73 @@ const MonacoIDE = lazy(() => import('./components/MonacoIDE').then(m => ({ defau
 const OrchestratorPage = lazy(() => import('./pages/OrchestratorPage').then(m => ({ default: m.OrchestratorPage })));
 const MarketDataPage = lazy(() => import('./pages/MarketDataPage').then(m => ({ default: m.MarketDataPage })));
 
+// Loading fallback
+function LoadingFallback() {
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      backgroundColor: '#0a0a0a',
+      color: '#00ff41',
+      fontFamily: 'monospace',
+    }}>
+      Loading...
+    </div>
+  );
+}
+
 function App() {
-  const [showMatrix, setShowMatrix] = useState(true);
-  const [appReady, setAppReady] = useState(false);
-
-  useEffect(() => {
-    // Preload critical components while Matrix is showing
-    const preloadComponents = async () => {
-      try {
-        // Start loading the most likely first page (Trading)
-        await import('./pages/TradingPage');
-
-        // Preload other critical components in parallel
-        await Promise.all([
-          import('./layouts/AppLayout'),
-        ]);
-
-        setAppReady(true);
-      } catch (error) {
-        console.error('Failed to preload components:', error);
-        setAppReady(true); // Continue anyway
-      }
-    };
-
-    // Start preloading immediately
-    preloadComponents();
-
-    // Optional: Initialize any other data connections or APIs here
-    // This would be a good place to establish WebSocket connections,
-    // fetch initial configuration, or warm up API caches
-
-    // Example (uncomment if you have these services):
-    // initializeWebSocketConnection();
-    // prefetchMarketData();
-    // loadUserPreferences();
-  }, []);
-
-  const handleMatrixComplete = () => {
-    // Small delay to ensure smooth transition
-    setTimeout(() => {
-      setShowMatrix(false);
-    }, 300);
-  };
+  const { token, user } = useAuthStore();
+  const isAuthenticated = !!(token && user);
 
   return (
     <BrowserRouter>
-      {/* Matrix Login Overlay - renders on top but doesn't block app initialization */}
-      {showMatrix && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 9999,
-            backgroundColor: '#000',
-          }}
-        >
-          <MatrixLogin onComplete={handleMatrixComplete} />
-        </div>
-      )}
+      <Suspense fallback={<LoadingFallback />}>
+        <Routes>
+          {/* Public routes */}
+          <Route
+            path="/login"
+            element={isAuthenticated ? <Navigate to="/trading" replace /> : <LoginPage />}
+          />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-      {/* Main App - renders in background, hidden while Matrix is shown */}
-      <div
-        style={{
-          opacity: showMatrix ? 0 : 1,
-          visibility: showMatrix ? 'hidden' : 'visible',
-          transition: 'opacity 0.5s ease-in-out',
-          height: '100%',
-        }}
-      >
-        <Suspense
-          fallback={
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              height: '100vh',
-              backgroundColor: '#0a0a0a',
-              color: '#00ff41',
-              fontFamily: 'monospace',
-            }}>
-              {appReady ? 'Loading...' : 'Initializing systems...'}
-            </div>
-          }
-        >
-          <Routes>
-            <Route path="/" element={<AppLayout />}>
-              <Route index element={<Navigate to="/trading" />} />
-              <Route path="trading" element={<TradingPage />} />
-              <Route path="build" element={<BuildPage />} />
-              <Route path="history" element={<OrdersPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="orchestrator" element={<OrchestratorPage />} />
-              <Route path="market-data" element={<MarketDataPage />} />
-            </Route>
+          {/* Protected routes */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/trading" />} />
+            <Route path="trading" element={<TradingPage />} />
+            <Route path="build" element={<BuildPage />} />
+            <Route path="history" element={<OrdersPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="orchestrator" element={<OrchestratorPage />} />
+            <Route path="market-data" element={<MarketDataPage />} />
+          </Route>
 
-            {/* IDE route outside AppLayout for full screen */}
-            <Route path="/ide" element={<MonacoIDE />} />
-          </Routes>
-        </Suspense>
-      </div>
+          {/* IDE route outside AppLayout for full screen */}
+          <Route
+            path="/ide"
+            element={
+              <ProtectedRoute>
+                <MonacoIDE />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Catch all - redirect to login or trading */}
+          <Route
+            path="*"
+            element={<Navigate to={isAuthenticated ? '/trading' : '/login'} replace />}
+          />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

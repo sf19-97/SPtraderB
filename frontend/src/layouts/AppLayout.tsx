@@ -3,6 +3,7 @@ import { NavLink, Group, Text, ActionIcon, Stack, Tooltip, Box } from '@mantine/
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { IconDatabase } from '@tabler/icons-react';
+import { UserMenu } from '../components/UserMenu';
 
 import {
   IconChartLine,
@@ -194,8 +195,27 @@ export const AppLayout = () => {
       )}
 
       {/* Main Content - Fills remaining space */}
-      <Box id="main-content-scroll" style={{ flex: 1, overflow: 'auto' }}>
-        <Outlet />
+      <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Top bar with user menu */}
+        <Box
+          style={{
+            height: '48px',
+            borderBottom: '1px solid #333',
+            backgroundColor: '#151515',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            padding: '0 16px',
+            flexShrink: 0,
+          }}
+        >
+          <UserMenu />
+        </Box>
+
+        {/* Scrollable content */}
+        <Box id="main-content-scroll" style={{ flex: 1, overflow: 'auto' }}>
+          <Outlet />
+        </Box>
       </Box>
     </Box>
   );
