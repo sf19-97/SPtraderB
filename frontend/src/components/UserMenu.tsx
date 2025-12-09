@@ -1,5 +1,5 @@
 // User profile dropdown menu
-import { Avatar, Menu, Text, UnstyledButton, Group, rem } from '@mantine/core';
+import { Avatar, Menu, Text, UnstyledButton, Group, rem, Box } from '@mantine/core';
 import {
   IconLogout,
   IconSettings,
@@ -9,7 +9,13 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 
-export function UserMenu() {
+type UserMenuVariant = 'full' | 'compact';
+
+interface UserMenuProps {
+  variant?: UserMenuVariant;
+}
+
+export function UserMenu({ variant = 'full' }: UserMenuProps) {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
 
@@ -28,39 +34,46 @@ export function UserMenu() {
       withinPortal
     >
       <Menu.Target>
-        <UnstyledButton
-          style={{
-            padding: '4px 8px',
-            borderRadius: '8px',
-            transition: 'background 0.2s ease',
-          }}
-          styles={{
-            root: {
-              '&:hover': {
-                background: 'rgba(255, 255, 255, 0.05)',
+        <Box>
+          <UnstyledButton
+            style={{
+              padding: variant === 'compact' ? '6px' : '4px 8px',
+              borderRadius: '8px',
+              transition: 'background 0.2s ease',
+              width: variant === 'compact' ? '100%' : 'auto',
+            }}
+            styles={{
+              root: {
+                '&:hover': {
+                  background: 'rgba(255, 255, 255, 0.05)',
+                },
               },
-            },
-          }}
-        >
-          <Group gap="xs">
-            <Avatar
-              src={user.github_avatar_url}
-              alt={user.github_username}
-              radius="xl"
-              size={32}
-              style={{ border: '2px solid rgba(0, 255, 65, 0.3)' }}
-            />
-            <div style={{ flex: 1 }}>
-              <Text size="sm" fw={500} c="gray.2">
-                {user.display_name || user.github_username}
-              </Text>
-              <Text size="xs" c="dimmed">
-                @{user.github_username}
-              </Text>
-            </div>
-            <IconChevronDown size={14} stroke={1.5} color="gray" />
-          </Group>
-        </UnstyledButton>
+            }}
+          >
+            <Group gap="xs" justify="space-between">
+              <Avatar
+                src={user.github_avatar_url}
+                alt={user.github_username}
+                radius="xl"
+                size={32}
+                style={{ border: '2px solid rgba(0, 255, 65, 0.3)' }}
+              />
+              {variant === 'full' && (
+                <>
+                  <div style={{ flex: 1 }}>
+                    <Text size="sm" fw={500} c="gray.2">
+                      {user.display_name || user.github_username}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      @{user.github_username}
+                    </Text>
+                  </div>
+                  <IconChevronDown size={14} stroke={1.5} color="gray" />
+                </>
+              )}
+            </Group>
+          </UnstyledButton>
+        </Box>
       </Menu.Target>
 
       <Menu.Dropdown

@@ -9,7 +9,6 @@ import {
   IconChartLine,
   IconCode,
   IconHistory,
-  IconSettings,
   IconChevronLeft,
   IconChevronRight,
   IconRobot,
@@ -77,16 +76,10 @@ export const AppLayout = () => {
               </Stack>
             </div>
 
-            <Tooltip label="Settings" position="right" withArrow>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                size="lg"
-                style={{ width: '100%' }}
-                onClick={() => navigate('/settings')}
-              >
-                <IconSettings size={20} />
-              </ActionIcon>
+            <Tooltip label="Account" position="right" withArrow>
+              <Box style={{ display: 'flex', justifyContent: 'center' }}>
+                <UserMenu variant="compact" />
+              </Box>
             </Tooltip>
           </Stack>
         )}
@@ -157,23 +150,9 @@ export const AppLayout = () => {
                 </Stack>
               </div>
 
-              <NavLink
-                label="Settings"
-                leftSection={<IconSettings size={20} />}
-                onClick={() => navigate('/settings')}
-                variant="subtle"
-                styles={{
-                  root: {
-                    borderRadius: '4px',
-                    '&:hover': {
-                      backgroundColor: '#2a2a2a',
-                    },
-                  },
-                  label: {
-                    fontSize: '14px',
-                  },
-                }}
-              />
+              <Box>
+                <UserMenu />
+              </Box>
             </Stack>
           </Box>
 
