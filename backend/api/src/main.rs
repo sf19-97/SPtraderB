@@ -18,6 +18,7 @@ mod auth; // Authentication (GitHub OAuth, JWT)
 mod database; // Database utilities (optional - can use filesystem)
 mod orchestrator; // Backtesting engine (fetches data from ws-market-data-server)
 mod workspace; // Workspace management
+mod github; // GitHub content operations (Build Center)
 
 // Optional - only if needed for backtesting simulation
 mod execution; // Order execution simulation
@@ -248,6 +249,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/auth/memory", put(auth::handlers::update_memory))
         .route("/api/auth/repos", get(auth::handlers::list_github_repos))
+        // GitHub content routes
+        .route("/api/github/file", get(github::get_github_file))
+        .route("/api/github/file", put(github::save_github_file))
+        .route("/api/github/tree", get(github::get_github_tree))
         // Apply middleware
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())

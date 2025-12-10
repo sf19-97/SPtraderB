@@ -37,12 +37,16 @@ import {
   IconTrash,
   IconDownload,
   IconArrowRight,
+  IconBrandGithub,
+  IconAlertCircle,
 } from '@tabler/icons-react';
 import { useBuildStore } from '../stores/useBuildStore';
 import { IDEHelpModal } from './IDEHelpModal';
 import { PreviewChart } from './PreviewChart';
 import { workspaceApi } from '../api/workspace';
 import { useTradingStore } from '../stores/useTradingStore';
+import { githubApi } from '../api/github';
+import { useAuthStore } from '../stores/useAuthStore';
 
 // Tauri is no longer used - all functionality migrated to HTTP API
 // Check if running in Tauri (desktop app) vs browser
@@ -143,8 +147,301 @@ const getErrorMessage = (error: unknown): string => {
   return 'An unknown error occurred';
 };
 
+const githubTemplates: Record<string, string> = {
+  indicator: `\"\"\"
+Indicator: __NAME__
+Description: replace with your indicator docs
+\"\"\"
+
+import pandas as pd
+
+def run(data: pd.DataFrame):
+    # data contains OHLC columns
+    return data['close'].rolling(window=14).mean()
+`,
+  signal: `\"\"\"
+Signal: __NAME__
+Description: replace with your signal rules
+\"\"\"
+
+def run(indicators: dict):
+    # indicators['my_indicator'] contains indicator values
+    return 'buy'
+`,
+  strategy: `name: __NAME__
+version: 0.1.0
+description: Update the parameters for your strategy
+type: strategy
+
+parameters:
+  position_size: 0.01
+  stop_loss: 0.02
+  take_profit: 0.05
+
+components:
+  indicators:
+    - core.indicators.momentum.rsi
+  signals:
+    - core.signals.basic.crossover
+`,
+};
+
+const GitHubEditor = ({ searchParams }: { searchParams: URLSearchParams }) => {
+  const navigate = useNavigate();
+  const { token, logout } = useAuthStore();
+
+  const repo = searchParams.get('repo') || '';
+  const branch = searchParams.get('branch') || '';
+  const path = searchParams.get('path') || '';
+  const root = searchParams.get('root') || '';
+  const type = (searchParams.get('type') as 'indicator' | 'signal' | 'strategy') || 'indicator';
+  const isNew = searchParams.get('new') === '1';
+  const commitMessageParam = searchParams.get('commitMessage') || '';
+
+  const fileName = path.split('/').pop() || 'new_file';
+  const baseName = fileName.replace(/\.[^.]+$/, '') || 'new_file';
+  const derivedCommitMessage =
+    commitMessageParam || `Update ${path || baseName} via Build Center`;
+
+  const [code, setCode] = useState('');
+  const [sha, setSha] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [commitMessage, setCommitMessage] = useState(derivedCommitMessage);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCommitMessage(derivedCommitMessage);
+  }, [derivedCommitMessage]);
+
+  const loadFile = useCallback(async () => {
+    if (!token) {
+      setError('Authentication required. Please log in again.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (!repo || !branch || !path) {
+      setError('Repo, branch, and path are required.');
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      if (isNew) {
+        const template = githubTemplates[type] || '# New file';
+        setCode(template.replace(/__NAME__/g, baseName));
+        setSha(null);
+      } else {
+        const file = await githubApi.getFile(token, { repo, path, branch });
+        setCode(file.content);
+        setSha(file.sha);
+      }
+      setLastSavedAt(null);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, repo, branch, path, isNew, type, baseName]);
+
+  useEffect(() => {
+    void loadFile();
+  }, [loadFile]);
+
+  const handleSave = async () => {
+    if (!token) {
+      notifications.show({
+        title: 'Session expired',
+        message: 'Please log in again to save to GitHub.',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (!repo || !branch || !path) {
+      notifications.show({
+        title: 'Missing context',
+        message: 'Repo, branch, and path are required to save.',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (!commitMessage.trim()) {
+      notifications.show({
+        title: 'Commit message required',
+        message: 'Enter a commit message before saving.',
+        color: 'red',
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const response = await githubApi.saveFile(token, {
+        repo,
+        branch,
+        path,
+        content: code,
+        sha: sha || undefined,
+        message: commitMessage.trim(),
+      });
+
+      setSha(response.sha);
+      setLastSavedAt(new Date().toLocaleTimeString());
+
+      notifications.show({
+        title: 'Saved to GitHub',
+        message: response.pr_url
+          ? `Committed to ${branch} and opened PR`
+          : `Committed to ${branch}`,
+        color: 'green',
+      });
+    } catch (err) {
+      const status = (err as any)?.status;
+      const message = getErrorMessage(err);
+      setError(message);
+      notifications.show({
+        title: status === 409 ? 'Conflict detected' : 'Save failed',
+        message,
+        color: status === 409 ? 'yellow' : 'red',
+      });
+
+      if (status === 401 || status === 403) {
+        logout();
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Box
+      style={{
+        minHeight: '100vh',
+        backgroundColor: '#0a0a0a',
+        color: 'white',
+        padding: '1.5rem',
+      }}
+    >
+      <Group justify="space-between" mb="md">
+        <Group gap="sm">
+          <ActionIcon
+            variant="light"
+            color="gray"
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+          >
+            <IconChevronLeft size={18} />
+          </ActionIcon>
+          <div>
+            <Group gap="xs">
+              <IconBrandGithub size={18} />
+              <Text fw={700}>GitHub Editor</Text>
+            </Group>
+            <Text size="sm" c="dimmed">
+              {repo} · {branch} · {path}
+            </Text>
+            {root && (
+              <Text size="xs" c="dimmed">
+                Root: {root}
+              </Text>
+            )}
+          </div>
+        </Group>
+
+        <Group gap="sm" align="flex-end">
+          <TextInput
+            label="Commit message"
+            value={commitMessage}
+            onChange={(e) => setCommitMessage(e.currentTarget.value)}
+            placeholder={`Update ${fileName}`}
+            style={{ minWidth: '260px' }}
+          />
+          <Button
+            variant="subtle"
+            leftSection={<IconRefresh size={16} />}
+            onClick={() => loadFile()}
+            loading={isLoading}
+          >
+            Reload latest
+          </Button>
+          <Button
+            leftSection={<IconDeviceFloppy size={16} />}
+            onClick={handleSave}
+            loading={isSaving}
+            disabled={isLoading}
+          >
+            Save to GitHub
+          </Button>
+        </Group>
+      </Group>
+
+      {error && (
+        <Group gap="xs" mb="sm">
+          <IconAlertCircle size={16} color="#f87171" />
+          <Text size="sm" c="red">
+            {error}
+          </Text>
+        </Group>
+      )}
+
+      <Box
+        style={{
+          border: '1px solid #1f2937',
+          borderRadius: '8px',
+          overflow: 'hidden',
+          backgroundColor: '#0f172a',
+        }}
+      >
+        {isLoading ? (
+          <Group justify="center" py="xl">
+            <Loader color="blue" />
+          </Group>
+        ) : (
+          <Editor
+            height="70vh"
+            defaultLanguage={type === 'strategy' ? 'yaml' : 'python'}
+            theme="vs-dark"
+            value={code}
+            onChange={(value) => setCode(value || '')}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              wordWrap: 'on',
+            }}
+          />
+        )}
+      </Box>
+
+      <Group mt="sm" gap="md">
+        <Text size="sm" c="dimmed">
+          SHA: {sha || 'new file'}
+        </Text>
+        {lastSavedAt && (
+          <Text size="sm" c="dimmed">
+            Last saved: {lastSavedAt}
+          </Text>
+        )}
+      </Group>
+    </Box>
+  );
+};
+
 export const MonacoIDE = () => {
   const [searchParams] = useSearchParams();
+  const isGithubMode = !!searchParams.get('repo') || searchParams.get('source') === 'github';
+
+  if (isGithubMode) {
+    return <GitHubEditor searchParams={searchParams} />;
+  }
+
   const navigate = useNavigate();
   const { addRecentComponent } = useBuildStore();
 

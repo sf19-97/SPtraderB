@@ -1,5 +1,5 @@
 // src/pages/BuildPage.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBuildStore } from '../stores/useBuildStore';
 import { workspaceApi } from '../api/workspace';
@@ -10,6 +10,8 @@ import {
   Group,
   Button,
   TextInput,
+  Select,
+  SegmentedControl,
   Badge,
   Grid,
   Card,
@@ -21,6 +23,7 @@ import {
   Loader,
   Center,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconBolt,
   IconGitBranch,
@@ -36,7 +39,11 @@ import {
   IconActivity,
   IconTerminal2,
   IconChartBar,
+  IconBrandGithub,
+  IconAlertCircle,
+  IconRefresh,
 } from '@tabler/icons-react';
+import { GitHubRepo, useAuthStore, authApi } from '../stores/useAuthStore';
 
 interface ComponentInfo {
   name: string;
@@ -61,6 +68,53 @@ export const BuildPage = () => {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [realComponents, setRealComponents] = useState<ComponentInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { token, user, updatePreferences, logout } = useAuthStore();
+  const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [repoError, setRepoError] = useState<string | null>(null);
+  const [selectedRepo, setSelectedRepo] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [rootPath, setRootPath] = useState('');
+  const [filePath, setFilePath] = useState('');
+  const [defaultCommitMessage, setDefaultCommitMessage] = useState('');
+  const [githubType, setGithubType] = useState<'indicator' | 'signal' | 'strategy'>('strategy');
+
+  const refreshRepos = useCallback(async () => {
+    if (!token) {
+      setGithubRepos([]);
+      return;
+    }
+
+    setReposLoading(true);
+    setRepoError(null);
+    try {
+      const repos = await authApi.listRepos(token);
+      setGithubRepos(repos);
+
+      // Auto-select default repo/branch if none chosen yet
+      if (!selectedRepo && repos.length > 0) {
+        setSelectedRepo(repos[0].full_name);
+        setSelectedBranch(repos[0].default_branch);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to load GitHub repositories';
+      setRepoError(message);
+
+      // Force re-auth on auth failures
+      const status = (error as any)?.status;
+      if (
+        status === 401 ||
+        status === 403 ||
+        message.toLowerCase().includes('unauthorized') ||
+        message.includes('401')
+      ) {
+        logout();
+      }
+    } finally {
+      setReposLoading(false);
+    }
+  }, [token, selectedRepo, logout]);
 
   // Load real components from workspace
   useEffect(() => {
@@ -77,6 +131,147 @@ export const BuildPage = () => {
 
     loadComponents();
   }, []);
+
+  // Load GitHub repositories for the current user
+  useEffect(() => {
+    void refreshRepos();
+  }, [refreshRepos]);
+
+  // Hydrate saved Build Center GitHub config from preferences
+  useEffect(() => {
+    const prefs = (user?.preferences as Record<string, any>)?.build_center_github;
+    if (prefs) {
+      setSelectedRepo(prefs.repo || '');
+      setSelectedBranch(prefs.branch || prefs.default_branch || '');
+      setRootPath(prefs.root_path || '');
+      setFilePath(prefs.default_path || '');
+      setDefaultCommitMessage(prefs.default_commit_message || '');
+      if (prefs.type) {
+        setGithubType(prefs.type);
+      }
+    }
+  }, [user]);
+
+  const repoOptions = useMemo(
+    () => githubRepos.map((repo) => ({ value: repo.full_name, label: repo.full_name })),
+    [githubRepos]
+  );
+
+  const handleRepoChange = (value: string | null) => {
+    const repoName = value || '';
+    setSelectedRepo(repoName);
+
+    if (repoName) {
+      const repo = githubRepos.find((r) => r.full_name === repoName);
+      if (repo) {
+        setSelectedBranch(repo.default_branch);
+      }
+    }
+  };
+
+  const buildFullPath = (relativePath: string) => {
+    const cleanedRoot = rootPath.trim().replace(/^\/+|\/+$/g, '');
+    const cleanedRelative = relativePath.trim().replace(/^\/+/, '');
+
+    if (cleanedRoot && cleanedRelative) {
+      return `${cleanedRoot}/${cleanedRelative}`;
+    }
+    return cleanedRoot || cleanedRelative;
+  };
+
+  const handleSaveGithubPrefs = async () => {
+    if (!selectedRepo || !selectedBranch) {
+      notifications.show({
+        title: 'Missing repo/branch',
+        message: 'Select a repository and branch before saving.',
+        color: 'red',
+      });
+      return;
+    }
+
+    try {
+      await updatePreferences({
+        build_center_github: {
+          repo: selectedRepo,
+          branch: selectedBranch,
+          root_path: rootPath,
+          default_path: filePath,
+          default_commit_message: defaultCommitMessage,
+          type: githubType,
+        },
+      });
+
+      notifications.show({
+        title: 'GitHub config saved',
+        message: 'Build Center will reopen with this repo/branch by default.',
+        color: 'green',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save preferences';
+      notifications.show({
+        title: 'Save failed',
+        message,
+        color: 'red',
+      });
+    }
+  };
+
+  const openGithubInIDE = (isNew: boolean) => {
+    if (!selectedRepo || !selectedBranch) {
+      notifications.show({
+        title: 'Select a repo',
+        message: 'Choose a repository and branch before opening the editor.',
+        color: 'red',
+      });
+      return;
+    }
+
+    const relativePath =
+      filePath.trim() ||
+      `new_${githubType}.${githubType === 'strategy' ? 'yaml' : 'py'}`;
+    const fullPath = buildFullPath(relativePath);
+
+    if (!fullPath) {
+      notifications.show({
+        title: 'Path required',
+        message: 'Provide a file path to load or create.',
+        color: 'red',
+      });
+      return;
+    }
+
+    const params = new URLSearchParams({
+      source: 'github',
+      repo: selectedRepo,
+      branch: selectedBranch,
+      path: fullPath,
+      type: githubType,
+    });
+
+    if (rootPath.trim()) {
+      params.set('root', rootPath.trim());
+    }
+    if (defaultCommitMessage.trim()) {
+      params.set('commitMessage', defaultCommitMessage.trim());
+    }
+    if (isNew) {
+      params.set('new', '1');
+    }
+
+    // Persist latest selection but don't block navigation
+    void updatePreferences({
+      build_center_github: {
+        repo: selectedRepo,
+        branch: selectedBranch,
+        root_path: rootPath,
+        default_path: filePath,
+        default_commit_message: defaultCommitMessage,
+        type: githubType,
+      },
+    });
+
+    navigate(`/ide?${params.toString()}`);
+  };
 
   // Transform real components into the display format
   const components = {
@@ -281,6 +476,143 @@ export const BuildPage = () => {
               Open IDE
             </Button>
           </Group>
+
+          <Paper
+            p="md"
+            mb="lg"
+            style={{
+              background: 'rgba(17, 24, 39, 0.85)',
+              border: '1px solid rgba(59, 130, 246, 0.25)',
+            }}
+          >
+            <Group justify="space-between" align="flex-start" mb="md">
+              <Group gap="sm">
+                <IconBrandGithub size={22} color="#60a5fa" />
+                <div>
+                  <Text fw={600}>Connect GitHub repo</Text>
+                  <Text size="sm" c="dimmed">
+                    Use your stored token to open and save Build Center files directly in GitHub.
+                  </Text>
+                </div>
+              </Group>
+              <Button
+                variant="subtle"
+                leftSection={<IconRefresh size={16} />}
+                onClick={() => refreshRepos()}
+                loading={reposLoading}
+              >
+                Refresh repos
+              </Button>
+            </Group>
+
+            {repoError && (
+              <Group gap={8} mb="sm">
+                <IconAlertCircle size={16} color="#f87171" />
+                <Text size="sm" c="red">
+                  {repoError}
+                </Text>
+              </Group>
+            )}
+
+            <Grid gutter="md">
+              <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
+                <Select
+                  label="Repository"
+                  placeholder="owner/repo"
+                  data={repoOptions}
+                  searchable
+                  nothingFoundMessage={reposLoading ? 'Loading...' : 'No repos found'}
+                  value={selectedRepo}
+                  onChange={handleRepoChange}
+                  leftSection={<IconBrandGithub size={16} />}
+                  disabled={!token}
+                  withinPortal
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+                <TextInput
+                  label="Branch"
+                  placeholder="main"
+                  value={selectedBranch}
+                  onChange={(e) => setSelectedBranch(e.currentTarget.value)}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+                <SegmentedControl
+                  fullWidth
+                  value={githubType}
+                  onChange={(value) =>
+                    setGithubType(value as 'indicator' | 'signal' | 'strategy')
+                  }
+                  data={[
+                    { label: 'Indicator', value: 'indicator' },
+                    { label: 'Signal', value: 'signal' },
+                    { label: 'Strategy', value: 'strategy' },
+                  ]}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+                <TextInput
+                  label="Root path (optional)"
+                  placeholder="strategies"
+                  value={rootPath}
+                  onChange={(e) => setRootPath(e.currentTarget.value)}
+                  description="Prefix applied to file path"
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
+                <TextInput
+                  label="File path"
+                  placeholder="my_strategy.yaml"
+                  value={filePath}
+                  onChange={(e) => setFilePath(e.currentTarget.value)}
+                  description="Relative to root path"
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
+                <TextInput
+                  label="Default commit message"
+                  placeholder="Update strategy from Build Center"
+                  value={defaultCommitMessage}
+                  onChange={(e) => setDefaultCommitMessage(e.currentTarget.value)}
+                />
+              </Grid.Col>
+            </Grid>
+
+            <Group justify="space-between" mt="md">
+              <Text size="sm" c="dimmed">
+                Full path:{' '}
+                <Text span fw={600} c="white">
+                  {buildFullPath(
+                    filePath ||
+                      `new_${githubType}.${githubType === 'strategy' ? 'yaml' : 'py'}`
+                  ) || '—'}
+                </Text>
+              </Text>
+              <Group gap="sm">
+                <Button
+                  variant="outline"
+                  onClick={handleSaveGithubPrefs}
+                  disabled={!selectedRepo || !selectedBranch}
+                >
+                  Save config
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => openGithubInIDE(false)}
+                  disabled={!selectedRepo || !selectedBranch}
+                >
+                  Open file
+                </Button>
+                <Button
+                  onClick={() => openGithubInIDE(true)}
+                  disabled={!selectedRepo || !selectedBranch}
+                >
+                  New script
+                </Button>
+              </Group>
+            </Group>
+          </Paper>
 
           {/* Stats Bar */}
           <Grid mb="xl">

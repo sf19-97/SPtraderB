@@ -81,17 +81,22 @@ export const useAuthStore = create<AuthState>()(
         if (!token || !user) return;
 
         try {
+          const mergedPreferences = {
+            ...(user.preferences || {}),
+            ...preferences,
+          };
+
           const response = await fetch(`${API_URL}/api/auth/preferences`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ preferences }),
+            body: JSON.stringify({ preferences: mergedPreferences }),
           });
 
           if (response.ok) {
-            set({ user: { ...user, preferences } });
+            set({ user: { ...user, preferences: mergedPreferences } });
           }
         } catch (error) {
           console.error('Failed to update preferences:', error);
@@ -192,7 +197,12 @@ export const authApi = {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to fetch repositories');
+      const message = await response.text();
+      const error: Error & { status?: number } = new Error(
+        message || 'Failed to fetch repositories'
+      );
+      error.status = response.status;
+      throw error;
     }
 
     return response.json();
