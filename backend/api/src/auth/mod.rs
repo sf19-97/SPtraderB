@@ -8,7 +8,11 @@ pub mod middleware;
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use aes_gcm::{aead::Aead, Aes256Gcm, Key, Nonce, KeyInit};
+use base64::{engine::general_purpose, Engine as _};
+use rand::RngCore;
 use uuid::Uuid;
+use tracing::{error, warn};
 
 /// User model from database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -77,5 +81,62 @@ impl AuthConfig {
             frontend_url: std::env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "https://sptraderb.vercel.app".to_string()),
         })
+    }
+}
+
+/// Load encryption key for GitHub tokens (32 bytes, hex-encoded)
+fn load_token_key() -> Result<Key<Aes256Gcm>, String> {
+    let key_hex = std::env::var("GITHUB_TOKEN_ENC_KEY")
+        .map_err(|_| "GITHUB_TOKEN_ENC_KEY not set".to_string())?;
+    let bytes = hex::decode(key_hex.as_bytes())
+        .map_err(|e| format!("Invalid GITHUB_TOKEN_ENC_KEY (hex decode): {}", e))?;
+    let key: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| "GITHUB_TOKEN_ENC_KEY must be 32 bytes (64 hex chars)".to_string())?;
+    Ok(Key::<Aes256Gcm>::from_slice(&key).to_owned())
+}
+
+pub fn encrypt_github_token(token: &str) -> Result<String, String> {
+    let key = load_token_key()?;
+    let cipher = Aes256Gcm::new(&key);
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(nonce, token.as_bytes())
+        .map_err(|e| format!("Failed to encrypt token: {}", e))?;
+
+    // Store as base64(nonce || ciphertext)
+    let mut combined = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+    combined.extend_from_slice(&nonce_bytes);
+    combined.extend_from_slice(&ciphertext);
+    Ok(general_purpose::STANDARD_NO_PAD.encode(combined))
+}
+
+pub fn decrypt_github_token(encoded: &str) -> Result<String, String> {
+    let key = load_token_key()?;
+    let data = general_purpose::STANDARD_NO_PAD
+        .decode(encoded)
+        .map_err(|e| format!("Failed to base64-decode token: {}", e))?;
+    if data.len() < 13 {
+        return Err("Encrypted token data too short".to_string());
+    }
+    let (nonce_bytes, ciphertext) = data.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let cipher = Aes256Gcm::new(&key);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| format!("Failed to decrypt token: {}", e))?;
+    String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8 token: {}", e))
+}
+
+/// Best-effort decrypt: returns plaintext on success, otherwise returns the original string
+pub fn decrypt_github_token_lossy(encoded: &str) -> String {
+    match decrypt_github_token(encoded) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("Failed to decrypt GitHub token, returning as-is: {}", e);
+            encoded.to_string()
+        }
     }
 }

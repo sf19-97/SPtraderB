@@ -10,7 +10,7 @@ use axum::{
 use serde::Serialize;
 use tracing::error;
 
-use super::{jwt, AuthConfig, User};
+use super::{jwt, AuthConfig, User, decrypt_github_token_lossy};
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
@@ -102,7 +102,7 @@ where
                 .into_response()
         })?;
 
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        let mut user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await
@@ -120,11 +120,14 @@ where
                 (
                     StatusCode::UNAUTHORIZED,
                     Json(AuthError {
-                        error: "User not found".to_string(),
-                    }),
-                )
-                    .into_response()
-            })?;
+                    error: "User not found".to_string(),
+                }),
+            )
+                .into_response()
+        })?;
+
+        // Decrypt token for downstream handlers (repos, etc.)
+        user.github_access_token = decrypt_github_token_lossy(&user.github_access_token);
 
         Ok(user)
     }

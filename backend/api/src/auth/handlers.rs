@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use super::{github, jwt, AuthConfig, User, UserProfile};
+use super::{github, jwt, AuthConfig, User, UserProfile, encrypt_github_token};
 use crate::AppState;
 
 /// Query params for GitHub OAuth callback
@@ -135,6 +135,20 @@ pub async fn github_callback(
     };
 
     // Create or update user in database
+    let encrypted_token = match encrypt_github_token(&token_response.access_token) {
+        Ok(t) => t,
+        Err(e) => {
+            error!("Failed to encrypt GitHub token: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to secure token".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
     let user = match sqlx::query_as::<_, User>(
         r#"
         INSERT INTO users (github_id, github_username, github_email, github_avatar_url, github_access_token, display_name)
@@ -152,7 +166,7 @@ pub async fn github_callback(
     .bind(&github_user.login)
     .bind(&github_user.email)
     .bind(&github_user.avatar_url)
-    .bind(&token_response.access_token)
+    .bind(&encrypted_token)
     .bind(&github_user.name)
     .fetch_one(pool)
     .await
@@ -294,8 +308,11 @@ pub async fn update_memory(
 }
 
 /// GET /api/auth/repos - List user's GitHub repositories
-pub async fn list_github_repos(State(state): State<crate::AppState>, user: User) -> Response {
-    match github::fetch_user_repos(&user.github_access_token).await {
+pub async fn list_github_repos(State(state): State<crate::AppState>, mut user: User) -> Response {
+    // Decrypt token for GitHub API calls
+    let token = super::decrypt_github_token_lossy(&user.github_access_token);
+
+    match github::fetch_user_repos(&token).await {
         Ok(repos) => (StatusCode::OK, Json(repos)).into_response(),
         Err(e) => {
             error!("Failed to fetch repos: {}", e);

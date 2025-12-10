@@ -49,8 +49,12 @@ function LoadingFallback() {
 }
 
 function App() {
-  const { token, user } = useAuthStore();
+  const { token, user, revalidateSession } = useAuthStore();
   const isAuthenticated = !!(token && user);
+
+  useEffect(() => {
+    revalidateSession();
+  }, [revalidateSession]);
 
   return (
     <BrowserRouter>

@@ -58,6 +58,9 @@ rand = "0.8"
 # Authentication
 jsonwebtoken = "9"
 argon2 = "0.5"
+aes-gcm = "0.10"
+base64 = "0.22"
+hex = "0.4"
 
 # File formats
 arrow = "54.2"

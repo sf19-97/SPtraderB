@@ -42,6 +42,7 @@ interface AuthState {
   setError: (error: string | null) => void;
   updatePreferences: (preferences: Record<string, unknown>) => void;
   updateMemory: (memory: Record<string, unknown>) => void;
+  revalidateSession: () => Promise<void>;
 
   // Computed
   isAuthenticated: () => boolean;
@@ -112,6 +113,18 @@ export const useAuthStore = create<AuthState>()(
           });
         } catch (error) {
           console.error('Failed to update memory:', error);
+        }
+      },
+
+      revalidateSession: async () => {
+        const { token, logout, setAuth } = get();
+        if (!token) return;
+        try {
+          const user = await authApi.getMe(token);
+          setAuth(token, user);
+        } catch (error) {
+          console.warn('Session revalidation failed, logging out', error);
+          logout();
         }
       },
 
