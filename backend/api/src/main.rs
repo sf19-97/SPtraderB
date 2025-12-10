@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
-    http::Method,
+    http::{HeaderValue, Method},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -116,9 +116,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         backtests,
     };
 
-    // Configure CORS
+    // Configure CORS (lock to configured origins)
+    let allowed_origins = std::env::var("ALLOWED_ORIGINS")
+        .ok()
+        .unwrap_or_else(|| {
+            std::env::var("FRONTEND_URL")
+                .unwrap_or_else(|_| "https://sptraderb.vercel.app".to_string())
+        });
+
+    let origin_values: Vec<HeaderValue> = allowed_origins
+        .split(',')
+        .filter_map(|origin| {
+            let trimmed = origin.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                HeaderValue::from_str(trimmed).ok()
+            }
+        })
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(origin_values)
         .allow_methods([
             Method::GET,
             Method::POST,
