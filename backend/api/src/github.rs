@@ -48,7 +48,7 @@ fn sanitize_path(path: &str) -> Result<String, Response> {
     Ok(trimmed.to_string())
 }
 
-fn github_client(token: &str) -> Result<reqwest::Client, Response> {
+fn github_client(_token: &str) -> Result<reqwest::Client, Response> {
     reqwest::Client::builder()
         .user_agent("SPtraderB-BuildCenter")
         .build()
@@ -79,25 +79,27 @@ async fn get_default_branch(repo: &str, token: &str) -> Result<String, Response>
             )
         })?;
 
-    if resp.status() == ReqwestStatus::NOT_FOUND {
+    let status = resp.status();
+
+    if status == ReqwestStatus::NOT_FOUND {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "Repository not found on GitHub",
         ));
     }
 
-    if resp.status() == ReqwestStatus::UNAUTHORIZED || resp.status() == ReqwestStatus::FORBIDDEN {
+    if status == ReqwestStatus::UNAUTHORIZED || status == ReqwestStatus::FORBIDDEN {
         return Err(error_response(
             StatusCode::UNAUTHORIZED,
             "GitHub authorization failed",
         ));
     }
 
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         error!(
             "GitHub repo fetch error ({}): {}",
-            resp.status().as_u16(),
+            status.as_u16(),
             body
         );
         return Err(error_response(
@@ -153,22 +155,24 @@ async fn fetch_file_metadata(
             )
         })?;
 
-    if resp.status() == ReqwestStatus::NOT_FOUND {
+    let status = resp.status();
+
+    if status == ReqwestStatus::NOT_FOUND {
         return Ok(None);
     }
 
-    if resp.status() == ReqwestStatus::UNAUTHORIZED || resp.status() == ReqwestStatus::FORBIDDEN {
+    if status == ReqwestStatus::UNAUTHORIZED || status == ReqwestStatus::FORBIDDEN {
         return Err(error_response(
             StatusCode::UNAUTHORIZED,
             "GitHub authorization failed",
         ));
     }
 
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         error!(
             "GitHub metadata fetch error ({}): {}",
-            resp.status().as_u16(),
+            status.as_u16(),
             body
         );
         return Err(error_response(
@@ -207,25 +211,27 @@ async fn fetch_file(
             error_response(StatusCode::BAD_GATEWAY, "Failed to fetch file from GitHub")
         })?;
 
-    if resp.status() == ReqwestStatus::NOT_FOUND {
+    let status = resp.status();
+
+    if status == ReqwestStatus::NOT_FOUND {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "File not found on GitHub",
         ));
     }
 
-    if resp.status() == ReqwestStatus::UNAUTHORIZED || resp.status() == ReqwestStatus::FORBIDDEN {
+    if status == ReqwestStatus::UNAUTHORIZED || status == ReqwestStatus::FORBIDDEN {
         return Err(error_response(
             StatusCode::UNAUTHORIZED,
             "GitHub authorization failed",
         ));
     }
 
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         error!(
             "GitHub fetch error ({}): {}",
-            resp.status().as_u16(),
+            status.as_u16(),
             body
         );
         return Err(error_response(
@@ -408,7 +414,9 @@ async fn create_pull_request(
             error_response(StatusCode::BAD_GATEWAY, "Failed to create pull request")
         })?;
 
-    if resp.status() == ReqwestStatus::UNPROCESSABLE_ENTITY {
+    let status = resp.status();
+
+    if status == ReqwestStatus::UNPROCESSABLE_ENTITY {
         let body = resp.text().await.unwrap_or_default();
         error!("PR already exists or invalid: {}", body);
         return Err(error_response(
@@ -417,18 +425,18 @@ async fn create_pull_request(
         ));
     }
 
-    if resp.status() == ReqwestStatus::UNAUTHORIZED || resp.status() == ReqwestStatus::FORBIDDEN {
+    if status == ReqwestStatus::UNAUTHORIZED || status == ReqwestStatus::FORBIDDEN {
         return Err(error_response(
             StatusCode::UNAUTHORIZED,
             "GitHub authorization failed",
         ));
     }
 
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         error!(
             "PR creation failed ({}): {}",
-            resp.status().as_u16(),
+            status.as_u16(),
             body
         );
         return Err(error_response(
@@ -526,14 +534,16 @@ pub async fn save_github_file(
         }
     };
 
-    if resp.status() == ReqwestStatus::UNAUTHORIZED || resp.status() == ReqwestStatus::FORBIDDEN {
+    let status = resp.status();
+
+    if status == ReqwestStatus::UNAUTHORIZED || status == ReqwestStatus::FORBIDDEN {
         return error_response(
             StatusCode::UNAUTHORIZED,
             "GitHub authorization failed",
         );
     }
 
-    if resp.status() == ReqwestStatus::CONFLICT {
+    if status == ReqwestStatus::CONFLICT {
         let body = resp.text().await.unwrap_or_default();
         error!("GitHub reported conflict: {}", body);
         return error_response(
@@ -542,9 +552,9 @@ pub async fn save_github_file(
         );
     }
 
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        error!("GitHub save error ({}): {}", resp.status().as_u16(), body);
+        error!("GitHub save error ({}): {}", status.as_u16(), body);
         return error_response(
             StatusCode::BAD_GATEWAY,
             "Failed to save file to GitHub",
@@ -636,50 +646,48 @@ struct GitTreeResponse {
 
 fn insert_into_tree(root: &mut Vec<FileNode>, full_path: &str, entry_type: &str) {
     let parts: Vec<&str> = full_path.split('/').collect();
-    let mut current_level = root;
-    let mut accumulated = String::new();
 
-    for (idx, part) in parts.iter().enumerate() {
-        if !accumulated.is_empty() {
-            accumulated.push('/');
+    fn helper(tree: &mut Vec<FileNode>, parts: &[&str], accumulated: &str, is_file: bool) {
+        if parts.is_empty() {
+            return;
         }
-        accumulated.push_str(part);
 
-        let is_last = idx == parts.len() - 1;
-        let target_type = if is_last && entry_type == "blob" {
-            "file"
+        let part = parts[0];
+        let is_last = parts.len() == 1;
+        let node_type = if is_last && is_file { "file" } else { "folder" };
+        let path = if accumulated.is_empty() {
+            part.to_string()
         } else {
-            "folder"
+            format!("{}/{}", accumulated, part)
         };
 
-        if let Some(existing) = current_level
-            .iter_mut()
-            .find(|node| node.name == *part && node.node_type == target_type)
-        {
-            if let Some(children) = existing.children.as_mut() {
-                current_level = children;
-            }
-            continue;
+        let idx = tree
+            .iter()
+            .position(|node| node.name == part && node.node_type == node_type)
+            .unwrap_or_else(|| {
+                tree.push(FileNode {
+                    name: part.to_string(),
+                    path: path.clone(),
+                    node_type: node_type.to_string(),
+                    children: if node_type == "folder" {
+                        Some(Vec::new())
+                    } else {
+                        None
+                    },
+                });
+                tree.len() - 1
+            });
+
+        if is_last {
+            return;
         }
 
-        let new_node = FileNode {
-            name: part.to_string(),
-            path: accumulated.clone(),
-            node_type: target_type.to_string(),
-            children: if target_type == "folder" {
-                Some(Vec::new())
-            } else {
-                None
-            },
-        };
-
-        current_level.push(new_node);
-        if let Some(last) = current_level.last_mut() {
-            if let Some(children) = last.children.as_mut() {
-                current_level = children;
-            }
+        if let Some(children) = tree[idx].children.as_mut() {
+            helper(children, &parts[1..], &path, is_file);
         }
     }
+
+    helper(root, &parts, "", entry_type == "blob");
 }
 
 pub async fn get_github_tree(
@@ -732,20 +740,22 @@ pub async fn get_github_tree(
         }
     };
 
-    if resp.status() == ReqwestStatus::NOT_FOUND {
+    let status = resp.status();
+
+    if status == ReqwestStatus::NOT_FOUND {
         return error_response(StatusCode::NOT_FOUND, "Branch or path not found on GitHub");
     }
 
-    if resp.status() == ReqwestStatus::UNAUTHORIZED || resp.status() == ReqwestStatus::FORBIDDEN {
+    if status == ReqwestStatus::UNAUTHORIZED || status == ReqwestStatus::FORBIDDEN {
         return error_response(
             StatusCode::UNAUTHORIZED,
             "GitHub authorization failed",
         );
     }
 
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        error!("GitHub tree error ({}): {}", resp.status().as_u16(), body);
+        error!("GitHub tree error ({}): {}", status.as_u16(), body);
         return error_response(
             StatusCode::BAD_GATEWAY,
             "Failed to fetch GitHub tree",

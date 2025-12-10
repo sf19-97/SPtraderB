@@ -526,7 +526,6 @@ export const BuildPage = () => {
                   onChange={handleRepoChange}
                   leftSection={<IconBrandGithub size={16} />}
                   disabled={!token}
-                  withinPortal
                 />
               </Grid.Col>
               <Grid.Col span={{ base: 12, md: 6, lg: 3 }}>
