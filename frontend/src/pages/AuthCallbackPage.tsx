@@ -7,9 +7,18 @@ import { useAuthStore, authApi } from '../stores/useAuthStore';
 export function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { setAuth, setError } = useAuthStore();
+  const { setAuth, setError, logout } = useAuthStore();
   const [status, setStatus] = useState<'loading' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
+
+  const resetAuthState = (message: string) => {
+    setStatus('error');
+    setErrorMessage(message);
+    setError(message);
+    logout();
+    sessionStorage.removeItem('github_oauth_state');
+    sessionStorage.removeItem('github_code_verifier');
+  };
 
   useEffect(() => {
     const code = searchParams.get('code');
@@ -21,30 +30,22 @@ export function AuthCallbackPage() {
     const codeVerifier = sessionStorage.getItem('github_code_verifier');
 
     if (error) {
-      setStatus('error');
-      setErrorMessage(errorDescription || error);
-      setError(errorDescription || error);
+      resetAuthState(errorDescription || error);
       return;
     }
 
     if (!code) {
-      setStatus('error');
-      setErrorMessage('No authorization code received');
-      setError('No authorization code received');
+      resetAuthState('No authorization code received');
       return;
     }
 
     if (!returnedState || !storedState || returnedState !== storedState) {
-      setStatus('error');
-      setErrorMessage('Invalid OAuth state. Please try again.');
-      setError('Invalid OAuth state');
+      resetAuthState('Invalid OAuth state. Please try again.');
       return;
     }
 
     if (!codeVerifier) {
-      setStatus('error');
-      setErrorMessage('Missing PKCE verifier. Please start the login again.');
-      setError('Missing PKCE verifier');
+      resetAuthState('Missing PKCE verifier. Please start the login again.');
       return;
     }
 
@@ -59,9 +60,7 @@ export function AuthCallbackPage() {
         navigate('/trading', { replace: true });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Authentication failed';
-        setStatus('error');
-        setErrorMessage(message);
-        setError(message);
+        resetAuthState(message);
       }
     };
 
