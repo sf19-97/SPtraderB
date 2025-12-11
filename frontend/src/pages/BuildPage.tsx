@@ -50,6 +50,7 @@ import {
 } from '@tabler/icons-react';
 import { GitHubRepo, useAuthStore, authApi } from '../stores/useAuthStore';
 import { githubApi, FileNode as GithubFileNode } from '../api/github';
+import { createLogger } from '../utils/logger';
 
 interface ComponentInfo {
   name: string;
@@ -62,6 +63,7 @@ interface ComponentInfo {
 
 export const BuildPage = () => {
   const navigate = useNavigate();
+  const buildLogger = useMemo(() => createLogger('build'), []);
   const {
     searchTerm,
     setSearchTerm,
@@ -112,6 +114,7 @@ export const BuildPage = () => {
       const message =
         error instanceof Error ? error.message : 'Failed to load GitHub repositories';
       setRepoError(message);
+      buildLogger.error('Failed to load GitHub repositories', error);
       // Do not auto-logout; let the user retry or re-auth explicitly
     } finally {
       setReposLoading(false);
@@ -137,6 +140,7 @@ export const BuildPage = () => {
       const message =
         error instanceof Error ? error.message : 'Failed to load GitHub tree';
       setTreeError(message);
+      buildLogger.error('Failed to load GitHub tree', error);
     } finally {
       setTreeLoading(false);
     }
@@ -149,7 +153,7 @@ export const BuildPage = () => {
         const components = await workspaceApi.getComponents();
         setRealComponents(components);
       } catch (error) {
-        console.error('Failed to load components:', error);
+        buildLogger.error('Failed to load components', error);
       } finally {
         setIsLoading(false);
       }

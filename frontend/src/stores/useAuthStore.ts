@@ -1,6 +1,7 @@
 // Authentication store for SPtraderB
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { createLogger } from '../utils/logger';
 
 export interface UserProfile {
   id: string;
@@ -49,6 +50,7 @@ interface AuthState {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://sptraderb-api.fly.dev';
+const authLogger = createLogger('auth');
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -97,9 +99,11 @@ export const useAuthStore = create<AuthState>()(
 
           if (response.ok) {
             set({ user: { ...user, preferences: mergedPreferences } });
+          } else {
+            authLogger.warn('Failed to update preferences', response.status);
           }
         } catch (error) {
-          console.error('Failed to update preferences:', error);
+          authLogger.error('Failed to update preferences', error);
         }
       },
 
@@ -117,7 +121,7 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({ memory }),
           });
         } catch (error) {
-          console.error('Failed to update memory:', error);
+          authLogger.error('Failed to update memory', error);
         }
       },
 
@@ -131,10 +135,16 @@ export const useAuthStore = create<AuthState>()(
           const status = (error as any)?.status;
           // Only force logout on explicit auth failures; keep the session on transient errors
           if (status === 401 || status === 403) {
-            console.warn('Session revalidation failed with auth error, logging out', error);
+            authLogger.warn('Session revalidation failed with auth error, logging out', {
+              status,
+              error,
+            });
             logout();
           } else {
-            console.warn('Session revalidation failed; keeping session', error);
+            authLogger.warn('Session revalidation failed; keeping session', {
+              status,
+              error,
+            });
           }
         }
       },
@@ -199,6 +209,10 @@ export const authApi = {
       }
       const error: Error & { status?: number } = new Error(message);
       error.status = response.status;
+      authLogger.error('authApi.getMe failed', {
+        status: response.status,
+        message,
+      });
       throw error;
     }
 
