@@ -21,6 +21,101 @@ fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(ErrorResponse { error: message.into() })).into_response()
 }
 
+#[derive(Debug, Deserialize)]
+struct BuildCenterGithubPref {
+    repo: String,
+    branch: Option<String>,
+    root_path: Option<String>,
+}
+
+fn extract_build_center_pref(user: &User) -> Result<BuildCenterGithubPref, Response> {
+    let prefs_value = &user.preferences;
+    let Some(obj) = prefs_value.as_object() else {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Build Center GitHub preferences not configured",
+        ));
+    };
+
+    if let Some(cfg) = obj.get("build_center_github") {
+        serde_json::from_value::<BuildCenterGithubPref>(cfg.clone()).map_err(|_| {
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "Invalid build_center_github preferences format",
+            )
+        })
+    } else {
+        Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Build Center GitHub preferences not configured",
+        ))
+    }
+}
+
+fn normalize_root(root: &Option<String>) -> Option<String> {
+    root.as_ref().map(|r| r.trim_matches('/').to_string()).filter(|s| !s.is_empty())
+}
+
+fn assert_scope(
+    user: &User,
+    repo: &str,
+    branch: &str,
+    path: &str,
+) -> Result<(), Response> {
+    let cfg = extract_build_center_pref(user)?;
+    if cfg.repo != repo {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Repo not allowed for Build Center GitHub access",
+        ));
+    }
+
+    if let Some(cfg_branch) = cfg.branch {
+        if cfg_branch != branch {
+            return Err(error_response(
+                StatusCode::FORBIDDEN,
+                "Branch not allowed; update preferences to change branch",
+            ));
+        }
+    }
+
+    if let Some(root) = normalize_root(&cfg.root_path) {
+        if !path.trim_start_matches('/').starts_with(&root) {
+            return Err(error_response(
+                StatusCode::FORBIDDEN,
+                format!("Path must reside under configured root: {}", root),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn assert_type_path(file_type: &Option<String>, path: &str) -> Result<(), Response> {
+    if let Some(t) = file_type {
+        match t.as_str() {
+            "indicator" | "signal" => {
+                if !path.ends_with(".py") {
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "Indicators/signals must be Python (.py) files",
+                    ));
+                }
+            }
+            "strategy" => {
+                if !path.ends_with(".yaml") && !path.ends_with(".yml") {
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "Strategies must be YAML (.yaml/.yml) files",
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn validate_repo(repo: &str) -> Result<(), Response> {
     if repo.split('/').count() != 2 {
         return Err(error_response(
@@ -284,6 +379,7 @@ pub struct FileQuery {
     pub repo: String,
     pub path: String,
     pub branch: Option<String>,
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -315,6 +411,14 @@ pub async fn get_github_file(
             Err(resp) => return resp,
         },
     };
+
+    if let Err(resp) = assert_scope(&user, &query.repo, &branch, &path) {
+        return resp;
+    }
+
+    if let Err(resp) = assert_type_path(&query.file_type, &path) {
+        return resp;
+    }
 
     match fetch_file(&query.repo, &path, &branch, &user.github_access_token).await {
         Ok((content, sha)) => {
@@ -348,6 +452,7 @@ pub struct SaveFileRequest {
     pub create_pr: Option<bool>,
     pub base_branch: Option<String>,
     pub pr_title: Option<String>,
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -493,6 +598,13 @@ pub async fn save_github_file(
             Ok(None) => {}
             Err(resp) => return resp,
         }
+    }
+
+    if let Err(resp) = assert_scope(&user, &payload.repo, &branch, &path) {
+        return resp;
+    }
+    if let Err(resp) = assert_type_path(&payload.file_type, &path) {
+        return resp;
     }
 
     let encoded = BASE64_STANDARD.encode(payload.content.as_bytes());
@@ -699,13 +811,59 @@ pub async fn get_github_tree(
         return resp;
     }
 
-    let branch = match &query.branch {
+    let cfg = match extract_build_center_pref(&user) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    if cfg.repo != query.repo {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            "Repo not allowed for Build Center GitHub access",
+        );
+    }
+
+    let mut branch = match &query.branch {
         Some(b) if !b.trim().is_empty() => b.trim().to_string(),
         _ => match get_default_branch(&query.repo, &user.github_access_token).await {
             Ok(b) => b,
             Err(resp) => return resp,
         },
     };
+
+    if let Some(cfg_branch) = cfg.branch {
+        if cfg_branch != branch {
+            return error_response(
+                StatusCode::FORBIDDEN,
+                "Branch not allowed; update preferences to change branch",
+            );
+        }
+        branch = cfg_branch;
+    }
+
+    if let Some(root) = normalize_root(&cfg.root_path) {
+        if let Some(req_path) = &query.path {
+            let trimmed = req_path.trim_matches('/');
+            if !trimmed.starts_with(&root) {
+                return error_response(
+                    StatusCode::FORBIDDEN,
+                    format!("Tree path must be under configured root: {}", root),
+                );
+            }
+        }
+    }
+
+    if let Some(root) = normalize_root(&extract_build_center_pref(&user).ok().and_then(|c| c.root_path)) {
+        if let Some(req_path) = &query.path {
+            let trimmed = req_path.trim_matches('/');
+            if !trimmed.starts_with(&root) {
+                return error_response(
+                    StatusCode::FORBIDDEN,
+                    format!("Tree path must be under configured root: {}", root),
+                );
+            }
+        }
+    }
 
     let client = match github_client(&user.github_access_token) {
         Ok(c) => c,
@@ -811,4 +969,129 @@ pub async fn get_github_tree(
     );
 
     (StatusCode::OK, Json(roots)).into_response()
+}
+#[derive(Debug, Deserialize)]
+pub struct BootstrapRequest {
+    pub repo: String,
+    pub branch: Option<String>,
+    pub root_path: Option<String>,
+    pub include_indicator: Option<bool>,
+    pub include_signal: Option<bool>,
+    pub include_strategy: Option<bool>,
+}
+
+fn join_paths(root: Option<&str>, tail: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if let Some(r) = root {
+        let trimmed = r.trim_matches('/');
+        if !trimmed.is_empty() {
+            parts.push(trimmed);
+        }
+    }
+    parts.push(tail.trim_matches('/'));
+    parts.join("/")
+}
+
+pub async fn bootstrap_structure(
+    State(_state): State<AppState>,
+    user: User,
+    Json(payload): Json<BootstrapRequest>,
+) -> Response {
+    if let Err(resp) = validate_repo(&payload.repo) {
+        return resp;
+    }
+
+    let cfg = match extract_build_center_pref(&user) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    if cfg.repo != payload.repo {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            "Repo not allowed for bootstrap; update preferences first",
+        );
+    }
+
+    let branch = payload
+        .branch
+        .or(cfg.branch)
+        .unwrap_or_else(|| "main".to_string());
+
+    let include_indicator = payload.include_indicator.unwrap_or(true);
+    let include_signal = payload.include_signal.unwrap_or(true);
+    let include_strategy = payload.include_strategy.unwrap_or(true);
+
+    let root = normalize_root(&payload.root_path).or_else(|| normalize_root(&cfg.root_path));
+
+    let mut tasks: Vec<(String, String, String)> = Vec::new();
+
+    if include_indicator {
+        let path = join_paths(root.as_deref(), "core/indicators/momentum/sample_indicator.py");
+        let content = r#"\"\"\"
+Sample indicator
+\"\"\"
+
+def run(data):
+    return data["close"].rolling(window=5).mean()
+"#;
+        tasks.push((path, content.to_string(), "indicator".to_string()));
+    }
+
+    if include_signal {
+        let path = join_paths(root.as_deref(), "core/signals/basic/sample_signal.py");
+        let content = r#"\"\"\"
+Sample signal
+\"\"\"
+
+def run(indicators):
+    return "buy"
+"#;
+        tasks.push((path, content.to_string(), "signal".to_string()));
+    }
+
+    if include_strategy {
+        let path = join_paths(root.as_deref(), "strategies/sample_strategy.yaml");
+        let content = r#"name: sample_strategy
+version: 0.1.0
+type: strategy
+description: Sample strategy scaffold
+
+components:
+  indicators:
+    - core.indicators.momentum.sample_indicator
+  signals:
+    - core.signals.basic.sample_signal
+"#;
+        tasks.push((path, content.to_string(), "strategy".to_string()));
+    }
+
+    for (path, content, kind) in tasks {
+        if let Err(resp) = assert_scope(&user, &payload.repo, &branch, &path) {
+            return resp;
+        }
+        let res = save_github_file(
+            State(_state.clone()),
+            user.clone(),
+            Json(SaveFileRequest {
+                repo: payload.repo.clone(),
+                path: path.clone(),
+                branch: branch.clone(),
+                content,
+                sha: None,
+                message: Some(format!("Bootstrap {} via Build Center", kind)),
+                create_pr: None,
+                base_branch: None,
+                pr_title: None,
+                file_type: Some(kind),
+            }),
+        )
+        .await;
+
+        if res.status() != StatusCode::OK {
+            return res;
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response()
 }

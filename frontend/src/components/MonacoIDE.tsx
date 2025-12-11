@@ -236,7 +236,7 @@ const GitHubEditor = ({ searchParams }: { searchParams: URLSearchParams }) => {
         setCode(template.replace(/__NAME__/g, baseName));
         setSha(null);
       } else {
-        const file = await githubApi.getFile(token, { repo, path, branch });
+        const file = await githubApi.getFile(token, { repo, path, branch, file_type: type });
         setCode(file.content);
         setSha(file.sha);
       }
@@ -291,6 +291,7 @@ const GitHubEditor = ({ searchParams }: { searchParams: URLSearchParams }) => {
         content: code,
         sha: sha || undefined,
         message: commitMessage.trim(),
+        file_type: type,
       });
 
       setSha(response.sha);

@@ -89,6 +89,7 @@ export const BuildPage = () => {
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState<string | null>(null);
   const [expandedTree, setExpandedTree] = useState<Set<string>>(new Set());
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
 
   const refreshRepos = useCallback(async () => {
     if (!token) {
@@ -276,6 +277,23 @@ export const BuildPage = () => {
       return;
     }
 
+    const fullPathCheck = buildFullPath(filePath);
+    const validExt =
+      githubType === 'strategy'
+        ? fullPathCheck.endsWith('.yaml') || fullPathCheck.endsWith('.yml')
+        : fullPathCheck.endsWith('.py');
+    if (!validExt) {
+      notifications.show({
+        title: 'Invalid path',
+        message:
+          githubType === 'strategy'
+            ? 'Strategies must be .yaml/.yml files.'
+            : 'Indicators/Signals must be .py files.',
+        color: 'red',
+      });
+      return;
+    }
+
     const relativePath =
       filePath.trim() ||
       `new_${githubType}.${githubType === 'strategy' ? 'yaml' : 'py'}`;
@@ -385,6 +403,39 @@ export const BuildPage = () => {
         </Box>
       );
     });
+
+  const handleBootstrap = async () => {
+    if (!token || !selectedRepo || !selectedBranch) {
+      notifications.show({
+        title: 'Select repo/branch',
+        message: 'Choose a repository and branch before creating the structure.',
+        color: 'red',
+      });
+      return;
+    }
+    setBootstrapLoading(true);
+    try {
+      await githubApi.bootstrap(token, {
+        repo: selectedRepo,
+        branch: selectedBranch,
+        root_path: rootPath,
+      });
+      notifications.show({
+        title: 'Structure created',
+        message: 'Starter indicator/signal/strategy files were added to the repo.',
+        color: 'green',
+      });
+      await loadGithubTree();
+    } catch (error) {
+      notifications.show({
+        title: 'Bootstrap failed',
+        message: error instanceof Error ? error.message : 'Failed to create structure',
+        color: 'red',
+      });
+    } finally {
+      setBootstrapLoading(false);
+    }
+  };
 
   // Transform real components into the display format
   const components = {
@@ -736,6 +787,14 @@ export const BuildPage = () => {
                       </ScrollArea>
                     )}
                   </Paper>
+                  <Group justify="space-between" mt="xs">
+                    <Text size="xs" c="dimmed">
+                      Only files under the configured root are runnable.
+                    </Text>
+                    <Button size="xs" variant="subtle" onClick={handleBootstrap} loading={bootstrapLoading}>
+                      Create required structure
+                    </Button>
+                  </Group>
                 </Grid.Col>
               </Grid>
 

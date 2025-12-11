@@ -17,6 +17,7 @@ export interface GithubSaveRequest {
   create_pr?: boolean;
   base_branch?: string;
   pr_title?: string;
+  file_type?: 'indicator' | 'signal' | 'strategy';
 }
 
 export interface GithubSaveResponse {
@@ -32,6 +33,15 @@ export interface GithubTreeParams {
   repo: string;
   branch?: string;
   path?: string;
+}
+
+export interface BootstrapRequest {
+  repo: string;
+  branch?: string;
+  root_path?: string;
+  include_indicator?: boolean;
+  include_signal?: boolean;
+  include_strategy?: boolean;
 }
 
 export interface FileNode {
@@ -84,12 +94,13 @@ async function apiFetch<T>(
 export const githubApi = {
   getFile: async (
     token: string,
-    params: { repo: string; path: string; branch?: string }
+    params: { repo: string; path: string; branch?: string; file_type?: 'indicator' | 'signal' | 'strategy' }
   ): Promise<GithubFileResponse> => {
     const query = new URLSearchParams({
       repo: params.repo,
       path: params.path,
       ...(params.branch ? { branch: params.branch } : {}),
+      ...(params.file_type ? { file_type: params.file_type } : {}),
     });
 
     return apiFetch<GithubFileResponse>(token, `/api/github/file?${query.toString()}`);
@@ -109,5 +120,12 @@ export const githubApi = {
       ...(params.path ? { path: params.path } : {}),
     });
     return apiFetch<FileNode[]>(token, `/api/github/tree?${query.toString()}`);
+  },
+
+  bootstrap: async (token: string, payload: BootstrapRequest): Promise<{ success: boolean }> => {
+    return apiFetch<{ success: boolean }>(token, '/api/github/bootstrap', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };

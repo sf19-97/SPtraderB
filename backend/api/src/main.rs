@@ -253,6 +253,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/github/file", get(github::get_github_file))
         .route("/api/github/file", put(github::save_github_file))
         .route("/api/github/tree", get(github::get_github_tree))
+        .route("/api/github/bootstrap", post(github::bootstrap_structure))
         // Apply middleware
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())
