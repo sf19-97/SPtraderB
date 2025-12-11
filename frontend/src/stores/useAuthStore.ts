@@ -52,6 +52,41 @@ interface AuthState {
 const API_URL = import.meta.env.VITE_API_URL || 'https://sptraderb-api.fly.dev';
 const authLogger = createLogger('auth');
 const AUTH_STORAGE_KEY = 'sptraderb-auth-storage';
+const OAUTH_STATE_KEY = 'github_oauth_state';
+const OAUTH_VERIFIER_KEY = 'github_code_verifier';
+
+function setCookie(name: string, value: string, maxAgeSeconds = 600) {
+  try {
+    document.cookie = `${name}=${encodeURIComponent(
+      value
+    )}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax; Secure`;
+  } catch (err) {
+    authLogger.warn('Could not set cookie', { name, err });
+  }
+}
+
+function getCookie(name: string): string | null {
+  try {
+    const match = document.cookie
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith(`${name}=`));
+    if (match) {
+      return decodeURIComponent(match.split('=')[1]);
+    }
+  } catch (err) {
+    authLogger.warn('Could not read cookie', { name, err });
+  }
+  return null;
+}
+
+function clearCookie(name: string) {
+  try {
+    document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
+  } catch (err) {
+    authLogger.warn('Could not clear cookie', { name, err });
+  }
+}
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -273,12 +308,14 @@ export const authApi = {
     const codeVerifier = generateCodeVerifier();
 
     // Persist for callback validation
-    sessionStorage.setItem('github_oauth_state', state);
-    sessionStorage.setItem('github_code_verifier', codeVerifier);
+    sessionStorage.setItem(OAUTH_STATE_KEY, state);
+    sessionStorage.setItem(OAUTH_VERIFIER_KEY, codeVerifier);
     // Also write to localStorage as a fallback to survive tab restores / redirect quirks
     try {
-      localStorage.setItem('github_oauth_state', state);
-      localStorage.setItem('github_code_verifier', codeVerifier);
+      localStorage.setItem(OAUTH_STATE_KEY, state);
+      localStorage.setItem(OAUTH_VERIFIER_KEY, codeVerifier);
+      setCookie(OAUTH_STATE_KEY, state);
+      setCookie(OAUTH_VERIFIER_KEY, codeVerifier);
     } catch (err) {
       authLogger.warn('Could not persist PKCE state to localStorage', err);
     }

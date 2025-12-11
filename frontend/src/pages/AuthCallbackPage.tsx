@@ -24,6 +24,8 @@ export function AuthCallbackPage() {
     try {
       localStorage.removeItem('github_oauth_state');
       localStorage.removeItem('github_code_verifier');
+      document.cookie = 'github_oauth_state=; Path=/; Max-Age=0; SameSite=Lax; Secure';
+      document.cookie = 'github_code_verifier=; Path=/; Max-Age=0; SameSite=Lax; Secure';
     } catch {
       // ignore storage errors
     }
@@ -35,12 +37,25 @@ export function AuthCallbackPage() {
     const error = searchParams.get('error');
     const errorDescription = searchParams.get('error_description');
 
+    const cookieState = document.cookie
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('github_oauth_state='))
+      ?.split('=')[1];
+    const cookieVerifier = document.cookie
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('github_code_verifier='))
+      ?.split('=')[1];
+
     const storedState =
       sessionStorage.getItem('github_oauth_state') ||
-      localStorage.getItem('github_oauth_state');
+      localStorage.getItem('github_oauth_state') ||
+      (cookieState ? decodeURIComponent(cookieState) : null);
     const codeVerifier =
       sessionStorage.getItem('github_code_verifier') ||
-      localStorage.getItem('github_code_verifier');
+      localStorage.getItem('github_code_verifier') ||
+      (cookieVerifier ? decodeURIComponent(cookieVerifier) : null);
 
     if (error) {
       resetAuthState(errorDescription || error);
@@ -53,6 +68,11 @@ export function AuthCallbackPage() {
     }
 
     if (!returnedState || !storedState || returnedState !== storedState) {
+      callbackLogger.error('OAuth state mismatch', {
+        returnedState,
+        storedState,
+        hasVerifier: !!codeVerifier,
+      });
       resetAuthState('Invalid OAuth state. Please try again.');
       return;
     }
@@ -73,6 +93,8 @@ export function AuthCallbackPage() {
         try {
           localStorage.removeItem('github_oauth_state');
           localStorage.removeItem('github_code_verifier');
+          document.cookie = 'github_oauth_state=; Path=/; Max-Age=0; SameSite=Lax; Secure';
+          document.cookie = 'github_code_verifier=; Path=/; Max-Age=0; SameSite=Lax; Secure';
         } catch {
           // ignore storage errors
         }
