@@ -1022,7 +1022,10 @@ pub async fn bootstrap_structure(
     let include_signal = payload.include_signal.unwrap_or(true);
     let include_strategy = payload.include_strategy.unwrap_or(true);
 
-    let root = normalize_root(&payload.root_path).or_else(|| normalize_root(&cfg.root_path));
+    // Use caller-provided root, then stored prefs. If none, default to "build_center"
+    let root = normalize_root(&payload.root_path)
+        .or_else(|| normalize_root(&cfg.root_path))
+        .or_else(|| Some("build_center".to_string()));
 
     let mut tasks: Vec<(String, String, String)> = Vec::new();
 
