@@ -295,10 +295,19 @@ export const authApi = {
   // Get GitHub OAuth URL with PKCE + state
   getGitHubAuthUrl: async (): Promise<string> => {
     const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-    // Always use the current origin to avoid state/storage mismatch across domains
-    const frontendUrl = window.location.origin;
+    // Prefer configured frontend URL to match GitHub app redirect whitelist
+    const configuredFrontend = import.meta.env.VITE_FRONTEND_URL;
+    const currentOrigin = window.location.origin;
+    const frontendUrl = configuredFrontend || currentOrigin;
     const redirectUri = `${frontendUrl}/auth/callback`;
     const scope = 'user:email,repo';
+    if (configuredFrontend && configuredFrontend !== currentOrigin) {
+      authLogger.warn('Using configured frontend URL for OAuth redirect', {
+        configuredFrontend,
+        currentOrigin,
+        redirectUri,
+      });
+    }
 
     if (!clientId) {
       throw new Error('GitHub Client ID is not configured');
