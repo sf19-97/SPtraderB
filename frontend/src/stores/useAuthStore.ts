@@ -128,8 +128,14 @@ export const useAuthStore = create<AuthState>()(
           const user = await authApi.getMe(token);
           setAuth(token, user);
         } catch (error) {
-          console.warn('Session revalidation failed, logging out', error);
-          logout();
+          const status = (error as any)?.status;
+          // Only force logout on explicit auth failures; keep the session on transient errors
+          if (status === 401 || status === 403) {
+            console.warn('Session revalidation failed with auth error, logging out', error);
+            logout();
+          } else {
+            console.warn('Session revalidation failed; keeping session', error);
+          }
         }
       },
 
@@ -182,7 +188,18 @@ export const authApi = {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to fetch user profile');
+      let message = 'Failed to fetch user profile';
+      try {
+        const data = await response.json();
+        if (data?.error) {
+          message = data.error;
+        }
+      } catch {
+        // Ignore parse errors; keep default message
+      }
+      const error: Error & { status?: number } = new Error(message);
+      error.status = response.status;
+      throw error;
     }
 
     return response.json();

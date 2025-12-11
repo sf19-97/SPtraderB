@@ -75,7 +75,7 @@ export const BuildPage = () => {
   const [realComponents, setRealComponents] = useState<ComponentInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [mode, setMode] = useState<'local' | 'github'>('local');
-  const { token, user, updatePreferences, logout } = useAuthStore();
+  const { token, user, updatePreferences } = useAuthStore();
   const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
@@ -116,7 +116,7 @@ export const BuildPage = () => {
     } finally {
       setReposLoading(false);
     }
-  }, [token, selectedRepo, logout]);
+  }, [token, selectedRepo]);
 
   const loadGithubTree = useCallback(async () => {
     if (!token || !selectedRepo || !selectedBranch) {
@@ -137,13 +137,10 @@ export const BuildPage = () => {
       const message =
         error instanceof Error ? error.message : 'Failed to load GitHub tree';
       setTreeError(message);
-      if ((error as any)?.status === 401 || (error as any)?.status === 403) {
-        logout();
-      }
     } finally {
       setTreeLoading(false);
     }
-  }, [token, selectedRepo, selectedBranch, rootPath, logout]);
+  }, [token, selectedRepo, selectedBranch, rootPath]);
 
   // Load real components from workspace
   useEffect(() => {
