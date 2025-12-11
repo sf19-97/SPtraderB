@@ -1,6 +1,6 @@
 // Authentication store for SPtraderB
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { createLogger } from '../utils/logger';
 
 export interface UserProfile {
@@ -51,6 +51,7 @@ interface AuthState {
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://sptraderb-api.fly.dev';
 const authLogger = createLogger('auth');
+const AUTH_STORAGE_KEY = 'sptraderb-auth-storage';
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -172,11 +173,12 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: 'sptraderb-auth-storage',
+      name: AUTH_STORAGE_KEY,
       partialize: (state) => ({
         token: state.token,
         user: state.user,
       }),
+      storage: createJSONStorage(() => sessionStorage),
     }
   )
 );
