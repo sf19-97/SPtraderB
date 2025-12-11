@@ -1,0 +1,10 @@
+name: sample_strategy
+version: 0.1.0
+type: strategy
+description: Sample strategy scaffold
+
+components:
+  indicators:
+    - core.indicators.momentum.sample_indicator
+  signals:
+    - core.signals.basic.sample_signal
