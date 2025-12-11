@@ -295,7 +295,8 @@ export const authApi = {
   // Get GitHub OAuth URL with PKCE + state
   getGitHubAuthUrl: async (): Promise<string> => {
     const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-    const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+    // Always use the current origin to avoid state/storage mismatch across domains
+    const frontendUrl = window.location.origin;
     const redirectUri = `${frontendUrl}/auth/callback`;
     const scope = 'user:email,repo';
 
@@ -316,6 +317,7 @@ export const authApi = {
       localStorage.setItem(OAUTH_VERIFIER_KEY, codeVerifier);
       setCookie(OAUTH_STATE_KEY, state);
       setCookie(OAUTH_VERIFIER_KEY, codeVerifier);
+      authLogger.debug('Stored PKCE state', { state });
     } catch (err) {
       authLogger.warn('Could not persist PKCE state to localStorage', err);
     }
