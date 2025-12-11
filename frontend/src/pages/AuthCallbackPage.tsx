@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Loader, Stack, Text } from '@mantine/core';
 import { useAuthStore, authApi } from '../stores/useAuthStore';
+import { createLogger } from '../utils/logger';
+
+const callbackLogger = createLogger('auth-callback');
 
 export function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -18,6 +21,12 @@ export function AuthCallbackPage() {
     logout();
     sessionStorage.removeItem('github_oauth_state');
     sessionStorage.removeItem('github_code_verifier');
+    try {
+      localStorage.removeItem('github_oauth_state');
+      localStorage.removeItem('github_code_verifier');
+    } catch {
+      // ignore storage errors
+    }
   };
 
   useEffect(() => {
@@ -26,8 +35,12 @@ export function AuthCallbackPage() {
     const error = searchParams.get('error');
     const errorDescription = searchParams.get('error_description');
 
-    const storedState = sessionStorage.getItem('github_oauth_state');
-    const codeVerifier = sessionStorage.getItem('github_code_verifier');
+    const storedState =
+      sessionStorage.getItem('github_oauth_state') ||
+      localStorage.getItem('github_oauth_state');
+    const codeVerifier =
+      sessionStorage.getItem('github_code_verifier') ||
+      localStorage.getItem('github_code_verifier');
 
     if (error) {
       resetAuthState(errorDescription || error);
@@ -57,9 +70,16 @@ export function AuthCallbackPage() {
         // Clean up PKCE artifacts
         sessionStorage.removeItem('github_oauth_state');
         sessionStorage.removeItem('github_code_verifier');
+        try {
+          localStorage.removeItem('github_oauth_state');
+          localStorage.removeItem('github_code_verifier');
+        } catch {
+          // ignore storage errors
+        }
         navigate('/trading', { replace: true });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Authentication failed';
+        callbackLogger.error('Auth callback failed', { message, err });
         resetAuthState(message);
       }
     };

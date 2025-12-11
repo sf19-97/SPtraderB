@@ -273,6 +273,13 @@ export const authApi = {
     // Persist for callback validation
     sessionStorage.setItem('github_oauth_state', state);
     sessionStorage.setItem('github_code_verifier', codeVerifier);
+    // Also write to localStorage as a fallback to survive tab restores / redirect quirks
+    try {
+      localStorage.setItem('github_oauth_state', state);
+      localStorage.setItem('github_code_verifier', codeVerifier);
+    } catch (err) {
+      authLogger.warn('Could not persist PKCE state to localStorage', err);
+    }
 
     const codeChallenge = await generateCodeChallenge(codeVerifier);
 
