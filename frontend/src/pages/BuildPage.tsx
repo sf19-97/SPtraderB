@@ -112,17 +112,7 @@ export const BuildPage = () => {
       const message =
         error instanceof Error ? error.message : 'Failed to load GitHub repositories';
       setRepoError(message);
-
-      // Force re-auth on auth failures
-      const status = (error as any)?.status;
-      if (
-        status === 401 ||
-        status === 403 ||
-        message.toLowerCase().includes('unauthorized') ||
-        message.includes('401')
-      ) {
-        logout();
-      }
+      // Do not auto-logout; let the user retry or re-auth explicitly
     } finally {
       setReposLoading(false);
     }
