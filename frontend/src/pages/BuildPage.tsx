@@ -145,6 +145,7 @@ export const BuildPage = () => {
       const status = (error as any)?.status;
       const message =
         error instanceof Error ? error.message : 'Failed to load GitHub tree';
+      const displayMessage = status ? `${message} (HTTP ${status})` : message;
 
       // Auto-configure Build Center prefs once if missing, then retry
       if (
@@ -169,12 +170,18 @@ export const BuildPage = () => {
           await fetchTree();
           return;
         } catch (prefErr) {
+          buildLogger.error('Failed to auto-configure Build Center GitHub prefs', {
+            error: prefErr,
+          });
           buildLogger.error('Failed to auto-configure Build Center GitHub prefs', prefErr);
         }
       }
 
-      setTreeError(message);
-      buildLogger.error('Failed to load GitHub tree', error);
+      setTreeError(displayMessage);
+      buildLogger.error('Failed to load GitHub tree', {
+        status,
+        error,
+      });
     } finally {
       setTreeLoading(false);
     }

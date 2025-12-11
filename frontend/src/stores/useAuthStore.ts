@@ -97,13 +97,29 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({ preferences: mergedPreferences }),
           });
 
-          if (response.ok) {
-            set({ user: { ...user, preferences: mergedPreferences } });
-          } else {
-            authLogger.warn('Failed to update preferences', response.status);
+          if (!response.ok) {
+            let message = 'Failed to update preferences';
+            try {
+              const data = await response.json();
+              if (data?.error) {
+                message = data.error;
+              }
+            } catch {
+              // ignore parse errors
+            }
+            const error: Error & { status?: number } = new Error(message);
+            error.status = response.status;
+            authLogger.error('Failed to update preferences', {
+              status: response.status,
+              message,
+            });
+            throw error;
           }
+
+          set({ user: { ...user, preferences: mergedPreferences } });
         } catch (error) {
           authLogger.error('Failed to update preferences', error);
+          throw error;
         }
       },
 
