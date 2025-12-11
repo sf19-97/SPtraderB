@@ -1,5 +1,5 @@
 // src/pages/BuildPage.tsx
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBuildStore } from '../stores/useBuildStore';
 import { workspaceApi } from '../api/workspace';
@@ -92,6 +92,7 @@ export const BuildPage = () => {
   const [treeError, setTreeError] = useState<string | null>(null);
   const [expandedTree, setExpandedTree] = useState<Set<string>>(new Set());
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
+  const autoConfigAttempted = useRef(false);
 
   const refreshRepos = useCallback(async () => {
     if (!token) {
@@ -129,22 +130,69 @@ export const BuildPage = () => {
 
     setTreeLoading(true);
     setTreeError(null);
-    try {
+    const fetchTree = async () => {
       const tree = await githubApi.getTree(token, {
         repo: selectedRepo,
         branch: selectedBranch,
         path: rootPath || undefined,
       });
       setGithubTree(tree);
+    };
+
+    try {
+      await fetchTree();
     } catch (error) {
+      const status = (error as any)?.status;
       const message =
         error instanceof Error ? error.message : 'Failed to load GitHub tree';
+
+      // Auto-configure Build Center prefs once if missing, then retry
+      if (
+        status === 403 &&
+        !autoConfigAttempted.current &&
+        selectedRepo &&
+        selectedBranch
+      ) {
+        autoConfigAttempted.current = true;
+        try {
+          await updatePreferences({
+            build_center_github: {
+              repo: selectedRepo,
+              branch: selectedBranch,
+              root_path: rootPath,
+              default_path: filePath,
+              default_commit_message: defaultCommitMessage,
+              type: githubType,
+            },
+          });
+          buildLogger.info('Auto-configured Build Center GitHub prefs; retrying tree');
+          await fetchTree();
+          return;
+        } catch (prefErr) {
+          buildLogger.error('Failed to auto-configure Build Center GitHub prefs', prefErr);
+        }
+      }
+
       setTreeError(message);
       buildLogger.error('Failed to load GitHub tree', error);
     } finally {
       setTreeLoading(false);
     }
-  }, [token, selectedRepo, selectedBranch, rootPath]);
+  }, [
+    token,
+    selectedRepo,
+    selectedBranch,
+    rootPath,
+    updatePreferences,
+    filePath,
+    defaultCommitMessage,
+    githubType,
+    buildLogger,
+  ]);
+
+  useEffect(() => {
+    autoConfigAttempted.current = false;
+  }, [selectedRepo, selectedBranch, rootPath]);
 
   // Load real components from workspace
   useEffect(() => {
