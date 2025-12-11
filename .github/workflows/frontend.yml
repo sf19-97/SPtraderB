@@ -23,8 +23,7 @@ jobs:
         run: npm install -g vercel
 
       - name: Deploy to Vercel
-        run: vercel deploy --prod --token=${{ secrets.VERCELTOKEN }}
-        working-directory: frontend
+        run: vercel deploy --prod --token=${{ secrets.VERCELTOKEN }} --cwd frontend
         env:
           VERCEL_ORG_ID: ${{ secrets.STFORGTOKENVERCEL }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCELPROJECTID }}

@@ -4,7 +4,11 @@ import { IconBrandGithub } from '@tabler/icons-react';
 import { authApi } from '../stores/useAuthStore';
 
 export function LoginPage() {
+  const allowedOrigin = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+  const isOriginAllowed = window.location.origin === allowedOrigin;
+
   const handleGitHubLogin = async () => {
+    if (!isOriginAllowed) return;
     const url = await authApi.getGitHubAuthUrl();
     window.location.href = url;
   };
@@ -59,6 +63,7 @@ export function LoginPage() {
               fullWidth
               leftSection={<IconBrandGithub size={24} />}
               onClick={handleGitHubLogin}
+              disabled={!isOriginAllowed}
               style={{
                 background: '#24292e',
                 border: '1px solid #444',
@@ -76,6 +81,12 @@ export function LoginPage() {
             >
               Continue with GitHub
             </Button>
+
+            {!isOriginAllowed && (
+              <Text c="red" size="sm" ta="center">
+                Login is disabled on this preview host. Please use {allowedOrigin}.
+              </Text>
+            )}
 
             {/* Features list */}
             <Stack gap="xs" mt="md">
