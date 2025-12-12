@@ -100,27 +100,11 @@ export const BuildPage = () => {
       return;
     }
 
-    setReposLoading(true);
-    setRepoError(null);
-    try {
-      const repos = await authApi.listRepos(token);
-      setGithubRepos(repos);
-
-      // Auto-select default repo/branch if none chosen yet
-      if (!selectedRepo && repos.length > 0) {
-        setSelectedRepo(repos[0].full_name);
-        setSelectedBranch(repos[0].default_branch);
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to load GitHub repositories';
-      setRepoError(message);
-      buildLogger.error('Failed to load GitHub repositories', error);
-      // Do not auto-logout; let the user retry or re-auth explicitly
-    } finally {
-      setReposLoading(false);
-    }
-  }, [token, selectedRepo]);
+    // Do not pull all GitHub repos; only show app-created repos (none by default)
+    setReposLoading(false);
+    setGithubRepos([]);
+    setRepoError('No app-created repositories yet. Create one from Build Center to see it here.');
+  }, [token]);
 
   const loadGithubTree = useCallback(async () => {
     if (!token || !selectedRepo || !selectedBranch) {
