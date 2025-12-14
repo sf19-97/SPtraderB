@@ -9,14 +9,15 @@ SPtraderB is a modern algorithmic trading platform that combines AI-powered stra
 ## Recent Updates (2025-12-11)
 
 ### Authentication / OAuth
-- PKCE state/verifier now persisted across sessionStorage, localStorage, and cookies to reduce GitHub OAuth state mismatches.
-- OAuth redirect uses configured `VITE_FRONTEND_URL`; login is disabled on preview hosts to avoid non-whitelisted domains. Auth store persists in sessionStorage so closing the tab logs out; revalidation only logs out on 401/403.
+- PKCE state/verifier is now written to sessionStorage, localStorage, and a short-lived cookie to survive redirect quirks. The callback reads from all three so “Invalid OAuth state” is far less likely.
+- OAuth redirect prefers `VITE_FRONTEND_URL` (the whitelisted prod domain); login is disabled on preview hosts to prevent state/whitelist mismatches. If host mismatch happens, the UI tells you to use the allowed origin.
+- Auth store persists to sessionStorage (closes -> logged out). Session revalidation only logs out on explicit 401/403 from `/api/auth/me`; transient failures keep the session.
 
 ### Kumquant App-Managed GitHub Repos
-- Added backend support for Kumquant-managed repos (`app_repos` table via migration `002_app_repos.sql`).
-- New API routes: `GET /api/github/app-repos`, `POST /api/github/app-repos/create` (creates a private Kumquant-prefixed repo via GitHub API and records it).
-- GitHub file/tree/bootstrap endpoints now enforce the app-repo allowlist and apply stored root/branch to prefs; bootstrap defaults root to `build_center`.
-- Frontend Build page now uses only app-managed repos (no full GitHub list), with a “Create Kumquant repo” action. Clear error shown if backend lacks the new endpoints/migration.
+- Backend now tracks app-managed repos in `app_repos` (migration `002_app_repos.sql`). Repos are Kumquant-prefixed and stored per user.
+- New endpoints: `GET /api/github/app-repos` and `POST /api/github/app-repos/create` (creates a private repo via GitHub API, records it, defaults root to `build_center`).
+- All GitHub file/tree/bootstrap routes enforce the app-repo allowlist and auto-apply stored branch/root to prefs to lock scope.
+- Frontend Build page no longer lists all GitHub repos. It only shows app-managed repos and includes a “Create Kumquant repo” action. If the backend is not updated/migrated and returns 404, the UI shows a clear message (“Deploy latest API and run migration 002_app_repos”).
 
 ## Architecture
 
