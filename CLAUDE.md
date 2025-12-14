@@ -4,25 +4,19 @@
 SPtraderB is a modern algorithmic trading platform that combines AI-powered strategies with real-time market data visualization. Built with a React/TypeScript frontend and Rust backend, it provides comprehensive trading tools including backtesting, strategy development, and live trading capabilities.
 
 **Version**: 0.1.0
-**Last Updated**: 2025-11-30
+**Last Updated**: 2025-12-11
 
-## Recent Updates (2025-11-30)
+## Recent Updates (2025-12-11)
 
-### Major Directory Restructuring
-- **Frontend**: Moved all React/Vite code to `frontend/` directory
-- **Backend**: Relocated Rust API from `api/` to `backend/`
-- **Benefits**: Cleaner separation of concerns, easier deployment configuration
+### Authentication / OAuth
+- PKCE state/verifier now persisted across sessionStorage, localStorage, and cookies to reduce GitHub OAuth state mismatches.
+- OAuth redirect uses configured `VITE_FRONTEND_URL`; login is disabled on preview hosts to avoid non-whitelisted domains. Auth store persists in sessionStorage so closing the tab logs out; revalidation only logs out on 401/403.
 
-### Chart Library Enhancements
-- Updated sptrader-chart-lib from 2.0.15 to 2.0.20
-- Added `preloadAdjacentTimeframes` for smoother timeframe switching
-- Fixed localStorage key conflicts (now using 'sptraderb-trading-storage')
-- Removed duplicate MarketChartPage, consolidated into TradingPage
-
-### Performance Improvements
-- Synchronous chart library initialization at module level
-- Background app loading during Matrix login screen
-- Optimized component preloading strategy
+### Kumquant App-Managed GitHub Repos
+- Added backend support for Kumquant-managed repos (`app_repos` table via migration `002_app_repos.sql`).
+- New API routes: `GET /api/github/app-repos`, `POST /api/github/app-repos/create` (creates a private Kumquant-prefixed repo via GitHub API and records it).
+- GitHub file/tree/bootstrap endpoints now enforce the app-repo allowlist and apply stored root/branch to prefs; bootstrap defaults root to `build_center`.
+- Frontend Build page now uses only app-managed repos (no full GitHub list), with a “Create Kumquant repo” action. Clear error shown if backend lacks the new endpoints/migration.
 
 ## Architecture
 
