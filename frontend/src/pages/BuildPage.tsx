@@ -113,9 +113,16 @@ export const BuildPage = () => {
         setRootPath(repos[0].root_path || '');
       }
     } catch (error) {
+      const status = (error as any)?.status;
       const message =
         error instanceof Error ? error.message : 'Failed to load Kumquant repositories';
-      setRepoError(message);
+      if (status === 404) {
+        setRepoError(
+          'Backend missing Kumquant repo endpoints. Deploy latest API and run migration 002_app_repos.'
+        );
+      } else {
+        setRepoError(message);
+      }
       buildLogger.error('Failed to load app repos', error);
     } finally {
       setReposLoading(false);
@@ -334,9 +341,16 @@ export const BuildPage = () => {
       setSelectedBranch(repo.default_branch);
       setRootPath(repo.root_path || '');
     } catch (error) {
+      const status = (error as any)?.status;
       const message =
         error instanceof Error ? error.message : 'Failed to create repository';
-      setRepoError(message);
+      if (status === 404) {
+        setRepoError(
+          'Backend missing Kumquant repo endpoints. Deploy latest API and run migration 002_app_repos.'
+        );
+      } else {
+        setRepoError(message);
+      }
       notifications.show({
         title: 'Create failed',
         message,
