@@ -8,7 +8,10 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use reqwest::StatusCode as ReqwestStatus;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use sqlx::FromRow;
 use tracing::{error, info};
+use uuid::Uuid;
 
 use crate::{auth::User, workspace::FileNode, AppState};
 
@@ -19,6 +22,77 @@ struct ErrorResponse {
 
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(ErrorResponse { error: message.into() })).into_response()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
+struct AppRepoRecord {
+    id: Uuid,
+    owner_user_id: Uuid,
+    github_repo_id: i64,
+    name: String,
+    full_name: String,
+    default_branch: String,
+    root_path: Option<String>,
+}
+
+async fn fetch_app_repo(
+    state: &AppState,
+    user: &User,
+    repo_full_name: &str,
+) -> Result<AppRepoRecord, Response> {
+    let pool = match &state.db {
+        Some(p) => p,
+        None => {
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database not available",
+            ))
+        }
+    };
+
+    match sqlx::query_as::<_, AppRepoRecord>(
+        "SELECT id, owner_user_id, github_repo_id, name, full_name, default_branch, root_path
+         FROM app_repos
+         WHERE owner_user_id = $1 AND full_name = $2",
+    )
+    .bind(user.id)
+    .bind(repo_full_name)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(record)) => Ok(record),
+        Ok(None) => Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Repo not managed by Kumquant; create it from the app",
+        )),
+        Err(e) => {
+            error!("Failed to fetch app repo: {}", e);
+            Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to verify app repo",
+            ))
+        }
+    }
+}
+
+fn apply_app_repo_pref(user: &mut User, app_repo: &AppRepoRecord) {
+    let build_pref = serde_json::json!({
+        "repo": app_repo.full_name,
+        "branch": app_repo.default_branch,
+        "root_path": app_repo.root_path.clone().unwrap_or_else(|| "build_center".to_string()),
+        "default_path": "",
+        "default_commit_message": "",
+        "type": "strategy"
+    });
+
+    let mut prefs = user.preferences.clone();
+    if !prefs.is_object() {
+        prefs = serde_json::json!({});
+    }
+    if let Some(map) = prefs.as_object_mut() {
+        map.insert("build_center_github".to_string(), build_pref);
+    }
+    user.preferences = prefs;
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,13 +465,19 @@ pub struct FileResponse {
 }
 
 pub async fn get_github_file(
-    State(_state): State<AppState>,
-    user: User,
+    State(state): State<AppState>,
+    mut user: User,
     Query(query): Query<FileQuery>,
 ) -> Response {
     if let Err(resp) = validate_repo(&query.repo) {
         return resp;
     }
+
+    let app_repo = match fetch_app_repo(&state, &user, &query.repo).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    apply_app_repo_pref(&mut user, &app_repo);
 
     let path = match sanitize_path(&query.path) {
         Ok(p) => p,
@@ -463,6 +543,22 @@ pub struct SaveFileResponse {
     pub commit_sha: String,
     pub html_url: Option<String>,
     pub pr_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AppRepoResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub full_name: String,
+    pub default_branch: String,
+    pub root_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAppRepoRequest {
+    pub name: Option<String>,
+    pub private: Option<bool>,
+    pub description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -565,13 +661,19 @@ async fn create_pull_request(
 }
 
 pub async fn save_github_file(
-    State(_state): State<AppState>,
-    user: User,
+    State(state): State<AppState>,
+    mut user: User,
     Json(payload): Json<SaveFileRequest>,
 ) -> Response {
     if let Err(resp) = validate_repo(&payload.repo) {
         return resp;
     }
+
+    let app_repo = match fetch_app_repo(&state, &user, &payload.repo).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    apply_app_repo_pref(&mut user, &app_repo);
 
     let path = match sanitize_path(&payload.path) {
         Ok(p) => p,
@@ -802,14 +904,212 @@ fn insert_into_tree(root: &mut Vec<FileNode>, full_path: &str, entry_type: &str)
     helper(root, &parts, "", entry_type == "blob");
 }
 
-pub async fn get_github_tree(
-    State(_state): State<AppState>,
+fn sanitize_repo_name(name: &str) -> String {
+    let mut cleaned = name
+        .trim()
+        .to_lowercase()
+        .replace(' ', "-")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>();
+
+    if cleaned.is_empty() {
+        cleaned = format!("kumquant-{}", uuid::Uuid::new_v4().simple().to_string()[..8].to_string());
+    }
+
+    if !cleaned.starts_with("kumquant-") {
+        cleaned = format!("kumquant-{}", cleaned);
+    }
+    cleaned
+}
+
+pub async fn list_app_repos(
+    State(state): State<AppState>,
     user: User,
+) -> Response {
+    let pool = match &state.db {
+        Some(p) => p,
+        None => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database not available",
+            );
+        }
+    };
+
+    match sqlx::query_as::<_, AppRepoRecord>(
+        "SELECT id, owner_user_id, github_repo_id, name, full_name, default_branch, root_path
+         FROM app_repos
+         WHERE owner_user_id = $1
+         ORDER BY created_at DESC"
+    )
+    .bind(user.id)
+    .fetch_all(pool)
+    .await {
+        Ok(rows) => {
+            let resp: Vec<AppRepoResponse> = rows.into_iter().map(|r| AppRepoResponse {
+                id: r.id,
+                name: r.name,
+                full_name: r.full_name,
+                default_branch: r.default_branch,
+                root_path: r.root_path.unwrap_or_else(|| "build_center".to_string()),
+            }).collect();
+            (StatusCode::OK, Json(resp)).into_response()
+        }
+        Err(e) => {
+            error!("Failed to list app repos: {}", e);
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to list app repos")
+        }
+    }
+}
+
+pub async fn create_app_repo(
+    State(state): State<AppState>,
+    mut user: User,
+    Json(payload): Json<CreateAppRepoRequest>,
+) -> Response {
+    let pool = match &state.db {
+        Some(p) => p,
+        None => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database not available",
+            );
+        }
+    };
+
+    let raw_name = payload
+        .name
+        .clone()
+        .unwrap_or_else(|| "kumquant".to_string());
+    let repo_name = sanitize_repo_name(&raw_name);
+    let is_private = payload.private.unwrap_or(true);
+    let description = payload.description.unwrap_or_else(|| "Kumquant app repo".to_string());
+
+    let client = match github_client(&user.github_access_token) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let create_body = serde_json::json!({
+        "name": repo_name,
+        "private": is_private,
+        "description": description,
+    });
+
+    let create_resp = match client
+        .post("https://api.github.com/user/repos")
+        .bearer_auth(&user.github_access_token)
+        .json(&create_body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            error!("GitHub repo creation failed: {}", e);
+            return error_response(StatusCode::BAD_GATEWAY, "Failed to create repo on GitHub");
+        }
+    };
+
+    if create_resp.status() == ReqwestStatus::UNPROCESSABLE_ENTITY {
+        let body = create_resp.text().await.unwrap_or_default();
+        error!("GitHub repo creation conflict: {}", body);
+        return error_response(StatusCode::CONFLICT, "Repository already exists");
+    }
+
+    if !create_resp.status().is_success() {
+        let body = create_resp.text().await.unwrap_or_default();
+        error!(
+            "GitHub repo creation failed ({}): {}",
+            create_resp.status().as_u16(),
+            body
+        );
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            "Failed to create GitHub repository",
+        );
+    }
+
+    #[derive(Deserialize)]
+    struct RepoInfo {
+        id: i64,
+        name: String,
+        full_name: String,
+        default_branch: String,
+    }
+
+    let repo_info: RepoInfo = match create_resp.json().await {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to parse GitHub create repo response: {}", e);
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                "Failed to parse GitHub repository response",
+            );
+        }
+    };
+
+    // Insert into app_repos
+    let root_path = "build_center".to_string();
+    let inserted_id: Result<Uuid, sqlx::Error> = sqlx::query_scalar(
+        "INSERT INTO app_repos (owner_user_id, github_repo_id, name, full_name, default_branch, root_path)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id"
+    )
+    .bind(user.id)
+    .bind(repo_info.id)
+    .bind(&repo_info.name)
+    .bind(&repo_info.full_name)
+    .bind(&repo_info.default_branch)
+    .bind(&root_path)
+    .fetch_one(pool)
+    .await;
+
+    let app_repo_id = match inserted_id {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to insert app repo: {}", e);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to record app repository",
+            );
+        }
+    };
+
+    // Update user preferences in-memory for downstream handlers if needed
+    user.preferences = json!({
+        "build_center_github": {
+            "repo": repo_info.full_name,
+            "branch": repo_info.default_branch,
+            "root_path": root_path,
+            "default_path": "",
+            "default_commit_message": "",
+            "type": "strategy"
+        }
+    });
+
+    (StatusCode::OK, Json(AppRepoResponse {
+        id: app_repo_id,
+        name: repo_info.name,
+        full_name: repo_info.full_name,
+        default_branch: repo_info.default_branch,
+        root_path,
+    })).into_response()
+}
+pub async fn get_github_tree(
+    State(state): State<AppState>,
+    mut user: User,
     Query(query): Query<TreeQuery>,
 ) -> Response {
     if let Err(resp) = validate_repo(&query.repo) {
         return resp;
     }
+
+    let app_repo = match fetch_app_repo(&state, &user, &query.repo).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    apply_app_repo_pref(&mut user, &app_repo);
 
     let cfg = match extract_build_center_pref(&user) {
         Ok(c) => c,
@@ -993,13 +1293,19 @@ fn join_paths(root: Option<&str>, tail: &str) -> String {
 }
 
 pub async fn bootstrap_structure(
-    State(_state): State<AppState>,
-    user: User,
+    State(state): State<AppState>,
+    mut user: User,
     Json(payload): Json<BootstrapRequest>,
 ) -> Response {
     if let Err(resp) = validate_repo(&payload.repo) {
         return resp;
     }
+
+    let app_repo = match fetch_app_repo(&state, &user, &payload.repo).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    apply_app_repo_pref(&mut user, &app_repo);
 
     let cfg = match extract_build_center_pref(&user) {
         Ok(c) => c,

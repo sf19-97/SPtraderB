@@ -35,6 +35,14 @@ export interface GithubTreeParams {
   path?: string;
 }
 
+export interface AppRepo {
+  id: string;
+  name: string;
+  full_name: string;
+  default_branch: string;
+  root_path: string;
+}
+
 export interface BootstrapRequest {
   repo: string;
   branch?: string;
@@ -124,6 +132,20 @@ export const githubApi = {
 
   bootstrap: async (token: string, payload: BootstrapRequest): Promise<{ success: boolean }> => {
     return apiFetch<{ success: boolean }>(token, '/api/github/bootstrap', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  listAppRepos: async (token: string): Promise<AppRepo[]> => {
+    return apiFetch<AppRepo[]>(token, '/api/github/app-repos');
+  },
+
+  createAppRepo: async (
+    token: string,
+    payload: { name?: string; private?: boolean; description?: string }
+  ): Promise<AppRepo> => {
+    return apiFetch<AppRepo>(token, '/api/github/app-repos/create', {
       method: 'POST',
       body: JSON.stringify(payload),
     });

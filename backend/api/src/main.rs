@@ -250,6 +250,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/auth/memory", put(auth::handlers::update_memory))
         .route("/api/auth/repos", get(auth::handlers::list_github_repos))
         // GitHub content routes
+        .route("/api/github/app-repos", get(github::list_app_repos))
+        .route("/api/github/app-repos/create", post(github::create_app_repo))
         .route("/api/github/file", get(github::get_github_file))
         .route("/api/github/file", put(github::save_github_file))
         .route("/api/github/tree", get(github::get_github_tree))

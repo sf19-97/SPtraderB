@@ -48,8 +48,8 @@ import {
   IconFolder,
   IconFile,
 } from '@tabler/icons-react';
-import { GitHubRepo, useAuthStore, authApi } from '../stores/useAuthStore';
-import { githubApi, FileNode as GithubFileNode } from '../api/github';
+import { useAuthStore } from '../stores/useAuthStore';
+import { githubApi, FileNode as GithubFileNode, AppRepo } from '../api/github';
 import { createLogger } from '../utils/logger';
 
 interface ComponentInfo {
@@ -78,7 +78,7 @@ export const BuildPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [mode, setMode] = useState<'local' | 'github'>('local');
   const { token, user, updatePreferences } = useAuthStore();
-  const [githubRepos, setGithubRepos] = useState<GitHubRepo[]>([]);
+  const [githubRepos, setGithubRepos] = useState<AppRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState('');
@@ -93,6 +93,7 @@ export const BuildPage = () => {
   const [expandedTree, setExpandedTree] = useState<Set<string>>(new Set());
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const autoConfigAttempted = useRef(false);
+  const [newRepoName, setNewRepoName] = useState('');
 
   const refreshRepos = useCallback(async () => {
     if (!token) {
@@ -100,11 +101,26 @@ export const BuildPage = () => {
       return;
     }
 
-    // Do not pull all GitHub repos; only show app-created repos (none by default)
-    setReposLoading(false);
-    setGithubRepos([]);
-    setRepoError('No app-created repositories yet. Create one from Build Center to see it here.');
-  }, [token]);
+    setReposLoading(true);
+    setRepoError(null);
+    try {
+      const repos = await githubApi.listAppRepos(token);
+      setGithubRepos(repos);
+
+      if (!selectedRepo && repos.length > 0) {
+        setSelectedRepo(repos[0].full_name);
+        setSelectedBranch(repos[0].default_branch);
+        setRootPath(repos[0].root_path || '');
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to load Kumquant repositories';
+      setRepoError(message);
+      buildLogger.error('Failed to load app repos', error);
+    } finally {
+      setReposLoading(false);
+    }
+  }, [token, selectedRepo, buildLogger]);
 
   const loadGithubTree = useCallback(async () => {
     if (!token || !selectedRepo || !selectedBranch) {
@@ -246,6 +262,7 @@ export const BuildPage = () => {
       const repo = githubRepos.find((r) => r.full_name === repoName);
       if (repo) {
         setSelectedBranch(repo.default_branch);
+        setRootPath(repo.root_path || '');
       }
     }
   };
@@ -294,6 +311,40 @@ export const BuildPage = () => {
         message,
         color: 'red',
       });
+    }
+  };
+
+  const handleCreateAppRepo = async () => {
+    if (!token) return;
+    setRepoError(null);
+    setReposLoading(true);
+    try {
+      const repo = await githubApi.createAppRepo(token, {
+        name: newRepoName || undefined,
+        private: true,
+      });
+      notifications.show({
+        title: 'Repo created',
+        message: `${repo.full_name} ready with Kumquant scaffold root.`,
+        color: 'green',
+      });
+      setNewRepoName('');
+      await refreshRepos();
+      setSelectedRepo(repo.full_name);
+      setSelectedBranch(repo.default_branch);
+      setRootPath(repo.root_path || '');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to create repository';
+      setRepoError(message);
+      notifications.show({
+        title: 'Create failed',
+        message,
+        color: 'red',
+      });
+      buildLogger.error('Failed to create app repo', error);
+    } finally {
+      setReposLoading(false);
     }
   };
 
@@ -722,6 +773,19 @@ export const BuildPage = () => {
                   </Text>
                 </Group>
               )}
+
+              <Group gap="sm" mb="sm">
+                <TextInput
+                  placeholder="kumquant-..."
+                  label="New Kumquant repo name"
+                  value={newRepoName}
+                  onChange={(e) => setNewRepoName(e.currentTarget.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button onClick={handleCreateAppRepo} loading={reposLoading}>
+                  Create Kumquant repo
+                </Button>
+              </Group>
 
               <Grid gutter="md">
                 <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
