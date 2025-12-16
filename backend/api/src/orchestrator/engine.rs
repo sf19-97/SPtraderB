@@ -72,6 +72,15 @@ impl BacktestEngine {
             }
         };
 
+        let report = candle_series.validate_against(requirement);
+        if !report.satisfied {
+            tracing::warn!(
+                requirement = ?report.requirement,
+                violations = ?report.violations,
+                "CandleSeries semantic validation unmet; proceeding with execution"
+            );
+        }
+
         if candle_series.candles.is_empty() {
             if let Some(registry) = &registry {
                 update_backtest_state(
