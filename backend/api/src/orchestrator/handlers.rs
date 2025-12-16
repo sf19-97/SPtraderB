@@ -150,7 +150,7 @@ pub async fn run_backtest(
                 start_date,
                 end_date,
                 initial_capital,
-                ExecutionMode::Research,
+                ExecutionMode::Live,
                 requirement,
                 Some(cancel_flag.clone()),
                 Some(registry.clone()),

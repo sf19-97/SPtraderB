@@ -51,8 +51,13 @@ impl BacktestEngine {
             end_date
         );
 
-        // Declares the execution contract for this run; enforcement arrives in v2.
-        let _execution_requirement = requirement;
+        // Hard gate: Live runs must declare the strictest CandleSeries contract.
+        // (We keep the richer enforcement decision below for trust-tier / violation-based blocking.)
+        if matches!(execution_mode, ExecutionMode::Live)
+            && !matches!(requirement, CandleSeriesRequirement::V2Strict)
+        {
+            return Err("Live execution requires CandleSeriesRequirement::V2Strict".to_string());
+        }
 
         // Fetch historical candles from ws-market-data-server
         let candle_series = match fetch_historical_candles(symbol, timeframe, start_date, end_date)
