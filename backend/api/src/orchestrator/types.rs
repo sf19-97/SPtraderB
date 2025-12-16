@@ -52,6 +52,20 @@ pub enum CandleSeriesRequirement {
     // CadenceEnforced,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExecutionMode {
+    Research,
+    Paper,
+    Live,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum EnforcementAction {
+    Allow,
+    Warn,
+    Block,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum GapInformation {
     Unknown,

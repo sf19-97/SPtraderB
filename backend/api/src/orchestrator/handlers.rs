@@ -1,6 +1,6 @@
 use super::{
     store_backtest_result, BacktestEngine, BacktestResult as EngineBacktestResult, BacktestState,
-    CandleSeriesRequirement,
+    CandleSeriesRequirement, ExecutionMode,
 };
 use crate::AppState;
 use axum::{
@@ -150,6 +150,7 @@ pub async fn run_backtest(
                 start_date,
                 end_date,
                 initial_capital,
+                ExecutionMode::Research,
                 requirement,
                 Some(cancel_flag.clone()),
                 Some(registry.clone()),

@@ -1,4 +1,5 @@
 use super::data::fetch_historical_candles;
+use super::enforcement;
 use super::position_manager::PositionManager;
 use super::python_executor::execute_python_backtest;
 use super::signal_processor::{SignalProcessor, TradeAction};
@@ -38,6 +39,7 @@ impl BacktestEngine {
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
         initial_capital: Decimal,
+        execution_mode: ExecutionMode,
         requirement: CandleSeriesRequirement,
         cancel_flag: Option<Arc<AtomicBool>>,
         registry: Option<BacktestRegistry>,
@@ -73,12 +75,46 @@ impl BacktestEngine {
         };
 
         let report = candle_series.validate_against(requirement);
-        if !report.satisfied {
-            tracing::warn!(
-                requirement = ?report.requirement,
-                violations = ?report.violations,
-                "CandleSeries semantic validation unmet; proceeding with execution"
-            );
+        let (action, triggering_violations) = enforcement::decide(
+            execution_mode,
+            candle_series.provenance.trust_tier,
+            &report.violations,
+        );
+
+        match action {
+            EnforcementAction::Allow => {
+                if !report.satisfied {
+                    tracing::warn!(
+                        requirement = ?report.requirement,
+                        violations = ?report.violations,
+                        "CandleSeries semantic validation unmet; proceeding with execution"
+                    );
+                }
+            }
+            EnforcementAction::Warn => {
+                tracing::warn!(
+                    mode = ?execution_mode,
+                    trust_tier = ?candle_series.provenance.trust_tier,
+                    triggering_violations = ?triggering_violations,
+                    "CandleSeries validation raised warnings; proceeding with execution"
+                );
+            }
+            EnforcementAction::Block => {
+                let detail = if triggering_violations.is_empty() {
+                    "unspecified violations".to_string()
+                } else {
+                    triggering_violations
+                        .iter()
+                        .map(|v| format!("{:?}", v))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                let message = format!(
+                    "CandleSeries validation blocked execution due to: {}",
+                    detail
+                );
+                return Err(message);
+            }
         }
 
         if candle_series.candles.is_empty() {
