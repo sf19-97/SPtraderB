@@ -46,6 +46,8 @@ pub enum CandleSeriesVersion {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum CandleSeriesRequirement {
     V1Trusted,
+    /// Execution-safe, enforcement-grade CandleSeries contract.
+    V2Strict,
     // future:
     // Validated,
     // GapFree,
@@ -151,7 +153,7 @@ impl CandleSeries {
         let mut violations = Vec::new();
 
         match requirement {
-            CandleSeriesRequirement::V1Trusted => {
+            CandleSeriesRequirement::V1Trusted | CandleSeriesRequirement::V2Strict => {
                 if !self.capabilities.ordered {
                     violations.push(CandleSeriesValidationViolation::NotOrdered);
                 }

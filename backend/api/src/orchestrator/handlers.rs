@@ -24,6 +24,8 @@ pub struct RunBacktestRequest {
     pub symbol: String,
     pub timeframe: String,
     pub initial_capital: f64,
+    pub execution_mode: Option<ExecutionMode>,
+    pub candle_requirement: Option<CandleSeriesRequirement>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,15 +134,15 @@ pub async fn run_backtest(
     let symbol = payload.symbol.clone();
     let timeframe = payload.timeframe.clone();
     let result_id = backtest_id.clone();
+    let execution_mode = payload
+        .execution_mode
+        .unwrap_or(ExecutionMode::Research);
+    let candle_requirement = payload
+        .candle_requirement
+        .unwrap_or(CandleSeriesRequirement::V1Trusted);
 
     tokio::spawn(async move {
         let registry = state.backtests.clone();
-
-        // Engine requires CandleSeries v1 execution contract:
-        // - ordered
-        // - aligned
-        // - no resampling or gap handling
-        let requirement = CandleSeriesRequirement::V1Trusted;
 
         match engine
             .run_backtest(
@@ -150,8 +152,8 @@ pub async fn run_backtest(
                 start_date,
                 end_date,
                 initial_capital,
-                ExecutionMode::Live,
-                requirement,
+                execution_mode,
+                candle_requirement,
                 Some(cancel_flag.clone()),
                 Some(registry.clone()),
             )
@@ -348,7 +350,7 @@ pub struct StrategyInfo {
 }
 
 pub async fn list_strategies(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Result<Json<Vec<StrategyInfo>>, StatusCode> {
     // TODO: List strategies from filesystem
     tracing::info!("Listing strategies");
@@ -360,7 +362,7 @@ pub async fn list_strategies(
 }
 
 pub async fn get_strategy(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<String, StatusCode> {
     // TODO: Read strategy file
@@ -370,9 +372,9 @@ pub async fn get_strategy(
 }
 
 pub async fn save_strategy(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Path(name): Path<String>,
-    body: String,
+    _body: String,
 ) -> Result<StatusCode, StatusCode> {
     // TODO: Save strategy file
     tracing::info!("Saving strategy: {}", name);
