@@ -16,10 +16,10 @@ SPtraderB now supports user authentication via GitHub OAuth 2.0. Users can log i
 └─────────────┘     └──────────────┘     └─────────────┘
        │                   │
        │                   ▼
-       │            ┌─────────────┐
-       └───────────▶│ TimescaleDB │
-         (JWT)      │  (Users)    │
-                    └─────────────┘
+       │            ┌────────────────────┐
+       └───────────▶│ Fly Postgres (iad) │
+         (JWT)      │  Users/App Repos   │
+                    └────────────────────┘
 ```
 
 ## Security Features
@@ -187,7 +187,23 @@ CREATE TRIGGER update_users_updated_at
 | `GITHUB_CLIENT_SECRET` | **Yes** | - | GitHub OAuth App client secret |
 | `JWT_SECRET` | **Yes** | - | Secret for signing JWTs (min 32 chars) |
 | `FRONTEND_URL` | No | `https://sptraderb.vercel.app` | Frontend URL for CORS |
-| `DATABASE_URL` | **Yes** | - | PostgreSQL connection string |
+| `DATABASE_URL` | **Yes** | - | PostgreSQL connection string (production: Fly Postgres `sptraderb-api-db` in `iad`) |
+
+### Database location (avoid confusion)
+- **Production**: Auth + Kumquant app-repo data live in Fly Postgres `sptraderb-api-db` (region `iad`). `DATABASE_URL` on `sptraderb-api` points here. Required migrations: `001_create_users.sql`, `002_app_repos.sql`. This is separate from the Timescale/market-data DB.
+- **Market data**: The separate market-data server still uses TimescaleDB/Timescale Cloud for candles/ticks. That DB is **not** used for auth/app-repo data.
+- **Local dev**: Point `DATABASE_URL` at a local Postgres and run the two migrations before testing auth/app-repo flows.
+
+### Migrations and access
+- Migrations do **not** auto-run on deploy. Apply them manually:
+  - `psql "$DATABASE_URL" -f backend/api/migrations/001_create_users.sql`
+  - `psql "$DATABASE_URL" -f backend/api/migrations/002_app_repos.sql`
+- Fly access helpers:
+  - `fly postgres list`
+  - `fly postgres connect -a sptraderb-api-db -u <user> -d <db>`
+  - `fly secrets list -a sptraderb-api` (see that `DATABASE_URL` is set)
+- Getting `DATABASE_URL`: pull from your secret manager; `fly secrets list` won’t show values. If you only need a shell, use `fly postgres connect -a sptraderb-api-db` (no URL required). For local dev, set a local Postgres URL.
+- Order/idempotency: Run 001 then 002 (app_repos depends on users). Both SQL files use `IF NOT EXISTS`, so re-running is safe. Verify with `SELECT to_regclass('public.users'), to_regclass('public.app_repos');` or `\dt` in psql.
 
 ## OAuth Flow
 

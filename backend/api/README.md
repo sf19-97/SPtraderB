@@ -6,7 +6,7 @@ Rust backend API for SPtraderB trading platform.
 
 ### Prerequisites
 - Rust 1.75+
-- PostgreSQL 15+ with TimescaleDB
+- PostgreSQL 15+ (TimescaleDB extension optional for this API; core auth/app-repo features need plain Postgres)
 - Redis
 
 ### Setup
@@ -37,7 +37,9 @@ curl http://localhost:3001/health
 
 ## Deployment
 
-### Fly.io Deployment
+### Fly.io Deployment (production)
+
+> The API relies on a **dedicated Fly Postgres** for auth + Kumquant app-repos. Production uses `sptraderb-api-db` (region `iad`). This is separate from the Timescale/market-data DB. Auth/app-repo routes will fail without this DB or the required migrations.
 
 1. Install Fly CLI:
 ```bash
@@ -54,7 +56,7 @@ fly auth login
 fly launch
 ```
 
-4. Set secrets:
+4. Set secrets (production already has `DATABASE_URL` pointing at `sptraderb-api-db` and `REDIS_URL`):
 ```bash
 fly secrets set DATABASE_URL="postgres://..."
 fly secrets set REDIS_URL="redis://..."
@@ -65,23 +67,90 @@ fly secrets set REDIS_URL="redis://..."
 fly deploy
 ```
 
+6. (If provisioning a new DB) Create/attach Postgres:
+```bash
+fly postgres create --name <new-db-name> --org <org> --region <region>
+fly postgres attach <new-db-name> -a sptraderb-api
+```
+
+7. Run migrations (required for auth and Kumquant repos):
+```bash
+psql "$DATABASE_URL" -f migrations/001_create_users.sql
+psql "$DATABASE_URL" -f migrations/002_app_repos.sql
+```
+
+### Production DB details (current)
+- Name: `sptraderb-api-db`
+- Region: `iad`
+- Attached to app: `sptraderb-api` via `DATABASE_URL` secret
+- Schema required: `users` (001_create_users.sql), `app_repos` (002_app_repos.sql)
+- Distinction: This DB is for auth/app-repos only; market-data/candles remain on the separate Timescale/Timescale Cloud DB used by the market-data server.
+
+### Database expectations
+- Production: `sptraderb-api` uses Fly Postgres `sptraderb-api-db` (region `iad`). DB is **required** for auth and Kumquant app-repo endpoints.
+- Local dev: set `DATABASE_URL` to a local Postgres and run the two migrations above before testing auth/app-repo flows. Backtest-only workflows can run without DB, but auth/repo routes will fail.
+
+### Running migrations (examples)
+- Using Fly connect + psql:
+```bash
+fly postgres connect -a sptraderb-api-db -u <user> -d <db>   # then \i migrations/001_create_users.sql, \i migrations/002_app_repos.sql
+```
+- Using psql directly with DATABASE_URL:
+```bash
+psql "$DATABASE_URL" -f migrations/001_create_users.sql
+psql "$DATABASE_URL" -f migrations/002_app_repos.sql
+```
+- Using sqlx (if installed locally):
+```bash
+DATABASE_URL=postgres://... sqlx migrate run
+```
+
+### Getting `DATABASE_URL`
+- **Production**: Pull it from your secret manager; `fly secrets list` will not show values. If you just need a psql session, use `fly postgres connect -a sptraderb-api-db` (no `DATABASE_URL` needed).
+- **Local dev**: Point to your local Postgres (e.g., `postgres://user:pass@localhost:5432/sptraderb_api`) and run migrations.
+- **Do not hardcode** secrets in git; update `DATABASE_URL` via `fly secrets set …` when rotating.
+
+### Migration methods: when to use which
+- `psql "$DATABASE_URL" -f migrations/001_create_users.sql` — use when you have the URL locally (e.g., from secrets manager or local Postgres).
+- `fly postgres connect -a sptraderb-api-db -u <user> -d <db>` then `\i migrations/001_create_users.sql` — use when you’re attached to the Fly Postgres directly; does **not** require the API app to be running.
+- Both methods are equivalent; choose based on whether you have the URL handy.
+
+### Migration order, idempotency, and verification
+- **Order**: Run `001_create_users.sql` first, then `002_app_repos.sql` (app_repos FK references users).
+- **Idempotent**: Both SQL files use `IF NOT EXISTS`; re-running is safe.
+- **Verify applied**:
+  - Quick check: `SELECT to_regclass('public.users'), to_regclass('public.app_repos');`
+  - Inspect tables: `fly postgres connect -a sptraderb-api-db -u <user> -d <db>` then `\dt` or `\d users` / `\d app_repos`.
+
+### Troubleshooting DB issues
+- Missing/incorrect `DATABASE_URL`: auth/app-repo routes return 401/500; logs show connection errors.
+- Migrations not applied: app-repo routes can 404/500; Build Center fails to list/create Kumquant repos.
+- To inspect secrets: `fly secrets list -a sptraderb-api`
+- To inspect DB: `fly postgres list`, `fly postgres connect -a sptraderb-api-db`
+
+## Operational Checklist (production)
+1) `fly deploy` (app: `sptraderb-api`).
+2) Ensure `DATABASE_URL` secret points to `sptraderb-api-db` (iad).
+3) Run migrations (idempotent): `001_create_users.sql`, `002_app_repos.sql`.
+4) Quick health: `curl https://sptraderb-api.fly.dev/health`.
+5) Build Center sanity: log in, hit `/api/github/app-repos` (should 200, not 404), create a Kumquant repo and bootstrap files.
+
 ### GitHub Actions
 
 - `.github/workflows/api.yml` deploys the API to Fly on pushes to `main` when `backend/api/**` changes (secret `DEPLOYTOFLYNONDATASERVERAPI`).
 - `.github/workflows/api-check.yml` runs fmt/clippy/tests for `backend/api/**` on push/PR.
 
-### Fly.io Postgres Setup
+### Fly.io Postgres Setup (API)
 
 ```bash
-# Create Postgres instance
-fly postgres create --name sptraderb-db
+# Create Postgres instance (production uses: sptraderb-api-db in iad)
+fly postgres create --name sptraderb-api-db --region iad
 
 # Attach to app
-fly postgres attach sptraderb-db
+fly postgres attach sptraderb-api-db -a sptraderb-api
 
-# Connect and setup TimescaleDB
-fly postgres connect -a sptraderb-db
-# Then run: CREATE EXTENSION IF NOT EXISTS timescaledb;
+# Connect (if you need a psql shell)
+fly postgres connect -a sptraderb-api-db
 ```
 
 ## API Endpoints

@@ -49,9 +49,10 @@ impl BacktestEngine {
         );
 
         // Fetch historical candles from ws-market-data-server
-        let candles = match fetch_historical_candles(symbol, timeframe, start_date, end_date).await
+        let candle_series = match fetch_historical_candles(symbol, timeframe, start_date, end_date)
+            .await
         {
-            Ok(candles) => candles,
+            Ok(series) => series,
             Err(e) => {
                 if let Some(registry) = &registry {
                     update_backtest_state(
@@ -67,7 +68,7 @@ impl BacktestEngine {
             }
         };
 
-        if candles.is_empty() {
+        if candle_series.candles.is_empty() {
             if let Some(registry) = &registry {
                 update_backtest_state(
                     registry,
@@ -81,10 +82,13 @@ impl BacktestEngine {
             return Err("No candle data available for the specified period".to_string());
         }
 
-        tracing::info!("Loaded {} candles for backtesting", candles.len());
+        tracing::info!(
+            "Loaded {} candles for backtesting",
+            candle_series.candles.len()
+        );
 
         // Execute Python backtest to generate signals
-        let signals = match execute_python_backtest(&candles, &self.strategy_config).await {
+        let signals = match execute_python_backtest(&candle_series, &self.strategy_config).await {
             Ok(signals) => signals,
             Err(e) => {
                 if let Some(registry) = &registry {
@@ -126,13 +130,18 @@ impl BacktestEngine {
 
         // Track daily P&L
         let mut last_portfolio_value = initial_capital;
-        let mut current_date = candles
+        let mut current_date = candle_series
+            .candles
             .first()
             .map(|c| c.time.date_naive())
             .ok_or("No candles available")?;
 
         // Process candles chronologically
-        for (candle_idx, candle) in candles.iter().enumerate() {
+        // ASSUMES:
+        // Input candles conform to CandleSeries v1 execution contract
+        // (see orchestrator/DATA_CONTRACT.md).
+        // No reordering, resampling, or gap-handling occurs here.
+        for (candle_idx, candle) in candle_series.candles.iter().enumerate() {
             if let Some(flag) = &cancel_flag {
                 if flag.load(Ordering::Relaxed) {
                     if let Some(registry) = &registry {
@@ -140,7 +149,7 @@ impl BacktestEngine {
                             registry,
                             backtest_id,
                             Some("cancelled"),
-                            Some(calculate_progress(candle_idx, candles.len())),
+                            Some(calculate_progress(candle_idx, candle_series.candles.len())),
                             Some("Cancelled".to_string()),
                         )
                         .await;
@@ -155,13 +164,13 @@ impl BacktestEngine {
             // Check for new day
             if candle.time.date_naive() != current_date {
                 // Calculate daily return
-                let daily_return =
-                    (portfolio.total_value - last_portfolio_value) / last_portfolio_value;
-                daily_returns.push((candle.time, daily_return));
+            let daily_return =
+                (portfolio.total_value - last_portfolio_value) / last_portfolio_value;
+            daily_returns.push((candle.time, daily_return));
 
-                // Reset for new day
-                portfolio.daily_pnl = Decimal::ZERO;
-                last_portfolio_value = portfolio.total_value;
+            // Reset for new day
+            portfolio.daily_pnl = Decimal::ZERO;
+            last_portfolio_value = portfolio.total_value;
                 current_date = candle.time.date_naive();
             }
 
@@ -264,7 +273,7 @@ impl BacktestEngine {
 
             // Emit progress every 100 candles
             if candle_idx % 100 == 0 {
-                let progress = calculate_progress(candle_idx, candles.len());
+                let progress = calculate_progress(candle_idx, candle_series.candles.len());
                 tracing::debug!("Backtest progress: {:.1}%", progress);
                 if let Some(registry) = &registry {
                     update_backtest_state(
@@ -283,7 +292,10 @@ impl BacktestEngine {
         if !daily_returns.is_empty() {
             let daily_return =
                 (portfolio.total_value - last_portfolio_value) / last_portfolio_value;
-            daily_returns.push((candles.last().unwrap().time, daily_return));
+            daily_returns.push((
+                candle_series.candles.last().unwrap().time,
+                daily_return,
+            ));
         }
 
         // Calculate final metrics

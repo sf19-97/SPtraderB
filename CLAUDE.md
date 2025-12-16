@@ -62,7 +62,7 @@ SPtraderB/
 
 #### Backend API (Fly.io)
 - **Framework**: Axum (Rust)
-- **Database**: PostgreSQL with TimescaleDB
+- **Database**: Fly Postgres (`sptraderb-api-db`, region `iad`) for auth + Kumquant app-repos. Market data uses a separate TimescaleDB/Cloud instance in the market-data server.
 - **Features**: Backtesting, workspace management, strategy execution
 - **Deployment**: fly.io at sptraderb-api.fly.dev
 
@@ -178,6 +178,9 @@ The project uses a single main branch with automatic Vercel deployments on push.
 - `POST /api/strategies/:name` - Save strategy
 
 ## Important Notes
+
+- **Database separation**: The API uses a dedicated Fly Postgres (`sptraderb-api-db`, region `iad`) for auth + Kumquant app-repo data. `DATABASE_URL` on `sptraderb-api` points to it; required migrations: `backend/api/migrations/001_create_users.sql`, `002_app_repos.sql`. Market data still lives on the separate Timescale/Timescale Cloud DB used by the market-data server.
+- **Migrations**: Not auto-run on deploy. Apply via `psql "$DATABASE_URL" -f ...` or `fly postgres connect -a sptraderb-api-db` then `\i migrations/...`. Missing DB or migrations will break auth/app-repo routes (Build Center list/create repos will fail).
 
 ### Chart Library Integration
 The sptrader-chart-lib must be initialized synchronously at module load:

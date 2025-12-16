@@ -78,6 +78,9 @@ Rust → Component Server → Python Components → Results → Keep Running
 ### Shared Files (Used by Both):
 - `/workspace/core/indicators/*` - All indicators
 - `/workspace/core/signals/*` - All signals
+
+## Workspace Location (canonical)
+- All workspace content for the API/Build Center lives under `/workspace` (mounted at `/app/workspace` in Fly). Use this as the single source of truth for `core/` and `strategies/`. Root-level scaffolding has been removed.
 - `/workspace/strategies/*` - Strategy YAML files
 
 ## Future State Recommendations

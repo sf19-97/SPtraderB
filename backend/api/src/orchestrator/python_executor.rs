@@ -1,4 +1,4 @@
-use super::types::{Candle, SignalEvent, StrategyConfig};
+use super::types::{Candle, CandleSeries, SignalEvent, StrategyConfig};
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -55,13 +55,14 @@ struct PythonSignalEvent {
 
 /// Execute vectorized_backtest_v2.py to generate signals for all candles
 pub async fn execute_python_backtest(
-    candles: &[Candle],
+    candle_series: &CandleSeries,
     strategy_config: &StrategyConfig,
 ) -> Result<Vec<SignalEvent>, String> {
-    tracing::info!("Executing Python backtest for {} candles", candles.len());
+    tracing::info!("Executing Python backtest for {} candles", candle_series.candles.len());
 
     // Convert candles to Python format
-    let candle_data: Vec<CandleData> = candles
+    let candle_data: Vec<CandleData> = candle_series
+        .candles
         .iter()
         .map(|c| CandleData {
             time: c.time.timestamp(),

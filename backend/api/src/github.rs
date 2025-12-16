@@ -1012,16 +1012,18 @@ pub async fn create_app_repo(
     };
 
     if create_resp.status() == ReqwestStatus::UNPROCESSABLE_ENTITY {
+        let status = create_resp.status();
         let body = create_resp.text().await.unwrap_or_default();
         error!("GitHub repo creation conflict: {}", body);
         return error_response(StatusCode::CONFLICT, "Repository already exists");
     }
 
     if !create_resp.status().is_success() {
+        let status = create_resp.status();
         let body = create_resp.text().await.unwrap_or_default();
         error!(
             "GitHub repo creation failed ({}): {}",
-            create_resp.status().as_u16(),
+            status.as_u16(),
             body
         );
         return error_response(
@@ -1380,7 +1382,7 @@ components:
             return resp;
         }
         let res = save_github_file(
-            State(_state.clone()),
+            State(state.clone()),
             user.clone(),
             Json(SaveFileRequest {
                 repo: payload.repo.clone(),

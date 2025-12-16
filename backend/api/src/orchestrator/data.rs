@@ -1,4 +1,4 @@
-use super::types::Candle;
+use super::types::{Candle, CandleSeries};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
@@ -14,13 +14,20 @@ struct CandleResponse {
     volume: Option<i64>,
 }
 
+// TRUST BOUNDARY:
+// This function performs mechanical validation and type conversion
+// of external candle data (JSON -> internal Candle).
+//
+// It does NOT define execution semantics.
+// Downstream code assumes the CandleSeries v1 execution contract
+// described in orchestrator/DATA_CONTRACT.md.
 /// Fetch historical candles from ws-market-data-server
 pub async fn fetch_historical_candles(
     symbol: &str,
     timeframe: &str,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-) -> Result<Vec<Candle>, String> {
+) -> Result<CandleSeries, String> {
     let base_url = std::env::var("WS_MARKET_DATA_URL")
         .unwrap_or_else(|_| "https://ws-market-data-server.fly.dev".to_string());
 
@@ -70,5 +77,5 @@ pub async fn fetch_historical_candles(
 
     tracing::info!("Fetched {} candles for {}", candles.len(), symbol);
 
-    Ok(candles)
+    Ok(CandleSeries::new_v1(timeframe.to_string(), candles))
 }

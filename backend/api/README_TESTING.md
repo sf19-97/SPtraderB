@@ -102,8 +102,8 @@ A successful backtest should return something like:
 
 ### Server won't start
 
-**Error**: "Failed to connect to database"
-**Fix**: Database is optional. Comment out db lines in `main.rs` or just ignore the error.
+**Error**: "Failed to connect to database"  
+**Fix**: Auth/app-repo routes require a real Postgres. Set `DATABASE_URL` to a reachable Postgres (production uses Fly Postgres `sptraderb-api-db` in `iad`) and run migrations `migrations/001_create_users.sql` and `migrations/002_app_repos.sql`. If you only care about backtest endpoints locally, you can run without a DB, but auth/Kumquant repo routes will fail.
 
 **Error**: "Address already in use"
 **Fix**: Change `PORT=3002` in `.env`

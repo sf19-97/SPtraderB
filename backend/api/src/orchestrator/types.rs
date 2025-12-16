@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::sync::{atomic::AtomicBool, Arc};
 use tokio::sync::RwLock;
 
+pub type Timeframe = String;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyConfig {
     pub name: String,
@@ -34,6 +36,28 @@ pub struct Candle {
     pub low: Decimal,
     pub close: Decimal,
     pub volume: i64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum CandleSeriesVersion {
+    V1,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandleSeries {
+    pub version: CandleSeriesVersion,
+    pub timeframe: Timeframe,
+    pub candles: Vec<Candle>,
+}
+
+impl CandleSeries {
+    pub fn new_v1(timeframe: Timeframe, candles: Vec<Candle>) -> Self {
+        Self {
+            version: CandleSeriesVersion::V1,
+            timeframe,
+            candles,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
