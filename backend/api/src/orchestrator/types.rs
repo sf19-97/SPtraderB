@@ -67,6 +67,21 @@ pub struct CandleSeriesCapabilities {
     pub ohlc_sanity_known: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum CandleSeriesValidationViolation {
+    NotOrdered,
+    CadenceUnknown,
+    GapInformationUnknown,
+    OhlcSanityUnknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandleSeriesValidationReport {
+    pub requirement: CandleSeriesRequirement,
+    pub satisfied: bool,
+    pub violations: Vec<CandleSeriesValidationViolation>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleSeries {
     pub version: CandleSeriesVersion,
@@ -87,6 +102,39 @@ impl CandleSeries {
                 gap_information: GapInformation::Unknown,
                 ohlc_sanity_known: false,
             },
+        }
+    }
+
+    pub fn validate_against(
+        &self,
+        requirement: CandleSeriesRequirement,
+    ) -> CandleSeriesValidationReport {
+        let mut violations = Vec::new();
+
+        match requirement {
+            CandleSeriesRequirement::V1Trusted => {
+                if !self.capabilities.ordered {
+                    violations.push(CandleSeriesValidationViolation::NotOrdered);
+                }
+                if !self.capabilities.cadence_known {
+                    violations.push(CandleSeriesValidationViolation::CadenceUnknown);
+                }
+                if matches!(
+                    self.capabilities.gap_information,
+                    GapInformation::Unknown
+                ) {
+                    violations.push(CandleSeriesValidationViolation::GapInformationUnknown);
+                }
+                if !self.capabilities.ohlc_sanity_known {
+                    violations.push(CandleSeriesValidationViolation::OhlcSanityUnknown);
+                }
+            }
+        }
+
+        CandleSeriesValidationReport {
+            requirement,
+            satisfied: violations.is_empty(),
+            violations,
         }
     }
 }
