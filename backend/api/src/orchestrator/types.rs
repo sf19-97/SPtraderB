@@ -65,6 +65,8 @@ pub struct CandleSeriesCapabilities {
     pub cadence_known: bool,
     pub gap_information: GapInformation,
     pub ohlc_sanity_known: bool,
+    pub timeframe_alignment_known: bool,
+    pub timeframe_aligned: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -73,6 +75,8 @@ pub enum CandleSeriesValidationViolation {
     CadenceUnknown,
     GapInformationUnknown,
     OhlcSanityUnknown,
+    TimeframeAlignmentUnknown,
+    TimeframeMisaligned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +105,8 @@ impl CandleSeries {
                 cadence_known: false,
                 gap_information: GapInformation::Unknown,
                 ohlc_sanity_known: false,
+                timeframe_alignment_known: false,
+                timeframe_aligned: false,
             },
         }
     }
@@ -127,6 +133,11 @@ impl CandleSeries {
                 }
                 if !self.capabilities.ohlc_sanity_known {
                     violations.push(CandleSeriesValidationViolation::OhlcSanityUnknown);
+                }
+                if !self.capabilities.timeframe_alignment_known {
+                    violations.push(CandleSeriesValidationViolation::TimeframeAlignmentUnknown);
+                } else if !self.capabilities.timeframe_aligned {
+                    violations.push(CandleSeriesValidationViolation::TimeframeMisaligned);
                 }
             }
         }
@@ -217,6 +228,43 @@ impl CandleSeries {
         }
 
         self.capabilities.ohlc_sanity_known = sane;
+    }
+
+    pub fn scan_timeframe_alignment(&mut self) {
+        fn parse_timeframe_to_seconds(tf: &str) -> Option<i64> {
+            let (value, unit) = tf.split_at(tf.len().saturating_sub(1));
+            let amount: i64 = value.parse().ok()?;
+            match unit {
+                "m" => Some(amount * 60),
+                "h" => Some(amount * 60 * 60),
+                "d" => Some(amount * 60 * 60 * 24),
+                _ => None,
+            }
+        }
+
+        let Some(step) = parse_timeframe_to_seconds(&self.timeframe) else {
+            // Unable to parse timeframe; alignment is unknown.
+            self.capabilities.timeframe_alignment_known = false;
+            self.capabilities.timeframe_aligned = false;
+            return;
+        };
+
+        if step <= 0 {
+            self.capabilities.timeframe_alignment_known = false;
+            self.capabilities.timeframe_aligned = false;
+            return;
+        }
+
+        self.capabilities.timeframe_alignment_known = true;
+
+        for candle in &self.candles {
+            if candle.time.timestamp() % step != 0 {
+                self.capabilities.timeframe_aligned = false;
+                return;
+            }
+        }
+
+        self.capabilities.timeframe_aligned = true;
     }
 
     pub fn scan_ordering(&mut self) {

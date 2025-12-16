@@ -81,6 +81,7 @@ pub async fn fetch_historical_candles(
     candle_series.scan_ordering();
     candle_series.scan_cadence();
     candle_series.scan_ohlc_sanity();
+    candle_series.scan_timeframe_alignment();
 
     Ok(candle_series)
 }
