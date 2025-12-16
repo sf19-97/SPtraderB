@@ -79,6 +79,7 @@ pub async fn fetch_historical_candles(
 
     let mut candle_series = CandleSeries::new_v1(timeframe.to_string(), candles);
     candle_series.scan_ordering();
+    candle_series.scan_cadence();
 
     Ok(candle_series)
 }

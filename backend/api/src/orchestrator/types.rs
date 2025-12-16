@@ -138,6 +138,63 @@ impl CandleSeries {
         }
     }
 
+    pub fn scan_cadence(&mut self) {
+        if self.candles.len() < 2 {
+            return;
+        }
+
+        let mut deltas: Vec<i64> = self
+            .candles
+            .windows(2)
+            .filter_map(|w| {
+                let delta = w[1].time.timestamp() - w[0].time.timestamp();
+                if delta > 0 {
+                    Some(delta)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if deltas.is_empty() {
+            return;
+        }
+
+        deltas.sort_unstable();
+        let median = deltas[deltas.len() / 2];
+
+        if median <= 0 {
+            return;
+        }
+
+        let mut conforms = true;
+        let mut gaps = false;
+        let mut exact_matches = 0usize;
+        let total = deltas.len();
+
+        for delta in deltas {
+            if delta % median != 0 {
+                conforms = false;
+                break;
+            }
+            if delta == median {
+                exact_matches += 1;
+            }
+            if delta > median {
+                gaps = true;
+            }
+        }
+
+        if conforms && exact_matches * 2 > total {
+            self.capabilities.cadence_known = true;
+            self.capabilities.gap_information = if gaps {
+                GapInformation::KnownWithGaps
+            } else {
+                GapInformation::KnownComplete
+            };
+        }
+    }
+
     pub fn scan_ordering(&mut self) {
         let mut previous: Option<DateTime<Utc>> = None;
         for candle in &self.candles {
