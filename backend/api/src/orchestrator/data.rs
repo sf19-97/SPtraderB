@@ -1,4 +1,6 @@
-use super::types::{Candle, CandleSeries};
+use super::types::{
+    Candle, CandleSeries, CandleSeriesProvenance, CandleSeriesTrustTier,
+};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
@@ -77,7 +79,12 @@ pub async fn fetch_historical_candles(
 
     tracing::info!("Fetched {} candles for {}", candles.len(), symbol);
 
-    let mut candle_series = CandleSeries::new_v1(timeframe.to_string(), candles);
+    let provenance = CandleSeriesProvenance {
+        source: "ws-market-data-server".to_string(),
+        trust_tier: CandleSeriesTrustTier::Verified,
+    };
+
+    let mut candle_series = CandleSeries::new_v1(timeframe.to_string(), candles, provenance);
     candle_series.scan_ordering();
     candle_series.scan_cadence();
     candle_series.scan_ohlc_sanity();

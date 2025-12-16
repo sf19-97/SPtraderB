@@ -70,6 +70,19 @@ pub struct CandleSeriesCapabilities {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum CandleSeriesTrustTier {
+    Verified,
+    External,
+    UserSupplied,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandleSeriesProvenance {
+    pub source: String,
+    pub trust_tier: CandleSeriesTrustTier,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum CandleSeriesValidationViolation {
     NotOrdered,
     CadenceUnknown,
@@ -92,10 +105,15 @@ pub struct CandleSeries {
     pub timeframe: Timeframe,
     pub candles: Vec<Candle>,
     pub capabilities: CandleSeriesCapabilities,
+    pub provenance: CandleSeriesProvenance,
 }
 
 impl CandleSeries {
-    pub fn new_v1(timeframe: Timeframe, candles: Vec<Candle>) -> Self {
+    pub fn new_v1(
+        timeframe: Timeframe,
+        candles: Vec<Candle>,
+        provenance: CandleSeriesProvenance,
+    ) -> Self {
         Self {
             version: CandleSeriesVersion::V1,
             timeframe,
@@ -108,6 +126,7 @@ impl CandleSeries {
                 timeframe_alignment_known: false,
                 timeframe_aligned: false,
             },
+            provenance,
         }
     }
 
