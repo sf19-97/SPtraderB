@@ -195,6 +195,30 @@ impl CandleSeries {
         }
     }
 
+    pub fn scan_ohlc_sanity(&mut self) {
+        let mut sane = true;
+
+        for candle in &self.candles {
+            let max_oc = if candle.open > candle.close {
+                candle.open
+            } else {
+                candle.close
+            };
+            let min_oc = if candle.open < candle.close {
+                candle.open
+            } else {
+                candle.close
+            };
+
+            if candle.high < max_oc || candle.low > min_oc || candle.high < candle.low {
+                sane = false;
+                break;
+            }
+        }
+
+        self.capabilities.ohlc_sanity_known = sane;
+    }
+
     pub fn scan_ordering(&mut self) {
         let mut previous: Option<DateTime<Utc>> = None;
         for candle in &self.candles {
