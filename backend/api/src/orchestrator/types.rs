@@ -43,11 +43,36 @@ pub enum CandleSeriesVersion {
     V1,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum CandleSeriesRequirement {
+    V1Trusted,
+    // future:
+    // Validated,
+    // GapFree,
+    // CadenceEnforced,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum GapInformation {
+    Unknown,
+    KnownComplete,
+    KnownWithGaps,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CandleSeriesCapabilities {
+    pub ordered: bool,
+    pub cadence_known: bool,
+    pub gap_information: GapInformation,
+    pub ohlc_sanity_known: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleSeries {
     pub version: CandleSeriesVersion,
     pub timeframe: Timeframe,
     pub candles: Vec<Candle>,
+    pub capabilities: CandleSeriesCapabilities,
 }
 
 impl CandleSeries {
@@ -56,6 +81,12 @@ impl CandleSeries {
             version: CandleSeriesVersion::V1,
             timeframe,
             candles,
+            capabilities: CandleSeriesCapabilities {
+                ordered: true,
+                cadence_known: false,
+                gap_information: GapInformation::Unknown,
+                ohlc_sanity_known: false,
+            },
         }
     }
 }

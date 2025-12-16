@@ -1,5 +1,6 @@
 use super::{
     store_backtest_result, BacktestEngine, BacktestResult as EngineBacktestResult, BacktestState,
+    CandleSeriesRequirement,
 };
 use crate::AppState;
 use axum::{
@@ -135,6 +136,12 @@ pub async fn run_backtest(
     tokio::spawn(async move {
         let registry = state.backtests.clone();
 
+        // Engine requires CandleSeries v1 execution contract:
+        // - ordered
+        // - aligned
+        // - no resampling or gap handling
+        let requirement = CandleSeriesRequirement::V1Trusted;
+
         match engine
             .run_backtest(
                 &result_id,
@@ -143,6 +150,7 @@ pub async fn run_backtest(
                 start_date,
                 end_date,
                 initial_capital,
+                requirement,
                 Some(cancel_flag.clone()),
                 Some(registry.clone()),
             )

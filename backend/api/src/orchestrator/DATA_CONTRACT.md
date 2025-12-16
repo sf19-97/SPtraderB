@@ -40,6 +40,20 @@ ENFORCEMENT STATUS:
 - CandleSeries v1 defines execution assumptions
   - in v1, these guarantees are trust-based and enforced upstream or by convention, not fully revalidated at execution time.
 
+Capabilities (self-description):
+
+- Every CandleSeries carries capability claims (non-enforcing, producer-declared):
+  - ordered: bool
+  - cadence_known: bool
+  - gap_information: Unknown | KnownComplete | KnownWithGaps
+  - ohlc_sanity_known: bool
+- v1 default claims:
+  - ordered = true
+  - cadence_known = false
+  - gap_information = Unknown
+  - ohlc_sanity_known = false
+- These are statements of belief, not runtime checks or guarantees.
+
 Not enforced in v1 (by design):
 
 - ordering

@@ -38,6 +38,7 @@ impl BacktestEngine {
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
         initial_capital: Decimal,
+        requirement: CandleSeriesRequirement,
         cancel_flag: Option<Arc<AtomicBool>>,
         registry: Option<BacktestRegistry>,
     ) -> Result<BacktestResult, String> {
@@ -47,6 +48,9 @@ impl BacktestEngine {
             start_date,
             end_date
         );
+
+        // Declares the execution contract for this run; enforcement arrives in v2.
+        let _execution_requirement = requirement;
 
         // Fetch historical candles from ws-market-data-server
         let candle_series = match fetch_historical_candles(symbol, timeframe, start_date, end_date)
