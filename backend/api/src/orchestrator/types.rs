@@ -137,6 +137,19 @@ impl CandleSeries {
             violations,
         }
     }
+
+    pub fn scan_ordering(&mut self) {
+        let mut previous: Option<DateTime<Utc>> = None;
+        for candle in &self.candles {
+            if let Some(prev) = previous {
+                if candle.time <= prev {
+                    self.capabilities.ordered = false;
+                    break;
+                }
+            }
+            previous = Some(candle.time);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

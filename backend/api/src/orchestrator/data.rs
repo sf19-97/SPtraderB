@@ -77,5 +77,8 @@ pub async fn fetch_historical_candles(
 
     tracing::info!("Fetched {} candles for {}", candles.len(), symbol);
 
-    Ok(CandleSeries::new_v1(timeframe.to_string(), candles))
+    let mut candle_series = CandleSeries::new_v1(timeframe.to_string(), candles);
+    candle_series.scan_ordering();
+
+    Ok(candle_series)
 }
